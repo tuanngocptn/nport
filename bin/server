@@ -1,0 +1,28 @@
+#!/usr/bin/env node
+var optimist = require('optimist');
+
+var argv = optimist
+  .usage('Usage: $0 --hostname [string] --port [number] --subdomain [string]')
+  .options('h', {
+    alias: 'hostname',
+    default: '0.0.0.0',
+    describe: 'Accept connections on this hostname'
+  })
+  .options('p', {
+    alias: 'port',
+    default: 3000,
+    describe: 'Server daemon port'
+  })
+  .options('s', {
+    alias: 'subdomain',
+    default: '',
+    describe: 'Name of subdomain used. Required when server listens on a subdomain (leave blank otherwise)'
+  })
+  .argv;
+
+if (argv.help) {
+  optimist.showHelp();
+  process.exit();
+}
+
+require('../server.js')(argv);

@@ -1,0 +1,43 @@
+#!/usr/bin/env node
+const optimist = require('optimist');
+
+let argv = optimist
+  .usage('Usage: $0 --server [string] --subdomain [string] --hostname [string] --port [number]')
+  .options('se', {
+    alias: 'server',
+    default: 'https://nport.link',
+    describe: 'Tunnel server endpoint'
+  })
+  .options('s', {
+    alias: 'subdomain',
+    describe: '(Required) Public URL the tunnel server is forwarding to us'
+  })
+  .options('h', {
+    alias: 'hostname',
+    default: '127.0.0.1',
+    describe: 'Address of local server for forwarding over socket-tunnel'
+  })
+  .options('p', {
+    alias: 'port',
+    describe: '(Required) Port of local server for forwarding over socket-tunnel'
+  })
+  .argv;
+
+if (argv.help) {
+  optimist.showHelp();
+  process.exit();
+}
+
+if (!argv['server'] || !argv['subdomain'] || !argv['port']) {
+  for (var key in ['server', 'subdomain', 'port']) {
+    if (argv[key]) continue;
+
+    console.log('Error: Required option, but nothing found');
+
+    optimist.showHelp();
+
+    process.exit();
+  }
+}
+
+require('../client.js')(argv);

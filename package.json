@@ -1,0 +1,54 @@
+{
+  "name": "nport",
+  "version": "1.0.2",
+  "description": "Tunnel HTTP Connections via socket.io streams.",
+  "keywords": ["tunnel", "socket.io", "http", "streaming", "networking", "proxy"],
+  "homepage": "https://github.com/tuanngocptn/nport#readme",
+  "bugs": {
+    "url": "https://github.com/tuanngocptn/nport/issues",
+    "email": "tuanngocptn@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tuanngocptn/nport.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Nick Pham",
+    "email": "tuanngocptn@gmail.com"
+  },
+  "contributors": [
+    {
+      "name": "Eric Barch",
+      "email": "ebarch@nooplabs.com"
+    }
+  ],
+  "dependencies": {
+    "is-valid-domain": "0.0.5",
+    "optimist": "^0.6.1",
+    "socket.io": "^2.1.0",
+    "socket.io-client": "^2.1.0",
+    "socket.io-stream": "^0.9.1",
+    "tldjs": "^2.3.1",
+    "uuid": "^3.2.1"
+  },
+  "bin": {
+    "nport": "./bin/client"
+  },
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=6.0.0"
+  },
+  "files": [
+    "bin/",
+    "client.js",
+    "server.js",
+    "lib/",
+    "examples/",
+    "nginx.conf.sample"
+  ],
+  "funding": {
+    "type": "individual",
+    "url": "https://github.com/sponsors/tuanngocptn"
+  }
+}
