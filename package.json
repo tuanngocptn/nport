@@ -1,6 +1,6 @@
 {
   "name": "nport",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Tunnel HTTP Connections via socket.io streams.",
   "keywords": ["tunnel", "socket.io", "http", "streaming", "networking", "proxy"],
   "homepage": "https://github.com/tuanngocptn/nport#readme",
