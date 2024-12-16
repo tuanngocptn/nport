@@ -84,7 +84,7 @@ module.exports = (options) => {
       // make sure we received a subdomain
       let subdomain = tldjs.getSubdomain(hostname).toLowerCase();
       if (!subdomain) {
-        return reject(new Error('Invalid subdomain'));
+        return reject(new Error('Invalid subdomain: Please visit https://github.com/tuanngocptn/nport for more information'));
       }
 
       // tldjs library return subdomain as all subdomain path from the main domain.
