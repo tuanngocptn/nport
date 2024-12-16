@@ -1,5 +1,9 @@
 # **NPort**
 
+## Overview
+
+![Logo][Logo]![1.0.2](https://img.shields.io/badge/⚡️_1.0.2-333333?style=for-the-badge)
+![nport](https://github.com/user-attachments/assets/3f61ae7a-bff7-45d8-8f40-8e04b301a63a)
 NPort is a **Node.js-based tool** that tunnels HTTP connections through **Socket.IO** streams, enabling you to expose local servers via public URLs easily and securely. It is particularly useful for **development environments**, testing webhooks, and sharing projects on local servers.
 
 ---
@@ -54,3 +58,5 @@ Tunnel HTTP connections via socket.io streams. Inspired by [Socket Tunnel](https
 ## Blog Post
 
 [Read all about it](https://ericbarch.com/post/sockettunnel/)
+
+[Logo]: https://img.shields.io/badge/🌶️_nport-FDC753?style=for-the-badge
