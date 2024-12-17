@@ -46,18 +46,3 @@ document.querySelector(".show-more").addEventListener("click", (e) => {
     button.textContent = "Show usage examples 🚀";
   }
 });
-
-document
-  .querySelector(".command-list code")
-  .addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText("nport -s myapp -p 3000");
-      const code = document.querySelector(".command-list code");
-      code.style.backgroundColor = "#2d2d2d";
-      setTimeout(() => {
-        code.style.backgroundColor = "#1e1e1e";
-      }, 500);
-    } catch (err) {
-      console.error("Failed to copy text: ", err);
-    }
-  });

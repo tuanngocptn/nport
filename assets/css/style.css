@@ -25,7 +25,6 @@ body::before {
   left: 0;
   width: 100%;
   height: 100%;
-  /* background: url("./assets/1920x1080.png") no-repeat center center/cover; */
   background: #1e1e1e;
   filter: brightness(40%);
   z-index: -1;
@@ -243,43 +242,6 @@ body::before {
 .show-more:hover {
   background-color: #2d2d2d;
   border-color: #1e1e1e;
-}
-
-.command-list {
-  margin-top: 1rem;
-  transition: all 0.3s ease;
-}
-
-.command-list code {
-  background-color: #1e1e1e;
-  padding: 0.4em 0.6em;
-  border-radius: 6px;
-  font-family: "Consolas", "Monaco", "Andale Mono", monospace;
-  cursor: pointer;
-  border: 1px solid #454545;
-  font-size: 2em;
-  color: #d4d4d4;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  display: inline-block;
-  position: relative;
-  min-width: 200px;
-}
-
-.command-list code::before {
-  content: "$";
-  color: #858585;
-  margin-right: 0.8em;
-  user-select: none;
-}
-
-.command-list.hidden {
-  display: none;
-  opacity: 0;
-}
-
-.command-list code:hover {
-  background-color: #2d2d2d;
-  border-color: #666666;
 }
 
 .copy-feedback {
