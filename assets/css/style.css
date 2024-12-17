@@ -143,12 +143,20 @@ body::before {
   top: 40px;
   left: 40px;
   z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .logo img {
-  width: 200px;
-  /* height: 40px; */
   object-fit: contain;
+  height: 60px;
+  width: 60px;
+}
+
+.logo span {
+  font-size: 3rem;
+  color: #fff;
 }
 
 /* Add responsive styling for mobile */
@@ -156,11 +164,17 @@ body::before {
   .logo {
     top: 20px;
     left: 20px;
+    gap: 0.5rem;
   }
 
   .logo img {
-    width: 100px;
-    /* height: 30px; */
+    height: 30px;
+    width: 30px;
+  }
+
+  .logo span {
+    font-size: 2rem;
+    color: #fff;
   }
 }
 
@@ -179,5 +193,33 @@ body::before {
     font-size: 1rem;
     padding: 0 20px;
     margin: 1rem auto;
+  }
+}
+
+.footer {
+  position: fixed;
+  bottom: 20px;
+  left: 0;
+  width: 100%;
+  text-align: center;
+  color: #d4d4d4;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.footer a {
+  color: #fff;
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.footer a:hover {
+  opacity: 0.8;
+}
+
+@media (max-width: 768px) {
+  .footer {
+    bottom: 10px;
+    font-size: 0.8rem;
   }
 }
