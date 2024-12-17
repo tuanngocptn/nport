@@ -131,7 +131,7 @@ body::before {
     flex-direction: column;
     align-items: center;
   }
-  
+
   .button {
     width: 200px;
     justify-content: center;
@@ -157,7 +157,7 @@ body::before {
     top: 20px;
     left: 20px;
   }
-  
+
   .logo img {
     width: 100px;
     /* height: 30px; */
