@@ -281,3 +281,27 @@ body::before {
   background-color: #2d2d2d;
   border-color: #666666;
 }
+
+.copy-feedback {
+  position: absolute;
+  background-color: #2d2d2d;
+  color: #d4d4d4;
+  padding: 0.4em 0.8em;
+  border-radius: 6px;
+  font-size: 0.9em;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-40px);
+  top: -25px;
+  left: 50%;
+  transform: translateX(-20%);
+  transition: all 0.2s ease;
+  border: 1px solid #454545;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+}
+
+.copy-feedback.show {
+  opacity: 1;
+  transform: translateY(-20px);
+}
