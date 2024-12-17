@@ -1,4 +1,4 @@
-# 🌶️ NPort
+# <img src="https://nport.link/assets/imgs/nport-logo.png" height="30" style="vertical-align: middle;"> NPort
 
 > A Node.js tool for exposing local servers through Socket.IO tunnels
 
