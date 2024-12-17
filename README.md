@@ -46,9 +46,9 @@ nport -s xxx -p 3000 # https://xxx.nport.link (global install)
 **OR**
 
 ```sh
-npx nport --server https://nport.link --subdomain xxx --hostname 127.0.0.1 --port 3000 # https://xxx.nport.link (local install)
+npx nport --server https://server.nport.link --subdomain xxx --hostname 127.0.0.1 --port 3000 # https://xxx.nport.link (local install)
 
-nport --server https://nport.link --subdomain xxx --hostname 127.0.0.1 --port 3000 # https://xxx.nport.link (global install)
+nport --server https://server.nport.link --subdomain xxx --hostname 127.0.0.1 --port 3000 # https://xxx.nport.link (global install)
 ```
 
 # Source from socket-tunnel

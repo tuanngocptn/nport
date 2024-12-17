@@ -5,7 +5,7 @@ let argv = optimist
   .usage('Usage: $0 --server [string] --subdomain [string] --hostname [string] --port [number]')
   .options('se', {
     alias: 'server',
-    default: 'https://nport.link',
+    default: 'https://server.nport.link',
     describe: 'Tunnel server endpoint'
   })
   .options('s', {
