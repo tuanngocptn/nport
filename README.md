@@ -1,67 +1,66 @@
-# **NPort**
+# 🌶️ NPort
 
-## Overview
+> A Node.js tool for exposing local servers through Socket.IO tunnels
 
 [![GitHub](https://img.shields.io/github/stars/tuanngocptn/nport?style=social)](https://github.com/tuanngocptn/nport)
 [![NPM](https://img.shields.io/npm/v/nport?color=red&logo=npm)](https://www.npmjs.com/package/nport)
 [![Website](https://img.shields.io/website?url=https%3A%2F%2Fnport.link&up_message=nport.link&up_color=blue&down_color=lightgrey&down_message=offline)](https://nport.link)
 
+## What is NPort?
 
-![Logo][Logo]
-![nport](https://github.com/user-attachments/assets/3f61ae7a-bff7-45d8-8f40-8e04b301a63a)
-NPort is a **Node.js-based tool** that tunnels HTTP connections through **Socket.IO** streams, enabling you to expose local servers via public URLs easily and securely. It is particularly useful for **development environments**, testing webhooks, and sharing projects on local servers.
+NPort allows you to expose your local HTTP servers to the internet using Socket.IO streams. Perfect for:
+- Development environments
+- Testing webhooks
+- Sharing local projects
 
----
+## ✨ Features
 
-## **Features**
+- 🔒 **Secure Tunneling**: Share your local server safely using Socket.IO
+- 🚀 **Easy Setup**: Minimal configuration required
+- 🌐 **Custom Domains**: Get readable URLs like `https://yourname.nport.link`
+- 📡 **WebSocket Ready**: Full WebSocket connection support
+- 💻 **Cross-Platform**: Runs on Windows, macOS, and Linux
 
-- **HTTP Tunneling**: Expose your local HTTP server to the internet using Socket.IO-based tunnels.
-- **Secure and Lightweight**: A minimal, fast, and secure way to share your server without requiring complicated infrastructure.
-- **Custom Subdomains**: Access your local server using easy-to-read public URLs.
-- **WebSocket Support**: Handles WebSocket connections seamlessly.
-- **Cross-Platform**: Works on Linux, macOS, and Windows systems.
+## 📦 Installation
 
----
+**NPM Package**
+```bash
+# Local installation
+npm install nport
 
-## **Install**
-
-```sh
-# install nport from npm
-
-npm i nport # local install
-
-npm i -g nport # global install
-
-# alternative: install from github
-
-npm install git+https://github.com/tuanngocptn/nport.git # local install
-
-npm install -g git+https://github.com/tuanngocptn/nport.git  # global install
+# Global installation
+npm install -g nport
 ```
 
----
+**From GitHub**
+```bash
+# Local installation
+npm install git+https://github.com/tuanngocptn/nport.git
 
-## **How to use**
-
-```sh
-npx nport -s xxx -p 3000 # https://xxx.nport.link (local install)
-
-nport -s xxx -p 3000 # https://xxx.nport.link (global install)
-```
-**OR**
-
-```sh
-npx nport --server https://server.nport.link --subdomain xxx --hostname 127.0.0.1 --port 3000 # https://xxx.nport.link (local install)
-
-nport --server https://server.nport.link --subdomain xxx --hostname 127.0.0.1 --port 3000 # https://xxx.nport.link (global install)
+# Global installation
+npm install -g git+https://github.com/tuanngocptn/nport.git
 ```
 
-# Source from socket-tunnel
+## 🚀 Quick Start
 
-Tunnel HTTP connections via socket.io streams. Inspired by [Socket Tunnel](https://github.com/ericbarch/socket-tunnel).
+### Basic Usage
+```bash
+# Local installation
+npx nport -s myapp -p 3000
 
-## Blog Post
+# Global installation
+nport -s myapp -p 3000
+```
+This will create a tunnel at `https://myapp.nport.link`
 
-[Read all about it](https://ericbarch.com/post/sockettunnel/)
+### Advanced Options
+```bash
+# Full configuration
+npx nport --server https://server.nport.link \
+         --subdomain myapp \
+         --hostname 127.0.0.1 \
+         --port 3000
+```
 
-[Logo]: https://img.shields.io/badge/🌶️_nport-FDC753?style=for-the-badge
+## 📝 Credits
+Inspired by [Socket Tunnel](https://github.com/ericbarch/socket-tunnel). Read more about the concept in this [blog post](https://ericbarch.com/post/sockettunnel/).
