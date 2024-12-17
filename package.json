@@ -3,7 +3,7 @@
   "version": "1.0.3",
   "description": "Tunnel HTTP Connections via socket.io streams.",
   "keywords": ["tunnel", "socket.io", "http", "streaming", "networking", "proxy"],
-  "homepage": "https://github.com/tuanngocptn/nport#readme",
+  "homepage": "https://nport.link",
   "bugs": {
     "url": "https://github.com/tuanngocptn/nport/issues",
     "email": "tuanngocptn@gmail.com"
