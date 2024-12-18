@@ -39,7 +39,7 @@ document.querySelector(".show-more").addEventListener("click", (e) => {
   const isShowingInstall = mainCode.textContent === "npm i -g nport";
   
   if (isShowingInstall) {
-    mainCode.textContent = "nport -s myapp -p 3000";
+    mainCode.textContent = "nport -s myapp -p 80";
     button.textContent = "Show install command 📦";
   } else {
     mainCode.textContent = "npm i -g nport";
