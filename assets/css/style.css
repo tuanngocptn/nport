@@ -126,6 +126,47 @@ body {
   background-color: #2d2d2d;
 }
 
+.coffee-button {
+  display: inline-flex;
+  align-items: center;
+  background-color: #FFDD00;
+  color: #000000;
+  padding: 0.6em 1.2em;
+  border-radius: 6px;
+  text-decoration: none;
+  font-family: cursive;
+  font-size: 1.2rem;
+  transition: all 0.3s ease;
+}
+
+.coffee-button:hover {
+  background-color: #FFCD00;
+  transform: translateY(-1px);
+}
+
+.coffee-button img {
+  height: 24px;
+  margin-right: 8px;
+}
+
+.mobile-text {
+  display: none;
+}
+
+@media screen and (max-width: 768px) {
+  .desktop-text {
+    display: none;
+  }
+  
+  .mobile-text {
+    display: inline;
+  }
+  
+  .coffee-button {
+    padding: 8px 16px;
+  }
+}
+
 /* Header Logo */
 .logo {
   position: fixed;
