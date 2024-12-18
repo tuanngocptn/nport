@@ -22,10 +22,10 @@
     <meta property="twitter:image" content="https://nport.link/assets/imgs/nport-site.png" />
 
     <!-- Favicon -->
-    <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon_io/apple-touch-icon.png" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon_io/favicon-32x32.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon_io/favicon-16x16.png" />
-    <link rel="manifest" href="/assets/favicon_io/site.webmanifest" />
+    <link rel="apple-touch-icon" sizes="180x180" href="https://nport.link/assets/favicon_io/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="https://nport.link/assets/favicon_io/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="https://nport.link/assets/favicon_io/favicon-16x16.png" />
+    <link rel="manifest" href="https://nport.link/assets/favicon_io/site.webmanifest" />
     
     <title>NPort - Local Tunnel Made Easy</title>
 
@@ -46,7 +46,7 @@
     <link rel="stylesheet" href="./assets/css/style.css" />
   </head>
   <body>
-    <div class="logo">
+    <a href="https://nport.link" class="logo">
       <img
         src="./assets/imgs/nport-logo-dark.png"
         alt="NPort logo"
@@ -54,13 +54,12 @@
         width="30"
       />
       <span>NPort</span>
-    </div>
+    </a>
     <div class="content">
       <!-- Main Text -->
-      <h1>nport.link</h1>
+      <a href="https://nport.link"><h1>nport.link</h1></a>
       <p class="description">
-        A tool that tunnels HTTP(s) connections straightforward access to
-        localhost via public URLs.
+        NPort is a powerful and lightweight tunneling tool that creates secure HTTP/HTTPS connections from your localhost to public URLs.
       </p>
       <!-- Subtitle -->
       <div class="social-links">
@@ -69,7 +68,7 @@
           target="_blank"
           class="button github"
         >
-          <img src="./assets/imgs/github.png" alt="" />
+          <img src="./assets/imgs/github.png" alt="Github NPort" />
           <span>GitHub</span>
         </a>
         <a
@@ -77,22 +76,55 @@
           target="_blank"
           class="button npm"
         >
-          <img src="./assets/imgs/npm.png" alt="" />
+          <img src="./assets/imgs/npm.png" alt="NPM NPort" />
           <span>npm</span>
         </a>
       </div>
       <h2><code>npm i -g nport</code></h2>
-      <div class="commands">
-        <button class="show-more">Show usage examples 🚀</button>
+      <p class="description">
+        Perfect for developers who need to:
+      </p>
+      <!-- Subtitle -->
+      <div class="features">
+        <div class="feature">
+          <h3>🚀 Share Local Development</h3>
+          <p>Instantly share your local development server with teammates or clients without complex server setup.</p>
+        </div>
+        <div class="feature">
+          <h3>🔒 Test Webhooks</h3>
+          <p>Securely test webhook integrations from services like GitHub, Stripe, or PayPal directly on your local machine.</p>
+        </div>
+        <div class="feature">
+          <h3>📱 Mobile Testing</h3>
+          <p>Test your web applications on mobile devices using a public URL while developing on localhost.</p>
+        </div>
+        <div class="feature">
+          <h3>🛠️ API Development</h3>
+          <p>Develop and debug API integrations by exposing your local endpoints to external services.</p>
+        </div>
+        <div class="feature">
+          <h3>⚡ Key Features</h3>
+          <ul>
+            <li>Custom subdomain support (e.g., myapp.nport.link)</li>
+            <li>Automatic HTTPS encryption</li>
+            <li>WebSocket support</li>
+            <li>No configuration needed</li>
+            <li>Cross-platform compatibility</li>
+          </ul>
+        </div>
+        <div class="feature">
+          <h3>💻 Quick Start</h3>
+          <p>After installation, simply run:</p>
+          <code>nport -s myapp -p 3000</code>
+          <p>This will create a tunnel from localhost:3000 to https://myapp.nport.link</p>
+        </div>
       </div>
     </div>
     <footer class="footer">
       <p>
-        Created by
-        <a href="https://github.com/tuanngocptn" target="_blank"
-          >Nick - Ngoc Pham</a
-        >
-        🇻🇳
+        Created by <a href="https://github.com/tuanngocptn" target="_blank">Nick - Ngoc Pham</a> 🇻🇳 | 
+        Powered by <a href="https://github.com/tuanngocptn/nport" target="_blank">nport</a> | 
+        <a href="https://www.npmjs.com/package/nport" target="_blank">npm</a>
       </p>
     </footer>
     <script src="./assets/js/script.js" defer></script>

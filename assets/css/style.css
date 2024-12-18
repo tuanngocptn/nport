@@ -5,52 +5,71 @@
   box-sizing: border-box;
 }
 
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
 /* Body Styling */
 body {
   font-family: "Roboto", sans-serif;
-  height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  color: #fff;
+  min-height: 100vh;
+  padding: 2rem 0;
   position: relative;
-  overflow: hidden;
-}
-
-/* Background Image and Overlay */
-body::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
   background: #1e1e1e;
-  filter: brightness(40%);
-  z-index: -1;
+  color: #fff;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
-/* Text and Layout Styling */
+/* Layout and Components */
 .content {
   text-align: center;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1rem;
+  padding-bottom: 80px;
+  padding-top: 100px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
+/* Typography */
 .content h1 {
   font-size: 4rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 5px;
   margin-bottom: 10px;
+  background: linear-gradient(45deg, #fff, #d4d4d4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* text-fill-color: transparent; */
 }
 
 .content h2 {
   margin-top: 4rem;
+  margin-bottom: 4rem;
   font-size: 2rem;
   font-weight: 400;
   letter-spacing: 3px;
+}
+
+.description {
+  font-size: 1.2rem;
+  color: #d4d4d4;
+  max-width: 800px;
+  margin: 1.5rem auto;
+  line-height: 1.6;
   opacity: 0.8;
 }
 
+/* Code Block */
 .content h2 code {
   background-color: #1e1e1e;
   padding: 0.4em 0.6em;
@@ -78,19 +97,8 @@ body::before {
   border-color: #666666;
 }
 
-/* Responsive Typography */
-@media (max-width: 768px) {
-  .content h1 {
-    font-size: 2.5rem;
-  }
-
-  .content h2 {
-    font-size: 1.5rem;
-  }
-}
-
+/* Social Links */
 .social-links {
-  /* margin-top: 2rem; */
   display: flex;
   gap: 1rem;
   justify-content: center;
@@ -116,38 +124,22 @@ body::before {
 
 .button:hover {
   background-color: #2d2d2d;
-  border-color: #666666;
-  transform: translateY(-1px);
 }
 
-.button:active {
-  transform: translateY(0);
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-  .social-links {
-    flex-direction: row;
-    justify-content: center;
-    gap: 0.5rem;
-    padding: 0 1rem;
-  }
-
-  .button {
-    width: auto;
-    padding: 0.4em 0.8em;
-    font-size: 0.9rem;
-  }
-}
-
+/* Header Logo */
 .logo {
   position: fixed;
-  top: 40px;
-  left: 40px;
+  top: 0;
+  left: 0;
   z-index: 10;
   display: flex;
   align-items: center;
   gap: 1rem;
+  text-decoration: none;
+  color: inherit;
+  background: #1e1e1e;
+  padding: 20px 40px;
+  width: 100%;
 }
 
 .logo img {
@@ -161,52 +153,68 @@ body::before {
   color: #fff;
 }
 
-/* Add responsive styling for mobile */
-@media (max-width: 768px) {
-  .logo {
-    top: 20px;
-    left: 20px;
-    gap: 0.5rem;
-  }
-
-  .logo img {
-    height: 30px;
-    width: 30px;
-  }
-
-  .logo span {
-    font-size: 2rem;
-    color: #fff;
-  }
+/* Features Grid */
+.features {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  text-align: left;
 }
 
-.description {
+.feature {
+  background: rgba(30, 30, 30, 0.6);
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 1px solid #454545;
+}
+
+.feature h3 {
   font-size: 1.2rem;
+  margin-bottom: 1rem;
+  color: #fff;
+}
+
+.feature p {
+  font-size: 1rem;
   color: #d4d4d4;
-  max-width: 800px;
-  margin: 1.5rem auto;
   line-height: 1.6;
-  opacity: 0.8;
+  margin-bottom: 1rem;
 }
 
-/* Adjust for mobile */
-@media (max-width: 768px) {
-  .description {
-    font-size: 1rem;
-    padding: 0 20px;
-    margin: 1rem auto;
-  }
+.feature ul {
+  list-style-position: inside;
+  color: #d4d4d4;
 }
 
+.feature li {
+  line-height: 1.4;
+}
+
+.feature code {
+  display: inline-block;
+  background: #1e1e1e;
+  padding: 0.4em 0.6em;
+  border-radius: 4px;
+  font-family: "Consolas", "Monaco", "Andale Mono", monospace;
+  font-size: 0.9em;
+  color: #d4d4d4;
+  margin: 0.5rem 0;
+}
+
+/* Footer */
 .footer {
   position: fixed;
-  bottom: 20px;
+  bottom: 0;
   left: 0;
   width: 100%;
+  padding: 20px;
   text-align: center;
   color: #d4d4d4;
   font-size: 0.9rem;
-  opacity: 0.8;
+  background: #1e1e1e;
+  z-index: 10;
 }
 
 .footer a {
@@ -219,36 +227,79 @@ body::before {
   opacity: 0.8;
 }
 
+/* Mobile Responsive */
 @media (max-width: 768px) {
+  body {
+    padding: 1rem 0;
+    display: block;
+  }
+
+  .content {
+    padding-top: 80px;
+    padding-bottom: 60px;
+    display: block;
+  }
+
+  .content h1 {
+    font-size: 2.5rem;
+    letter-spacing: 3px;
+  }
+
+  .content h2 {
+    font-size: 1.5rem;
+  }
+
+  .description {
+    font-size: 1rem;
+    padding: 0 20px;
+    margin: 1rem auto;
+  }
+
+  .social-links {
+    flex-direction: row;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0 1rem;
+  }
+
+  .button {
+    width: auto;
+    padding: 0.4em 0.8em;
+    font-size: 0.9rem;
+  }
+
+  .logo {
+    padding: 10px 20px;
+    gap: 0.5rem;
+  }
+
+  .logo img {
+    height: 30px;
+    width: 30px;
+  }
+
+  .logo span {
+    font-size: 2rem;
+  }
+
+  .features {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .feature {
+    padding: 1rem;
+  }
+
   .footer {
-    bottom: 10px;
+    padding: 10px;
     font-size: 0.8rem;
   }
 }
 
-.commands {
-  margin-top: 2rem;
-  text-align: center;
-}
-
-.show-more {
-  background: transparent;
-  border: 0px solid black;
-  color: #d4d4d4;
-  padding: 0.5em 1em;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.2s ease;
-}
-
-.show-more:hover {
-  background-color: #2d2d2d;
-  border-color: #1e1e1e;
-}
-
+/* Copy Feedback */
 .copy-feedback {
-  position: absolute;
+  position: fixed;
   background-color: #2d2d2d;
   color: #d4d4d4;
   padding: 0.4em 0.8em;
@@ -256,10 +307,7 @@ body::before {
   font-size: 0.9em;
   pointer-events: none;
   opacity: 0;
-  transform: translateY(-40px);
-  top: -25px;
-  left: 50%;
-  transform: translateX(-20%);
+  z-index: 1000;
   transition: all 0.2s ease;
   border: 1px solid #454545;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -268,5 +316,4 @@ body::before {
 
 .copy-feedback.show {
   opacity: 1;
-  transform: translateY(-20px);
 }
