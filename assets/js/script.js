@@ -1,11 +1,9 @@
 (() => {
-  // Copy command functionality
-  document
-    .querySelector(".content h2 code")
-    .addEventListener("click", async (e) => {
+  // Copy command functionality for both locations
+  document.querySelectorAll('.content h2 code, .feature code').forEach(codeElement => {
+    codeElement.addEventListener("click", async (e) => {
       try {
-        const code = document.querySelector(".content h2 code");
-        const textToCopy = code.textContent.replace('$ ', '');
+        const textToCopy = e.target.textContent.replace('$ ', '');
         await navigator.clipboard.writeText(textToCopy);
         
         const feedback = document.createElement('div');
@@ -18,10 +16,10 @@
         
         requestAnimationFrame(() => feedback.classList.add('show'));
         
-        code.style.backgroundColor = "#2d2d2d";
+        e.target.style.backgroundColor = "#2d2d2d";
         
         setTimeout(() => {
-          code.style.backgroundColor = "#1e1e1e";
+          e.target.style.backgroundColor = "#1e1e1e";
           feedback.classList.remove('show');
           setTimeout(() => feedback.remove(), 200);
         }, 1000);
@@ -29,6 +27,7 @@
         console.error("Failed to copy text: ", err);
       }
     });
+  });
 
   // Toggle command functionality
   document.querySelector(".show-more").addEventListener("click", (e) => {

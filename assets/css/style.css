@@ -14,28 +14,25 @@ a {
 body {
   font-family: "Roboto", sans-serif;
   min-height: 100vh;
-  padding: 2rem 0;
+  margin: 0;
+  padding: 0;
   position: relative;
   background: #1e1e1e;
   color: #fff;
-  overflow-y: auto;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  overflow-y: auto;
 }
 
 /* Layout and Components */
 .content {
   text-align: center;
   max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
+  margin: 100px auto 80px;
   padding: 0 1rem;
-  padding-bottom: 80px;
-  padding-top: 100px;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+  position: relative;
 }
 
 /* Typography */
@@ -69,8 +66,9 @@ body {
   opacity: 0.8;
 }
 
-/* Code Block */
-.content h2 code {
+/* Code Block - Common styles for both locations */
+.content h2 code,
+.feature code {
   background-color: #1e1e1e;
   padding: 0.4em 0.6em;
   border-radius: 6px;
@@ -82,17 +80,19 @@ body {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   display: inline-block;
   position: relative;
-  min-width: 200px;
+  text-align: left;
 }
 
-.content h2 code::before {
+.content h2 code::before,
+.feature code::before {
   content: "$";
   color: #858585;
   margin-right: 0.8em;
   user-select: none;
 }
 
-.content h2 code:hover {
+.content h2 code:hover,
+.feature code:hover {
   background-color: #2d2d2d;
   border-color: #666666;
 }
@@ -230,14 +230,11 @@ body {
 /* Mobile Responsive */
 @media (max-width: 768px) {
   body {
-    padding: 1rem 0;
     display: block;
   }
 
   .content {
-    padding-top: 80px;
-    padding-bottom: 60px;
-    display: block;
+    margin: 80px auto 60px;
   }
 
   .content h1 {
