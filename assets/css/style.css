@@ -260,12 +260,14 @@ body {
 
 .footer a {
   color: #fff;
-  text-decoration: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
   transition: opacity 0.2s ease;
 }
 
 .footer a:hover {
   opacity: 0.8;
+  text-decoration-thickness: 2px;
 }
 
 /* Mobile Responsive */
