@@ -12,7 +12,7 @@ a {
 
 /* Body Styling */
 body {
-  font-family: "Roboto", sans-serif;
+  font-family: sans-serif;
   min-height: 100vh;
   margin: 0;
   padding: 0;
@@ -129,7 +129,7 @@ body {
 .coffee-button {
   display: inline-flex;
   align-items: center;
-  background-color: #FFDD00;
+  background-color: #ffdd00;
   color: #000000;
   padding: 0.6em 1.2em;
   border-radius: 6px;
@@ -140,7 +140,7 @@ body {
 }
 
 .coffee-button:hover {
-  background-color: #FFCD00;
+  background-color: #ffcd00;
   transform: translateY(-1px);
 }
 
@@ -157,11 +157,11 @@ body {
   .desktop-text {
     display: none;
   }
-  
+
   .mobile-text {
     display: inline;
   }
-  
+
   .coffee-button {
     padding: 8px 16px;
   }
