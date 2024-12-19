@@ -1,6 +1,6 @@
 {
   "name": "nport",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Tunnel HTTP Connections via socket.io streams.",
   "keywords": ["tunnel", "socket.io", "http", "streaming", "networking", "proxy"],
   "homepage": "https://nport.link",
