@@ -1,0 +1,44 @@
+services:
+  nport-server:
+    build:
+      context: .
+      dockerfile: ./config/server.dockerfile
+    container_name: nport-server
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/usr/src/app
+    restart: unless-stopped
+    networks:
+      - nport-network
+    command: npm run server:dev
+
+  nport-client:
+    build:
+      context: .
+      dockerfile: ./config/client.dockerfile
+    container_name: nport-client
+    volumes:
+      - .:/usr/src/app
+    restart: unless-stopped
+    networks:
+      - nport-network
+    command: npm run client:dev
+    depends_on:
+      - nport-server
+
+  nginx:
+    image: nginx:1.27.3-perl
+    container_name: nport-nginx
+    volumes:
+      - ./config/nport.local.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+      # - "443:443"
+    restart: unless-stopped
+    networks:
+      - nport-network
+
+networks:
+  nport-network:
+    driver: bridge
