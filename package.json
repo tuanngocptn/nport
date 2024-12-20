@@ -35,17 +35,38 @@
     "email": "tuanngocptn@gmail.com"
   },
   "contributors": [],
-  "dependencies": {},
+  "dependencies": {
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "socket.io-stream": "^0.5.3",
+    "yargs": "^17.7.2"
+  },
   "bin": {
-    "nport": "./bin/client"
+    "nport": "./dist/client.js"
+  },
+  "scripts": {
+    "server": "node src/server.mjs start",
+    "client": "node src/client.mjs",
+    "server:dev": "nodemon src/server.mjs start",
+    "client:dev": "nodemon src/client.mjs",
+    "release": "babel src --out-dir dist",
+    "server:release": "npm run release --verbose && /usr/bin/env node dist/server.js start",
+    "client:release": "npm run release --verbose && /usr/bin/env node dist/client.js"
   },
   "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=10.0.0"
+    "node": ">=12",
+    "npm": ">=6"
   },
   "files": [],
   "funding": {
     "type": "individual",
     "url": "https://github.com/sponsors/tuanngocptn"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.26.4",
+    "@babel/core": "^7.26.0",
+    "@babel/preset-env": "^7.26.0",
+    "babel-plugin-replace-import-extension": "^1.1.4",
+    "nodemon": "^3.1.9"
   }
 }
