@@ -7,7 +7,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - .:/usr/src/app
+      - ./src/server:/usr/src/app/src/server
     restart: unless-stopped
     networks:
       - nport-network
@@ -19,7 +19,7 @@ services:
       dockerfile: ./config/client.dockerfile
     container_name: nport-client
     volumes:
-      - .:/usr/src/app
+      - ./src/client:/usr/src/app/src/client
     restart: unless-stopped
     networks:
       - nport-network

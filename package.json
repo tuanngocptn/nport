@@ -45,13 +45,11 @@
     "nport": "./dist/client.js"
   },
   "scripts": {
-    "server": "node src/server.mjs start",
-    "client": "node src/client.mjs",
-    "server:dev": "nodemon src/server.mjs start",
-    "client:dev": "nodemon src/client.mjs",
-    "release": "babel src --out-dir dist",
-    "server:release": "npm run release --verbose && /usr/bin/env node dist/server.js start",
-    "client:release": "npm run release --verbose && /usr/bin/env node dist/client.js"
+    "release": "rm -rf dist && babel src/server --out-dir dist && babel src/client --out-dir dist",
+    "server": "npm run release && node dist/server.js start",
+    "client": "npm run release && node dist/client.js",
+    "server:dev": "nodemon src/server/server.mjs start",
+    "client:dev": "nodemon src/client/client.mjs"
   },
   "engines": {
     "node": ">=12",
