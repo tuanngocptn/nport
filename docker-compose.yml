@@ -11,8 +11,6 @@ services:
       - ./src/server:/usr/src/app/src/server
     restart: unless-stopped
     networks:
-      - nport-network
-    networks:
       nport-network:
         ipv4_address: 192.168.10.3
     entrypoint: npm run server:dev
@@ -21,13 +19,14 @@ services:
     image: nginx:1.27.3-perl
     container_name: nport-nginx
     volumes:
+      - /dev/null:/var/log/nginx/access.log
+      - /dev/null:/var/log/nginx/error.log
       - ./config/nport.local.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
       - "80:80"
-      # - "443:443"
     restart: unless-stopped
     logging:
-      driver: none
+      driver: "none"
     networks:
       nport-network:
         ipv4_address: 192.168.10.2
@@ -42,8 +41,6 @@ services:
       - ./src/client:/usr/src/app/src/client
     restart: unless-stopped
     networks:
-      - nport-network
-    networks:
       nport-network:
         ipv4_address: 192.168.10.4
     entrypoint: npm run client:dev
@@ -51,6 +48,7 @@ services:
       - "nport.local:192.168.10.2"
       - "server.nport.local:192.168.10.2"
       - "myapp.nport.local:192.168.10.2"
+      - "other.nport.local:192.168.10.2"
     depends_on:
       - nport-nginx
       - nport-server
