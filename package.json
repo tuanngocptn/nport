@@ -46,10 +46,10 @@
   },
   "scripts": {
     "release": "rm -rf dist && babel src/server --out-dir dist && babel src/client --out-dir dist",
-    "server": "npm run release && node dist/server.js start",
-    "client": "npm run release && node dist/client.js",
-    "server:dev": "nodemon src/server/server.mjs start",
-    "client:dev": "nodemon src/client/client.mjs"
+    "server": "npm run release && node --env-file=.env dist/server.js start",
+    "client": "npm run release && node --env-file=.env dist/client.js",
+    "server:dev": "nodemon --env-file=.env.dev src/server/server.mjs start",
+    "client:dev": "nodemon --env-file=.env.dev src/client/client.mjs"
   },
   "engines": {
     "node": ">=12",

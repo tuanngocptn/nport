@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: ./config/server.dockerfile
+    image: nport-server:v1
     container_name: nport-server
     ports:
       - "3000:3000"
@@ -11,23 +12,12 @@ services:
     restart: unless-stopped
     networks:
       - nport-network
-    command: npm run server:dev
-
-  nport-client:
-    build:
-      context: .
-      dockerfile: ./config/client.dockerfile
-    container_name: nport-client
-    volumes:
-      - ./src/client:/usr/src/app/src/client
-    restart: unless-stopped
     networks:
-      - nport-network
-    command: npm run client:dev
-    depends_on:
-      - nport-server
+      nport-network:
+        ipv4_address: 192.168.10.3
+    entrypoint: npm run server:dev
 
-  nginx:
+  nport-nginx:
     image: nginx:1.27.3-perl
     container_name: nport-nginx
     volumes:
@@ -36,9 +26,38 @@ services:
       - "80:80"
       # - "443:443"
     restart: unless-stopped
+    logging:
+      driver: none
+    networks:
+      nport-network:
+        ipv4_address: 192.168.10.2
+
+  nport-client:
+    build:
+      context: .
+      dockerfile: ./config/client.dockerfile
+    image: nport-client:v1
+    container_name: nport-client
+    volumes:
+      - ./src/client:/usr/src/app/src/client
+    restart: unless-stopped
     networks:
       - nport-network
+    networks:
+      nport-network:
+        ipv4_address: 192.168.10.4
+    entrypoint: npm run client:dev
+    extra_hosts:
+      - "nport.local:192.168.10.2"
+      - "server.nport.local:192.168.10.2"
+      - "myapp.nport.local:192.168.10.2"
+    depends_on:
+      - nport-nginx
+      - nport-server
 
 networks:
   nport-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.10.0/24
