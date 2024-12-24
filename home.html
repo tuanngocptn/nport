@@ -31,14 +31,20 @@
 
     <!-- Stylesheets -->
     <link rel="stylesheet" href="./assets/css/style.css" />
-    
+
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-JJHG4DP1K9"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
-      gtag('config', 'G-JJHG4DP1K9');
+      gtag('config', 'G-JJHG4DP1K9', {
+        cookie_flags: 'SameSite=None; Secure'
+      });
+      gtag('consent', 'default', {
+        ad_storage: 'denied',
+        analytics_storage: 'denied'
+      });
     </script>
   </head>
   <body>
