@@ -39,11 +39,10 @@
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
       gtag('config', 'G-JJHG4DP1K9', {
-        cookie_flags: 'SameSite=None; Secure'
-      });
-      gtag('consent', 'default', {
-        ad_storage: 'denied',
-        analytics_storage: 'denied'
+        'anonymize_ip': true,
+        'cookie_flags': 'SameSite=None;Secure',
+        'consent': 'default',
+        'storage': 'none'
       });
     </script>
   </head>
@@ -126,9 +125,12 @@
           <p>This will create a tunnel from localhost:3000 to https://myapp.nport.link</p>
         </div>
       </div>
+      <div class="privacy-notice">
+      </div>
     </div>
     <footer class="footer">
       <p>
+        <!-- <a href="#" onclick="openCookieSettings()">Cookie Settings</a> -->
         Created by <a href="https://github.com/tuanngocptn" target="_blank">Nick - Ngoc Pham</a> 🇻🇳 | 
         Powered by <a href="https://github.com/tuanngocptn/nport" target="_blank">nport</a> | 
         <a href="https://www.npmjs.com/package/nport" target="_blank">npm</a>
