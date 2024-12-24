@@ -31,16 +31,3 @@
       });
     });
 })();
-
-// Add this to your main JavaScript file
-function setCookieConsent() {
-  const cookieConsent = document.createElement("div");
-  cookieConsent.innerHTML = `
-      <div class="cookie-consent">
-          <p>This website uses cookies to improve your experience. Do you accept these cookies?</p>
-          <button onclick="acceptCookies()">Accept</button>
-          <button onclick="rejectCookies()">Reject</button>
-      </div>
-  `;
-  document.body.appendChild(cookieConsent);
-}
