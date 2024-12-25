@@ -45,7 +45,7 @@ services:
     networks:
       nport-network:
         ipv4_address: 192.168.10.5
-    entrypoint: http-server -p 8080 /app
+    entrypoint: npm run website
 
   nport-client:
     build:

@@ -5,10 +5,10 @@ var _yargs = _interopRequireDefault(require("yargs"));
 var _helpers = require("yargs/helpers");
 var _clientService = _interopRequireDefault(require("./services/client.service.js"));
 function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e }; }
-(0, _yargs.default)((0, _helpers.hideBin)(process.argv)).command("* [port] [subdomain]", "Start the client", yargs => {
+(0, _yargs.default)((0, _helpers.hideBin)(process.argv)).command("* [hostname]:[port] [subdomain]", "Start the client", yargs => {
   yargs.positional("port", {
     type: "number",
-    default: 3000,
+    default: 8080,
     describe: "The port to start the server on"
   });
   yargs.positional("subdomain", {
@@ -16,4 +16,12 @@ function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e
     default: "myapp",
     describe: "The subdomain to use"
   });
-}, _clientService.default).parse();
+  yargs.positional("hostname", {
+    type: "string",
+    default: "192.168.10.5",
+    describe: "Address of local server for forwarding over NPort"
+  });
+}, options => (0, _clientService.default)({
+  ...options,
+  server: process.env.SERVER_URL
+})).parse();
