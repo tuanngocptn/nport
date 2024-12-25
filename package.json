@@ -39,6 +39,7 @@
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
     "socket.io-stream": "^0.5.3",
+    "uuid": "^11.0.3",
     "yargs": "^17.7.2"
   },
   "bin": {
@@ -46,10 +47,10 @@
   },
   "scripts": {
     "release": "rm -rf dist && babel src/server --out-dir dist && babel src/client --out-dir dist",
-    "server": "npm run release && node --env-file=.env dist/server.js start",
-    "client": "npm run release && node --env-file=.env dist/client.js",
-    "server:dev": "nodemon --env-file=.env.dev src/server/server.mjs start",
-    "client:dev": "nodemon --env-file=.env.dev src/client/client.mjs"
+    "server": "npm run release && NODE_NO_WARNINGS=1 node --env-file=./config/.env dist/server.js start",
+    "client": "npm run release && NODE_NO_WARNINGS=1 node --env-file=./config/.env dist/client.js",
+    "server:dev": "NODE_NO_WARNINGS=1 nodemon --env-file=./config/.env.dev src/server/server.mjs start",
+    "client:dev": "NODE_NO_WARNINGS=1 nodemon --env-file=./config/.env.dev src/client/client.mjs"
   },
   "engines": {
     "node": ">=12",

@@ -11,6 +11,5 @@ const client = options => {
   socket.on("connect", () => {
     console.log("Connected to server");
   });
-  console.log("🚀 ~ options:", options);
 };
 var _default = exports.default = client;

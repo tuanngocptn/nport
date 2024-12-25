@@ -8,7 +8,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./src/server:/usr/src/app/src/server
+      - ./src/server:/app/src/server
     restart: unless-stopped
     networks:
       nport-network:
@@ -31,6 +31,22 @@ services:
       nport-network:
         ipv4_address: 192.168.10.2
 
+  nport-site:
+    build:
+      context: .
+      dockerfile: ./config/site.dockerfile
+    image: nport-site:v1
+    container_name: nport-site
+    volumes:
+      - ./src/site:/app/src/site
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      nport-network:
+        ipv4_address: 192.168.10.5
+    entrypoint: http-server -p 8080 /app
+
   nport-client:
     build:
       context: .
@@ -38,7 +54,7 @@ services:
     image: nport-client:v1
     container_name: nport-client
     volumes:
-      - ./src/client:/usr/src/app/src/client
+      - ./src/client:/app/src/client
     restart: unless-stopped
     networks:
       nport-network:
