@@ -36,9 +36,11 @@
   },
   "contributors": [],
   "dependencies": {
+    "is-valid-domain": "^0.1.6",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
     "socket.io-stream": "^0.5.3",
+    "tldjs": "^2.3.1",
     "uuid": "^11.0.3",
     "yargs": "^17.7.2"
   },
