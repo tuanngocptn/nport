@@ -3,7 +3,7 @@ import http from "http";
 import tldjs from "tldjs";
 import ss from "socket.io-stream";
 import { v4 as uuid } from "uuid";
-import isValidDomain from "is-valid-domain";
+import validator from "validator";
 import { Server as SocketIO } from "socket.io";
 
 // Global state
@@ -47,7 +47,7 @@ const handleHttpRequest = async (req, res) => {
 
 const collectRequestBody = async (req) => {
   const bodyChunks = [];
-  
+
   req.on("error", (err) => {
     console.error(`${new Date()}: Request error:`, err.stack);
   });
@@ -92,7 +92,8 @@ const setupTunnelStream = async (req) => {
   return new Promise((resolve, reject) => {
     try {
       // Validate request
-      const hostname = req.headers.host || reject(new Error("Invalid hostname"));
+      const hostname =
+        req.headers.host || reject(new Error("Invalid hostname"));
       const subdomain = extractSubdomain(hostname);
       const socket = getSocketForSubdomain(subdomain);
 
@@ -183,11 +184,14 @@ const handleTunnelRegistration = (socket, requestedName, callback) => {
 };
 
 const normalizeTunnelName = (name) => {
-  return name.toString().toLowerCase().replace(/[^0-9a-z-.]/g, "");
+  return name
+    .toString()
+    .toLowerCase()
+    .replace(/[^0-9a-z-.]/g, "");
 };
 
 const isValidTunnelName = (name) => {
-  return name.length > 0 && isValidDomain(`${name}.example.com`);
+  return name.length > 0 && validator.isURL(`${name}.example.com`);
 };
 
 const isTunnelNameTaken = (name) => {
