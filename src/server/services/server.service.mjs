@@ -5,223 +5,185 @@ import ss from "socket.io-stream";
 import { v4 as uuid } from "uuid";
 import isValidDomain from "is-valid-domain";
 import { Server as SocketIO } from "socket.io";
+
+// Global state
 const socketsBySubdomain = {};
-let options = {};
+let serverOptions = {};
 
-// Export the main function as default
+// Main server initialization
 export default ({ port, hostname, subdomain }) => {
-  options = { port, hostname, subdomain };
-  // Association between subdomains and socket.io sockets
+  serverOptions = { port, hostname, subdomain };
+  const server = createHttpServer();
+  initializeSocketServer(server);
+  startServer(server);
+};
 
-  // Create HTTP server to handle tunnel requests
-  const server = createTunnelServer();
+// HTTP Server Setup
+const createHttpServer = () => {
+  return http.createServer(async (req, res) => {
+    try {
+      await handleHttpRequest(req, res);
+    } catch (err) {
+      handleServerError(res, err);
+    }
+  });
+};
 
-  // Initialize socket.io
-  initializeSocketIO(server);
-
-  // Start the HTTP server
-  server.listen(options.port, options.hostname);
+const startServer = (server) => {
+  server.listen(serverOptions.port, serverOptions.hostname);
   console.log(
-    `${new Date()}: socket-tunnel server started on ${options.hostname}:${
-      options.port
+    `${new Date()}: socket-tunnel server started on ${serverOptions.hostname}:${
+      serverOptions.port
     }`
   );
 };
 
-const createTunnelServer = () => {
-  return http.createServer(async (req, res) => {
-    try {
-      await handleTunnelRequest(req, res);
-    } catch (err) {
-      console.error(`${new Date()}: Error in tunnel server:`, err);
-      handleTunnelError(res, err);
-    }
-  });
+// HTTP Request Handling
+const handleHttpRequest = async (req, res) => {
+  const tunnelStream = await setupTunnelStream(req);
+  const requestBody = await collectRequestBody(req);
+  forwardRequestToTunnel(req, requestBody, tunnelStream);
 };
 
-const handleTunnelRequest = async (req, res) => {
-  const tunnelClientStream = await getTunnelClientStreamForReq(req);
-  const reqBodyChunks = [];
-
-  setupRequestErrorHandler(req);
-  setupRequestDataHandler(req, reqBodyChunks);
-  setupRequestEndHandler(req, reqBodyChunks, tunnelClientStream);
-};
-
-const setupRequestErrorHandler = (req) => {
+const collectRequestBody = async (req) => {
+  const bodyChunks = [];
+  
   req.on("error", (err) => {
     console.error(`${new Date()}: Request error:`, err.stack);
   });
-};
 
-const setupRequestDataHandler = (req, reqBodyChunks) => {
-  req.on("data", (bodyChunk) => {
-    reqBodyChunks.push(bodyChunk);
+  req.on("data", (chunk) => bodyChunks.push(chunk));
+
+  return new Promise((resolve) => {
+    req.on("end", () => {
+      if (!req.complete) {
+        console.warn(`${new Date()}: Incomplete request received`);
+        resolve(null);
+        return;
+      }
+      resolve(bodyChunks.length > 0 ? Buffer.concat(bodyChunks) : null);
+    });
   });
 };
 
-const setupRequestEndHandler = (req, reqBodyChunks, tunnelClientStream) => {
-  req.on("end", () => {
-    if (!req.complete) {
-      console.warn(`${new Date()}: Incomplete request received`);
-      return;
-    }
+const forwardRequestToTunnel = (req, body, tunnelStream) => {
+  // Format request line and headers
+  const requestLine = `${req.method} ${req.url} HTTP/${req.httpVersion}`;
+  const headers = formatHeaders(req.rawHeaders);
 
-    const reqLine = getReqLineFromReq(req);
-    const headers = getHeadersFromReq(req);
-    const reqBody =
-      reqBodyChunks.length > 0 ? Buffer.concat(reqBodyChunks) : null;
-
-    streamResponse(reqLine, headers, reqBody, tunnelClientStream);
-  });
+  // Write request to tunnel
+  tunnelStream.write(requestLine + "\r\n");
+  tunnelStream.write(headers.join("\r\n") + "\r\n\r\n");
+  if (body) {
+    tunnelStream.write(body);
+  }
 };
 
-const handleTunnelError = (res, err) => {
-  console.error(`${new Date()}: Tunnel error:`, err);
-  res.statusCode = 502;
-  res.end(err.message);
+const formatHeaders = (rawHeaders) => {
+  const headers = [];
+  for (let i = 0; i < rawHeaders.length - 1; i += 2) {
+    headers.push(`${rawHeaders[i]}: ${rawHeaders[i + 1]}`);
+  }
+  return headers;
 };
 
-const getTunnelClientStreamForReq = async (req) => {
+// Tunnel Stream Setup
+const setupTunnelStream = async (req) => {
   return new Promise((resolve, reject) => {
     try {
-      const hostname = validateHostname(req.headers.host, reject);
-      let subdomain = getSubdomain(hostname, options.subdomain);
+      // Validate request
+      const hostname = req.headers.host || reject(new Error("Invalid hostname"));
+      const subdomain = extractSubdomain(hostname);
+      const socket = getSocketForSubdomain(subdomain);
 
-      const subdomainSocket = validateSocket(
-        subdomain,
-        socketsBySubdomain,
-        reject
-      );
-
-      if (isExistingValidStream(req, subdomain)) {
+      // Reuse existing stream if valid
+      if (hasValidExistingStream(req, subdomain)) {
         return resolve(req.connection.tunnelClientStream);
       }
 
-      establishNewStream(req, subdomainSocket, subdomain, resolve);
+      // Create new stream
+      createNewTunnelStream(req, socket, subdomain, resolve);
     } catch (err) {
-      console.error(`${new Date()}: Error getting tunnel client stream:`, err);
+      console.error(`${new Date()}: Tunnel stream setup error:`, err);
       reject(err);
     }
   });
 };
 
-const validateHostname = (hostname, reject) => {
-  if (!hostname) {
-    console.error(`${new Date()}: Invalid hostname received`);
-    reject(new Error("Invalid hostname"));
-  }
-  return hostname;
-};
-
-const getSubdomain = (hostname, optionsSubdomain) => {
+const extractSubdomain = (hostname) => {
   let subdomain = tldjs.getSubdomain(hostname).toLowerCase();
   if (!subdomain) {
-    const error = new Error("Invalid subdomain");
-    console.error(`${new Date()}: Invalid subdomain:`, error);
-    throw error;
+    throw new Error("Invalid subdomain");
   }
-  if (optionsSubdomain) {
-    subdomain = subdomain.replace(`.${optionsSubdomain}`, "");
+  if (serverOptions.subdomain) {
+    subdomain = subdomain.replace(`.${serverOptions.subdomain}`, "");
   }
   return subdomain;
 };
 
-const validateSocket = (subdomain, sockets, reject) => {
-  const socket = sockets[subdomain];
+const getSocketForSubdomain = (subdomain) => {
+  const socket = socketsBySubdomain[subdomain];
   if (!socket) {
-    const error = new Error(
-      `${subdomain} is currently unregistered or offline.`
-    );
-    console.error(`${new Date()}: Socket validation failed:`, error);
-    reject(error);
+    throw new Error(`${subdomain} is currently unregistered or offline.`);
   }
   return socket;
 };
 
-const isExistingValidStream = (req, subdomain) => {
-  return (
-    req.connection.tunnelClientStream !== undefined &&
-    !req.connection.tunnelClientStream.destroyed &&
-    req.connection.subdomain === subdomain
-  );
+const hasValidExistingStream = (req, subdomain) => {
+  const stream = req.connection.tunnelClientStream;
+  return stream && !stream.destroyed && req.connection.subdomain === subdomain;
 };
 
-const establishNewStream = (req, socket, subdomain, resolve) => {
-  const requestGUID = uuid();
-  ss(socket).once(requestGUID, (tunnelClientStream) => {
+const createNewTunnelStream = (req, socket, subdomain, resolve) => {
+  const streamId = uuid();
+  ss(socket).once(streamId, (tunnelStream) => {
     try {
       req.connection.subdomain = subdomain;
-      req.connection.tunnelClientStream = tunnelClientStream;
-      tunnelClientStream.pipe(req.connection);
-      resolve(tunnelClientStream);
+      req.connection.tunnelClientStream = tunnelStream;
+      tunnelStream.pipe(req.connection);
+      resolve(tunnelStream);
     } catch (err) {
-      console.error(`${new Date()}: Error establishing stream:`, err);
+      console.error(`${new Date()}: Stream creation error:`, err);
     }
   });
-  socket.emit("incomingClient", requestGUID);
+  socket.emit("incomingClient", streamId);
 };
 
-const getReqLineFromReq = (req) => {
-  return `${req.method} ${req.url} HTTP/${req.httpVersion}`;
-};
+// Socket.IO Server Setup
+const initializeSocketServer = (httpServer) => {
+  const io = new SocketIO(httpServer);
+  io.on("connection", (socket) => {
+    socket.on("createTunnel", (name, callback) => {
+      handleTunnelRegistration(socket, name, callback);
+    });
 
-const getHeadersFromReq = (req) => {
-  const headers = [];
-  for (let i = 0; i < req.rawHeaders.length - 1; i += 2) {
-    headers.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
-  }
-  return headers;
-};
-
-const streamResponse = (reqLine, headers, reqBody, tunnelClientStream) => {
-  tunnelClientStream.write(reqLine);
-  tunnelClientStream.write("\r\n");
-  tunnelClientStream.write(headers.join("\r\n"));
-  tunnelClientStream.write("\r\n\r\n");
-  if (reqBody) {
-    tunnelClientStream.write(reqBody);
-  }
-};
-
-const initializeSocketIO = (server) => {
-  const io = new SocketIO(server);
-  io.on("connection", handleSocketConnection);
-};
-
-const handleSocketConnection = (socket) => {
-  socket.on("createTunnel", (requestedName, responseCb) => {
-    handleTunnelCreation(socket, requestedName, responseCb);
-  });
-
-  socket.on("disconnect", () => {
-    handleSocketDisconnect(socket);
+    socket.on("disconnect", () => {
+      handleTunnelDeregistration(socket);
+    });
   });
 };
 
-const handleTunnelCreation = (socket, requestedName, responseCb) => {
+// Tunnel Registration
+const handleTunnelRegistration = (socket, requestedName, callback) => {
   if (socket.requestedName) return;
 
-  const reqNameNormalized = normalizeRequestedName(requestedName);
+  const normalizedName = normalizeTunnelName(requestedName);
 
-  if (!isValidTunnelName(reqNameNormalized)) {
-    handleInvalidTunnelName(reqNameNormalized, socket, responseCb);
+  if (!isValidTunnelName(normalizedName)) {
+    rejectTunnel(socket, callback, "bad subdomain");
     return;
   }
 
-  if (isTunnelNameTaken(reqNameNormalized)) {
-    handleTakenTunnelName(reqNameNormalized, socket, responseCb);
+  if (isTunnelNameTaken(normalizedName)) {
+    rejectTunnel(socket, callback, "subdomain already claimed");
     return;
   }
 
-  registerTunnel(socket, reqNameNormalized, responseCb);
+  registerTunnel(socket, normalizedName, callback);
 };
 
-const normalizeRequestedName = (name) => {
-  return name
-    .toString()
-    .toLowerCase()
-    .replace(/[^0-9a-z-.]/g, "");
+const normalizeTunnelName = (name) => {
+  return name.toString().toLowerCase().replace(/[^0-9a-z-.]/g, "");
 };
 
 const isValidTunnelName = (name) => {
@@ -229,41 +191,31 @@ const isValidTunnelName = (name) => {
 };
 
 const isTunnelNameTaken = (name) => {
-  try {
-    return !!socketsBySubdomain[name];
-  } catch (err) {
-    console.error(
-      `${new Date()}: Error checking tunnel name availability:`,
-      err
-    );
-    return true;
-  }
+  return !!socketsBySubdomain[name];
 };
 
-const handleInvalidTunnelName = (name, socket, responseCb) => {
-  console.log(`${new Date()}: ${name} -- bad subdomain. Disconnecting client.`);
-  if (responseCb) responseCb("bad subdomain");
+const rejectTunnel = (socket, callback, reason) => {
+  console.log(`${new Date()}: Tunnel rejected - ${reason}`);
+  if (callback) callback(reason);
   socket.disconnect();
 };
 
-const handleTakenTunnelName = (name, socket, responseCb) => {
-  console.log(
-    `${new Date()}: ${name} requested but already claimed. Disconnecting client.`
-  );
-  if (responseCb) responseCb("subdomain already claimed");
-  socket.disconnect();
-};
-
-const registerTunnel = (socket, name, responseCb) => {
+const registerTunnel = (socket, name, callback) => {
   socketsBySubdomain[name] = socket;
   socket.requestedName = name;
   console.log(`${new Date()}: ${name} registered successfully`);
-  if (responseCb) responseCb(null);
+  if (callback) callback(null);
 };
 
-const handleSocketDisconnect = (socket) => {
+const handleTunnelDeregistration = (socket) => {
   if (socket.requestedName) {
     delete socketsBySubdomain[socket.requestedName];
     console.log(`${new Date()}: ${socket.requestedName} unregistered`);
   }
+};
+
+const handleServerError = (res, err) => {
+  console.error(`${new Date()}: Server error:`, err);
+  res.statusCode = 502;
+  res.end(err.message);
 };

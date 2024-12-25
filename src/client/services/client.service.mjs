@@ -6,73 +6,78 @@ import net from "net";
 import ss from "socket.io-stream";
 import { io as clientIo } from "socket.io-client";
 
-// Export the main function as default
+/**
+ * Creates and initializes a socket tunnel client
+ * @param {Object} options Configuration options
+ * @returns {Promise<string>} The constructed tunnel URL
+ */
 export default (options) => {
   return new Promise((resolve, reject) => {
     try {
       const socket = clientIo(options.server);
-      setupSocketHandlers(socket, options, resolve, reject);
+      initializeSocketConnection(socket, options, resolve, reject);
     } catch (err) {
-      console.error(`${new Date()}: Error initializing client:`, err);
+      logError("Error initializing client", err);
       reject(err);
     }
   });
 };
 
-const setupSocketHandlers = (socket, options, resolve, reject) => {
+/**
+ * Sets up the main socket connection and event handlers
+ */
+const initializeSocketConnection = (socket, options, resolve, reject) => {
   try {
-    socket.on("connect", () => handleConnect(socket, options, resolve, reject));
-    socket.on("incomingClient", (clientId) => {
-      const client = createTcpConnection(options);
-      setupClientHandlers(client, socket, clientId);
-    });
+    socket.on("connect", () => onSocketConnect(socket, options, resolve, reject));
+    socket.on("incomingClient", (clientId) => handleIncomingClient(socket, options, clientId));
     socket.on("error", (err) => {
-      console.error(`${new Date()}: Socket error:`, err);
+      logError("Socket error", err);
       reject(err);
     });
   } catch (err) {
-    console.error(`${new Date()}: Error setting up socket handlers:`, err);
+    logError("Error setting up socket handlers", err);
     reject(err);
   }
 };
 
-const handleConnect = (socket, options, resolve, reject) => {
+/**
+ * Handles successful socket connection
+ */
+const onSocketConnect = (socket, options, resolve, reject) => {
   try {
-    console.log(
-      `${new Date()}: requesting subdomain ${options.subdomain} via ${
-        options.server
-      }`
-    );
-    requestTunnel(socket, options, resolve, reject);
+    logInfo(`Requesting subdomain ${options.subdomain} via ${options.server}`);
+    establishTunnel(socket, options, resolve, reject);
   } catch (err) {
-    console.error(`${new Date()}: Error handling connect:`, err);
+    logError("Error handling connect", err);
     reject(err);
   }
 };
 
-const requestTunnel = (socket, options, resolve, reject) => {
+/**
+ * Requests tunnel creation from server
+ */
+const establishTunnel = (socket, options, resolve, reject) => {
   try {
     socket.emit("createTunnel", options.subdomain, (err) => {
       if (err) {
-        console.error(`${new Date()}: Tunnel error:`, err);
+        logError("Tunnel error", err);
         reject(err);
       } else {
-        console.log(`${new Date()}: registered with server successfully`);
-        console.log(
-          `${new Date()}: your domain is: https://${
-            options.subdomain
-          }.nport.link`
-        );
-        resolve(constructUrl(options));
+        logInfo("Registered with server successfully");
+        logInfo(`Your domain is: https://${options.subdomain}.nport.link`);
+        resolve(buildTunnelUrl(options));
       }
     });
   } catch (err) {
-    console.error(`${new Date()}: Error requesting tunnel:`, err);
+    logError("Error requesting tunnel", err);
     reject(err);
   }
 };
 
-const constructUrl = (options) => {
+/**
+ * Constructs the tunnel URL based on server protocol
+ */
+const buildTunnelUrl = (options) => {
   const subdomain = options.subdomain.toString();
   const server = options.server.toString();
 
@@ -84,77 +89,115 @@ const constructUrl = (options) => {
   return `https://${subdomain}.${server}`;
 };
 
+/**
+ * Creates a TCP connection to the target service
+ */
 const createTcpConnection = (options) => {
-  const client = net.connect({
+  return net.connect({
     port: options.port,
     host: options.hostname,
     timeout: IDLE_SOCKET_TIMEOUT_MILLISECONDS,
   });
-  return client;
 };
 
-const setupClientHandlers = (client, socket, clientId) => {
+/**
+ * Handles incoming client connections
+ */
+const handleIncomingClient = (socket, options, clientId) => {
+  const client = createTcpConnection(options);
+  setupClientEventHandlers(client, socket, clientId);
+};
+
+/**
+ * Sets up TCP client event handlers
+ */
+const setupClientEventHandlers = (client, socket, clientId) => {
   client.once("connect", () => {
-    handleClientConnect(client, socket, clientId);
+    setupStreamConnection(client, socket, clientId);
   });
 
   client.once("error", (err) => {
-    console.error(`${new Date()}: Client error:`, err);
-    handleClientError(socket, clientId);
+    logError("Client error", err);
+    handleClientFailure(socket, clientId);
   });
 
   client.once("timeout", () => {
-    console.log(`${new Date()}: Client connection timed out`);
+    logInfo("Client connection timed out");
     client.end();
   });
 };
 
-const handleClientConnect = (client, socket, clientId) => {
+/**
+ * Sets up bidirectional stream between client and tunnel
+ */
+const setupStreamConnection = (client, socket, clientId) => {
   try {
     const stream = ss.createStream();
-
-    stream.once("error", (err) => {
-      console.error(`${new Date()}: Stream error:`, err);
-      cleanupConnection(client, stream);
-    });
-
-    client.once("error", (err) => {
-      console.error(`${new Date()}: Client error in stream:`, err);
-      cleanupConnection(client, stream);
-    });
-
-    stream.once("end", () => {
-      cleanupConnection(client, stream);
-    });
-
-    client.once("end", () => {
-      cleanupConnection(client, stream);
-    });
-
-    // Emit the stream through socket.io-stream
+    setupStreamEventHandlers(stream, client);
+    
+    // Connect stream to socket.io tunnel
     ss(socket).emit(clientId, stream);
-
-    // Setup piping
+    
+    // Enable bidirectional data flow
     client.pipe(stream).pipe(client);
   } catch (err) {
-    console.error(`${new Date()}: Error in handleClientConnect:`, err);
-    if (client && !client.destroyed) {
-      client.destroy();
-    }
+    logError("Error in stream setup", err);
+    safelyDestroyClient(client);
   }
 };
 
-const cleanupConnection = (client, stream) => {
+/**
+ * Sets up stream event handlers
+ */
+const setupStreamEventHandlers = (stream, client) => {
+  stream.once("error", (err) => {
+    logError("Stream error", err);
+    cleanup(client, stream);
+  });
+
+  client.once("error", (err) => {
+    logError("Client error in stream", err);
+    cleanup(client, stream);
+  });
+
+  stream.once("end", () => cleanup(client, stream));
+  client.once("end", () => cleanup(client, stream));
+};
+
+/**
+ * Safely cleans up resources
+ */
+const cleanup = (client, stream) => {
+  safelyDestroyStream(stream);
+  safelyDestroyClient(client);
+};
+
+const safelyDestroyStream = (stream) => {
   if (stream && !stream.destroyed) {
     stream.destroy();
   }
+};
+
+const safelyDestroyClient = (client) => {
   if (client && !client.destroyed) {
     client.destroy();
   }
 };
 
-const handleClientError = (socket, clientId) => {
+/**
+ * Handles client connection failures
+ */
+const handleClientFailure = (socket, clientId) => {
   const stream = ss.createStream();
   ss(socket).emit(clientId, stream);
   stream.end();
+};
+
+// Logging helpers
+const logError = (message, error) => {
+  console.error(`${new Date()}: ${message}:`, error);
+};
+
+const logInfo = (message) => {
+  console.log(`${new Date()}: ${message}`);
 };
