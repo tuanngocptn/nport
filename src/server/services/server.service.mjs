@@ -77,7 +77,6 @@ const requestListener = async (req, res) => {
         if (reqBodyChunks.length > 0) {
           reqBody = Buffer.concat(reqBodyChunks);
         }
-
         streamResponse(reqLine, headers, reqBody, tunnelClientStream);
       }
     });
@@ -107,6 +106,7 @@ const streamResponse = (reqLine, headers, reqBody, tunnelClientStream) => {
   tunnelClientStream.write(headers.join("\r\n"));
   tunnelClientStream.write("\r\n\r\n");
   if (reqBody) {
+    console.log("helloooo 6");
     tunnelClientStream.write(reqBody);
   }
 };
@@ -140,17 +140,38 @@ const getTunnelClientStream = async (req) => {
     return req.connection.tunnelClientStream;
   }
 
-  const requestGUID = uuidv4();
-  ss(subdomainSocket).once(requestGUID, (tunnelClientStream) => {
-    req.connection.subdomain = subdomain;
-    req.connection.tunnelClientStream = tunnelClientStream;
-    // Pipe all data from tunnel stream to requesting connection
-    tunnelClientStream.pipe(req.connection);
-    return tunnelClientStream;
-  });
+  const clientId = uuidv4();
+  
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error("Tunnel stream connection timeout"));
+    }, 5000); // 5 second timeout
 
-  subdomainSocket.emit("IncomingClient", requestGUID);
-  throw new Error(`${subdomain} has an unknown error.`);
+    try {
+      // First emit the incoming client event
+      subdomainSocket.emit("IncomingClient", clientId);
+
+      // Then wait for the stream
+      ss(subdomainSocket).once(clientId, (tunnelClientStream) => {
+        clearTimeout(timeout);
+        req.connection.subdomain = subdomain;
+        req.connection.tunnelClientStream = tunnelClientStream;
+        
+        // Handle stream errors
+        tunnelClientStream.on('error', (err) => {
+          console.error('Stream error:', err);
+          tunnelClientStream.destroy();
+        });
+
+        tunnelClientStream.pipe(req.connection);
+        resolve(tunnelClientStream);
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      console.error("Tunnel stream error:", error);
+      reject(error);
+    }
+  });
 };
 
 export default server;
