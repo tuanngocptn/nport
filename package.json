@@ -2,7 +2,24 @@
   "name": "nport",
   "version": "1.0.6",
   "description": "Tunnel HTTP Connections via socket.io streams.",
-  "keywords": ["tunnel", "socket.io", "http", "streaming", "networking", "proxy"],
+  "keywords": [
+    "nport",
+    "tunnel",
+    "socket.io",
+    "http",
+    "streaming",
+    "networking",
+    "proxy",
+    "ngrok alternative",
+    "localhost tunnel",
+    "local tunnel",
+    "HTTP tunnel",
+    "HTTPS tunnel",
+    "URL forwarding",
+    "web development",
+    "free ngrok alternative",
+    "open source ngrok alternative"
+  ],
   "homepage": "https://nport.link",
   "bugs": {
     "url": "https://github.com/tuanngocptn/nport/issues",
@@ -17,38 +34,42 @@
     "name": "Nick Pham",
     "email": "tuanngocptn@gmail.com"
   },
-  "contributors": [
-    {
-      "name": "Eric Barch",
-      "email": "ebarch@nooplabs.com"
-    }
-  ],
+  "contributors": [],
   "dependencies": {
-    "is-valid-domain": "0.0.5",
-    "optimist": "^0.6.1",
-    "socket.io": "^2.1.0",
-    "socket.io-client": "^2.1.0",
-    "socket.io-stream": "^0.9.1",
+    "is-valid-domain": "^0.1.6",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "socket.io-stream": "^0.5.3",
     "tldjs": "^2.3.1",
-    "uuid": "^3.2.1"
+    "uuid": "^11.0.3",
+    "validator": "^13.12.0",
+    "yargs": "^17.7.2"
   },
   "bin": {
-    "nport": "./bin/client"
+    "nport": "./dist/client.js"
+  },
+  "scripts": {
+    "release": "rm -rf dist/server && rm -rf dist/client && babel src/server --out-dir dist/server && babel src/client --out-dir dist/client",
+    "server": "npm run release && NODE_NO_WARNINGS=1 node --env-file=./config/.env dist/server/server.js start",
+    "client": "npm run release && NODE_NO_WARNINGS=1 node --env-file=./config/.env dist/client/client.js",
+    "website": "http-server ./dist/website -p 8080",
+    "server:dev": "NODE_NO_WARNINGS=1 nodemon --env-file=./config/.env.dev src/server/server.mjs start",
+    "client:dev": "NODE_NO_WARNINGS=1 nodemon --env-file=./config/.env.dev src/client/client.mjs"
   },
   "engines": {
-    "node": ">=14.0.0",
-    "npm": ">=6.0.0"
+    "node": ">=12",
+    "npm": ">=6"
   },
-  "files": [
-    "bin/",
-    "client.js",
-    "server.js",
-    "lib/",
-    "examples/",
-    "nginx.conf.sample"
-  ],
+  "files": [],
   "funding": {
     "type": "individual",
     "url": "https://github.com/sponsors/tuanngocptn"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.26.4",
+    "@babel/core": "^7.26.0",
+    "@babel/preset-env": "^7.26.0",
+    "babel-plugin-replace-import-extension": "^1.1.4",
+    "nodemon": "^3.1.9"
   }
 }
