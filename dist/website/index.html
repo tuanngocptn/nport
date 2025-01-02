@@ -1,77 +1,208 @@
 <!DOCTYPE html>
-<html lang="en"><head>
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
-<title>Your awesome title | Write an awesome description for your new site here. You can edit this line in _config.yml. It will appear in your document head meta (for Google search results) and in your feed.xml site description.</title>
-<meta name="generator" content="Jekyll v4.2.2" />
-<meta property="og:title" content="Your awesome title" />
-<meta property="og:locale" content="en_US" />
-<meta name="description" content="Write an awesome description for your new site here. You can edit this line in _config.yml. It will appear in your document head meta (for Google search results) and in your feed.xml site description." />
-<meta property="og:description" content="Write an awesome description for your new site here. You can edit this line in _config.yml. It will appear in your document head meta (for Google search results) and in your feed.xml site description." />
-<link rel="canonical" href="http://0.0.0.0:4000/" />
-<meta property="og:url" content="http://0.0.0.0:4000/" />
-<meta property="og:site_name" content="Your awesome title" />
-<meta property="og:type" content="website" />
-<meta name="twitter:card" content="summary" />
-<meta property="twitter:title" content="Your awesome title" />
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"WebSite","description":"Write an awesome description for your new site here. You can edit this line in _config.yml. It will appear in your document head meta (for Google search results) and in your feed.xml site description.","headline":"Your awesome title","name":"Your awesome title","url":"http://0.0.0.0:4000/"}</script>
-<!-- End Jekyll SEO tag -->
-<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="http://0.0.0.0:4000/feed.xml" title="Your awesome title" /></head>
-<body><header class="site-header" role="banner">
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="NPort - A free and open source ngrok alternative that tunnels HTTP(s) connections for straightforward access to localhost via public URLs"
+    />
+    <meta
+      name="keywords"
+      content="nport, ngrok alternative, localhost tunnel, local tunnel, HTTP tunnel, HTTPS tunnel, URL forwarding, web development, free ngrok alternative, open source ngrok alternative"
+    />
+    <meta name="author" content="Nick - Ngoc Pham" />
+    <meta name="apple-mobile-web-app-title" content="NPort" />
+    <meta name="application-name" content="NPort" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="#1e1e1e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#1e1e1e">
 
-  <div class="wrapper"><a class="site-title" rel="author" href="/">Your awesome title</a><nav class="site-nav">
-        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
-        <label for="nav-trigger">
-          <span class="menu-icon">
-            <svg viewBox="0 0 18 15" width="18px" height="15px">
-              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
-            </svg>
-          </span>
-        </label>
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://nport.link/" />
+    <meta property="og:title" content="NPort - Local Tunnel Made Easy | Ngrok Alternative | Free & Open Source" />
+    <meta
+      property="og:description"
+      content="A free and open source ngrok alternative that tunnels HTTP(s) connections for straightforward access to localhost via public URLs"
+    />
+    <meta property="og:image" content="https://nport.link/assets/webp/nport-site.webp" />
 
-        <div class="trigger"><a class="page-link" href="/about/">About</a></div>
-      </nav></div>
-</header>
-<main class="page-content" aria-label="Content">
-      <div class="wrapper">
-        <div class="home">
-<h2 class="post-list-heading">Posts</h2>
-    <ul class="post-list"><li><span class="post-meta">Jan 2, 2025</span>
-        <h3>
-          <a class="post-link" href="/jekyll/update/2025/01/02/welcome-to-jekyll.html">
-            Welcome to Jekyll!
-          </a>
-        </h3></li></ul>
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://nport.link/" />
+    <meta property="twitter:title" content="NPort - Local Tunnel Made Easy | Ngrok Alternative | Free & Open Source" />
+    <meta
+      property="twitter:description"
+      content="A free and open source ngrok alternative that tunnels HTTP(s) connections for straightforward access to localhost via public URLs"
+    />
+    <meta property="twitter:image" content="https://nport.link/assets/webp/nport-site.webp" />
 
-    <p class="rss-subscribe">subscribe <a href="/feed.xml">via RSS</a></p></div>
+    <!-- Favicon -->
+    <link rel="apple-touch-icon" sizes="180x180" href="https://nport.link/assets/favicon_io/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="https://nport.link/assets/imgs/nport-logo.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="https://nport.link/assets/favicon_io/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="https://nport.link/assets/favicon_io/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="https://nport.link/assets/favicon_io/favicon-96x96.png" />
+    <link rel="icon" type="image/svg+xml" href="https://nport.link/assets/imgs/nport-logo.svg" />
+    <link rel="shortcut icon" type="image/x-icon" href="https://nport.link/assets/favicon_io/favicon.ico" />
+    <link rel="manifest" href="https://nport.link/assets/favicon_io/site.webmanifest" />
 
-      </div>
-    </main><footer class="site-footer h-card">
-  <data class="u-url" href="/"></data>
+    <title>NPort - Local Tunnel Made Easy | Ngrok Alternative | Free & Open Source</title>
 
-  <div class="wrapper">
+    <!-- JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "NPort",
+      "description": "A free and open source ngrok alternative that tunnels HTTP(s) connections for straightforward access to localhost via public URLs",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Cross-platform",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "Nick - Ngoc Pham",
+        "url": "https://github.com/tuanngocptn"
+      },
+      "softwareVersion": "1.0.0",
+      "url": "https://nport.link",
+      "downloadUrl": "https://www.npmjs.com/package/nport",
+      "logo": "https://nport.link/assets/imgs/nport-logo.png",
+      "image": "https://nport.link/assets/webp/nport-site.webp",
+      "featureList": [
+        "Custom subdomain support",
+        "Automatic HTTPS encryption",
+        "WebSocket support",
+        "No configuration needed",
+        "Cross-platform compatibility"
+      ]
+    }
+    </script>
 
-    <h2 class="footer-heading">Your awesome title</h2>
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="./assets/css/style.css" />
 
-    <div class="footer-col-wrapper">
-      <div class="footer-col footer-col-1">
-        <ul class="contact-list">
-          <li class="p-name">Your awesome title</li><li><a class="u-email" href="mailto:your-email@example.com">your-email@example.com</a></li></ul>
-      </div>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-JJHG4DP1K9"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag("js", new Date());
+      gtag("config", "G-JJHG4DP1K9", {
+        anonymize_ip: true,
+        cookie_flags: "SameSite=None;Secure",
+        consent: "default",
+        storage: "none"
+      });
+    </script>
+  </head>
+  <body> 
 
-      <div class="footer-col footer-col-2"><ul class="social-media-list"><li><a href="https://github.com/jekyll"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#github"></use></svg> <span class="username">jekyll</span></a></li><li><a href="https://www.twitter.com/jekyllrb"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#twitter"></use></svg> <span class="username">jekyllrb</span></a></li></ul>
+<a href="https://nport.link" class="logo">
+  <img src="./assets/webp/nport-logo-dark-min.webp" alt="NPort logo" height="30" width="30" />
+  <span>NPort</span>
+</a>
+<div class="content">
+  
+<!-- Main Text -->
+<a href="https://nport.link"><h1>nport.link</h1></a>
+<p class="description">
+  NPort is a powerful and lightweight <a href="https://ngrok.com" target="_blank">ngrok alternative</a> that
+  creates secure HTTP/HTTPS connections from localhost to public URLs.
+</p>
+<!-- Subtitle -->
+<div class="social-links">
+  <a href="https://github.com/tuanngocptn/nport" target="_blank" class="button github">
+    <img src="./assets/webp/github.webp" alt="Github NPort" />
+    <span>GitHub</span>
+  </a>
+  <a href="https://www.npmjs.com/package/nport" target="_blank" class="button npm">
+    <img src="./assets/webp/npm.webp" alt="NPM NPort" />
+    <span>npm</span>
+  </a>
+  <a href="https://buymeacoffee.com/tuanngocptn" target="_blank" class="coffee-button">
+    <img src="./assets/webp/buy-me-a-coffee-min.webp" alt="Coffee cup icon" height="24" width="18" />
+    <span class="desktop-text">Buy me a coffee</span>
+    <span class="mobile-text">Coffee</span>
+  </a>
+</div>
+<h2><code>npm i -g nport</code></h2>
+<p class="description">Perfect for developers who need to:</p>
+<!-- Subtitle -->
+<div class="features">
+  <div class="feature">
+    <h3>🚀 Share Local Development</h3>
+    <p>Instantly share your local development server with teammates or clients without complex server setup.</p>
+  </div>
+  <div class="feature">
+    <h3>🔒 Test Webhooks</h3>
+    <p>
+      Securely test webhook integrations from services like GitHub, Stripe, or PayPal directly on your local
+      machine.
+    </p>
+  </div>
+  <div class="feature">
+    <h3>📱 Mobile Testing</h3>
+    <p>Test your web applications on mobile devices using a public URL while developing on localhost.</p>
+  </div>
+  <div class="feature">
+    <h3>🛠️ API Development</h3>
+    <p>Develop and debug API integrations by exposing your local endpoints to external services.</p>
+  </div>
+  <div class="feature">
+    <h3>⚡ Key Features - ngrok alternative</h3>
+    <ul>
+      <li>Custom subdomain support (e.g., myapp.nport.link)</li>
+      <li>Automatic HTTPS encryption</li>
+      <li>WebSocket support</li>
+      <li>No configuration needed</li>
+      <li>Cross-platform compatibility</li>
+    </ul>
+  </div>
+  <div class="feature">
+    <h3>💻 Quick Start</h3>
+    <p>After installation, simply run:</p>
+    <p><code>nport -s myapp -p 3000</code></p>
+    <p>This will create a tunnel from localhost:3000 to https://myapp.nport.link</p>
+  </div>
+</div>
+  <div class="privacy-notice"></div>
 </div>
 
-      <div class="footer-col footer-col-3">
-        <p>Write an awesome description for your new site here. You can edit this line in _config.yml. It will appear in your document head meta (for Google search results) and in your feed.xml site description.</p>
-      </div>
-    </div>
+    <footer class="footer">
+      <p>
+        Created by <a href="https://github.com/tuanngocptn" target="_blank">Nick - Ngoc Pham</a> 🇻🇳 | Powered by
+        <a href="https://github.com/tuanngocptn/nport" target="_blank">nport</a> |
+        <a href="https://www.npmjs.com/package/nport" target="_blank">npm</a>
+      </p>
+    </footer>
+    <script src="./assets/js/script.js" defer></script>
+    <script type="module">
+      // Import the functions you need from the SDKs you need
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+      import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-analytics.js";
 
-  </div>
+      // Your web app's Firebase configuration
+      const firebaseConfig = {
+        apiKey: "AIzaSyArRxHZJUt4o2RxiLqX1yDSkuUd6ZFy45I",
+        authDomain: "nport-link.firebaseapp.com",
+        projectId: "nport-link",
+        storageBucket: "nport-link.firebasestorage.app",
+        messagingSenderId: "515584605320",
+        appId: "1:515584605320:web:88daabc8d77146c6e7f33d",
+        measurementId: "G-8MYXZL6PGD"
+      };
 
-</footer>
-</body>
-
-</html>
+      // Initialize Firebase
+      const app = initializeApp(firebaseConfig);
+      const analytics = getAnalytics(app);
+    </script>
+  </body>
+</html> 
