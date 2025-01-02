@@ -66,24 +66,6 @@
     "url": "https://github.com/sponsors/tuanngocptn"
   },
   "devDependencies": {
-    "@babel/cli": "^7.26.4",
-    "@babel/core": "^7.26.0",
-    "@babel/plugin-transform-runtime": "^7.24.0",
-    "@babel/preset-env": "^7.26.0",
-    "autoprefixer": "^10.4.18",
-    "babel-loader": "^9.2.1",
-    "babel-plugin-replace-import-extension": "^1.1.4",
-    "copy-webpack-plugin": "^12.0.2",
-    "css-loader": "^7.1.2",
-    "css-minimizer-webpack-plugin": "^6.0.0",
-    "cssnano": "^6.0.5",
-    "html-webpack-plugin": "^5.6.3",
-    "mini-css-extract-plugin": "^2.8.1",
-    "nodemon": "^3.1.9",
-    "postcss": "^8.4.35",
-    "postcss-loader": "^8.1.1",
-    "terser-webpack-plugin": "^5.3.10",
-    "webpack": "^5.90.3",
-    "webpack-cli": "^5.1.4"
+    "nodemon": "^3.1.9"
   }
 }

@@ -10,7 +10,7 @@ yargs(hideBin(process.argv))
     (yargs) => {
       yargs.positional("port", {
         type: "number",
-        default: 8080,
+        default: 4000,
         describe: "The port to start the server on",
       });
       yargs.positional("subdomain", {
