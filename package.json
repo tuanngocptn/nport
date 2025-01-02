@@ -49,7 +49,7 @@
     "nport": "./dist/client.js"
   },
   "scripts": {
-    "release": "rm -rf dist && babel src/server --out-dir dist/server && babel src/client --out-dir dist/client && webpack --config webpack.config.js",
+    "release": "rm -rf dist/server && rm -rf dist/client && babel src/server --out-dir dist/server && babel src/client --out-dir dist/client",
     "server": "npm run release && NODE_NO_WARNINGS=1 node --env-file=./config/.env dist/server/server.js start",
     "client": "npm run release && NODE_NO_WARNINGS=1 node --env-file=./config/.env dist/client/client.js",
     "website": "http-server ./dist/website -p 8080",
@@ -66,6 +66,10 @@
     "url": "https://github.com/sponsors/tuanngocptn"
   },
   "devDependencies": {
+    "@babel/cli": "^7.26.4",
+    "@babel/core": "^7.26.0",
+    "@babel/preset-env": "^7.26.0",
+    "babel-plugin-replace-import-extension": "^1.1.4",
     "nodemon": "^3.1.9"
   }
 }
