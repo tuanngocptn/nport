@@ -121,10 +121,10 @@ const setupClientEventHandlers = (client, socket, clientId) => {
     handleClientFailure(socket, clientId);
   });
 
-  client.once("timeout", () => {
-    logInfo("Client connection timed out");
-    client.end();
-  });
+  // client.once("timeout", () => {
+  //   logInfo("Client connection timed out");
+  //   client.end();
+  // });
 };
 
 /**
