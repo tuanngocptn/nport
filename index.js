@@ -352,9 +352,16 @@ class VersionManager {
     const parts1 = v1.split(".").map(Number);
     const parts2 = v2.split(".").map(Number);
 
-    for (let i = 0; i < 3; i++) {
-      if (parts1[i] > parts2[i]) return 1;
-      if (parts1[i] < parts2[i]) return -1;
+    // Compare up to the maximum length of both version arrays
+    const maxLength = Math.max(parts1.length, parts2.length);
+
+    for (let i = 0; i < maxLength; i++) {
+      // Treat missing parts as 0 (e.g., "1.0" is "1.0.0")
+      const part1 = parts1[i] || 0;
+      const part2 = parts2[i] || 0;
+
+      if (part1 > part2) return 1;
+      if (part1 < part2) return -1;
     }
 
     return 0;
