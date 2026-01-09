@@ -536,7 +536,9 @@ class TunnelOrchestrator {
 
     // Validate binary
     if (!BinaryManager.validate(PATHS.BIN_PATH)) {
-      await analytics.trackTunnelError("binary_missing", "Cloudflared binary not found");
+      analytics.trackTunnelError("binary_missing", "Cloudflared binary not found");
+      // Give analytics a moment to send before exiting
+      await new Promise(resolve => setTimeout(resolve, 100));
       process.exit(1);
     }
 
@@ -576,6 +578,8 @@ class TunnelOrchestrator {
       analytics.trackTunnelError(errorType, error.message);
 
       UI.displayError(error, spinner);
+      // Give analytics a moment to send before exiting
+      await new Promise(resolve => setTimeout(resolve, 100));
       process.exit(1);
     }
   }
