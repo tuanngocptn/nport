@@ -1,0 +1,17 @@
+{
+  "name": "nport-site",
+  "version": "1.0.0",
+  "description": "the website for nport tool",
+  "main": "script.js",
+  "scripts": {
+    "minify": "node minify.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "tuanngocptn",
+  "license": "ISC",
+  "devDependencies": {
+    "clean-css": "^5.3.3",
+    "html-minifier": "^4.0.0",
+    "terser": "^5.37.0"
+  }
+}

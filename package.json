@@ -1,0 +1,85 @@
+{
+  "name": "nport",
+  "version": "2.0.1",
+  "description": "Free & open source ngrok alternative - Tunnel HTTP/HTTPS connections via Cloudflare Edge with custom subdomains",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "nport": "index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "keywords": [
+    "ngrok",
+    "ngrok-alternative",
+    "tunnel",
+    "cloudflare",
+    "cloudflared",
+    "http-tunnel",
+    "https-tunnel",
+    "localhost",
+    "localhost-tunnel",
+    "port-forwarding",
+    "webhook",
+    "webhook-testing",
+    "development",
+    "proxy",
+    "networking",
+    "custom-subdomain",
+    "free-ngrok",
+    "localtunnel"
+  ],
+  "homepage": "https://nport.link",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tuanngocptn/nport.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tuanngocptn/nport/issues",
+    "email": "tuanngocptn@gmail.com"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Nick Pham",
+    "email": "tuanngocptn@gmail.com",
+    "url": "https://github.com/tuanngocptn"
+  },
+  "contributors": [
+    {
+      "name": "Eric Barch",
+      "email": "ebarch@nooplabs.com"
+    }
+  ],
+  "funding": [
+    {
+      "type": "individual",
+      "url": "https://github.com/sponsors/tuanngocptn"
+    },
+    {
+      "type": "buymeacoffee",
+      "url": "https://buymeacoffee.com/tuanngocptn"
+    }
+  ],
+  "scripts": {
+    "postinstall": "node bin-manager.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "chalk": "^5.6.2",
+    "ora": "^9.0.0"
+  },
+  "files": [
+    "index.js",
+    "bin-manager.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ]
+}

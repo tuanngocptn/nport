@@ -1,0 +1,3 @@
+# This directory is for the cloudflared binary
+# The binary will be automatically downloaded when you run: npm install
+

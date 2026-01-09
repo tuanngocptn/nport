@@ -1,0 +1,5 @@
+CF_ACCOUNT_ID=<cloudflare_account_id>
+CF_ZONE_ID=<cloudflare_zone_id>
+CF_EMAIL=<cloudflare_email>
+CF_API_KEY=<cloudflare_api_key>
+CF_DOMAIN=<cloudflare_domain>
