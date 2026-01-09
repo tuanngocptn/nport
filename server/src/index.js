@@ -43,9 +43,7 @@ async function callCloudflareAPI(url, method, body, env) {
 	}
 
 	if (!response.ok || !responseJson.success) {
-		const errorDetails = responseJson.errors
-			? responseJson.errors.map((e) => `[${e.code}] ${e.message}`).join('; ')
-			: responseText;
+		const errorDetails = responseJson.errors ? responseJson.errors.map((e) => `[${e.code}] ${e.message}`).join('; ') : responseText;
 		throw new Error(`CF API Error: ${errorDetails}`);
 	}
 
@@ -257,38 +255,35 @@ async function handleCreateTunnel(body, env) {
 	// Step 1: Check if tunnel with this name already exists
 	try {
 		const existingTunnels = await findTunnelByName(subdomain, env);
-		
+
 		if (existingTunnels && existingTunnels.length > 0) {
 			const existingTunnel = existingTunnels[0];
 			console.log(`[Worker] Found existing tunnel: ${existingTunnel.id} (status: ${existingTunnel.status})`);
-			
+
 			// Check if tunnel is inactive (down, degraded, or not healthy)
-			const isInactive = existingTunnel.status === 'down' || 
-			                   existingTunnel.status === 'degraded' ||
-			                   existingTunnel.status === 'inactive';
-			
+			const isInactive = existingTunnel.status === 'down' || existingTunnel.status === 'degraded' || existingTunnel.status === 'inactive';
+
 			if (isInactive) {
 				console.log(`[Worker] Tunnel is inactive (${existingTunnel.status}), cleaning up...`);
-				
+
 				// Clean up old DNS record
 				await deleteDnsRecord(fullDnsName, env);
-				
+
 				// Delete old tunnel
 				await deleteTunnel(existingTunnel.id, env);
-				
+
 				console.log(`[Worker] Cleanup complete, proceeding with new tunnel creation`);
 			} else {
 				// Tunnel is active - this is a real conflict
 				console.log(`[Worker] Tunnel is active (${existingTunnel.status}), cannot create duplicate`);
 				throw new Error(
-					`Tunnel with name "${subdomain}" already exists and is currently active. ` +
-					`Please choose a different subdomain or wait for the existing tunnel to disconnect.`
+					`SUBDOMAIN_IN_USE: Subdomain "${subdomain}" is currently in use by an active tunnel.`
 				);
 			}
 		}
 	} catch (error) {
 		// If it's our custom error about active tunnel, rethrow it
-		if (error.message.includes('already exists and is currently active')) {
+		if (error.message.includes('SUBDOMAIN_IN_USE:')) {
 			throw error;
 		}
 		// Otherwise, log and continue (tunnel lookup failed, but we can try to create anyway)
@@ -377,7 +372,10 @@ export default {
 		console.log('[Cron] Starting cleanup job...');
 
 		try {
-			const deadTunnels = await listTunnels('down', env);
+			const downunnels = await listTunnels('down', env);
+			const inactiveTunnels = await listTunnels('inactive', env);
+			const degradedTunnels = await listTunnels('degraded', env);
+			const deadTunnels = [...downunnels, ...inactiveTunnels, ...degradedTunnels];
 			console.log(`[Cron] Found ${deadTunnels.length} dead tunnels`);
 
 			for (const tunnel of deadTunnels) {
