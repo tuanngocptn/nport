@@ -8,6 +8,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
+import { analytics } from "./analytics.js";
 
 // ============================================================================
 // Module Setup & Constants
@@ -79,12 +80,16 @@ class TunnelState {
     this.tunnelProcess = null;
     this.timeoutId = null;
     this.connectionCount = 0;
+    this.startTime = null;
   }
 
   setTunnel(tunnelId, subdomain, port) {
     this.tunnelId = tunnelId;
     this.subdomain = subdomain;
     this.port = port;
+    if (!this.startTime) {
+      this.startTime = Date.now();
+    }
   }
 
   setProcess(process) {
@@ -115,6 +120,11 @@ class TunnelState {
     return this.tunnelProcess && !this.tunnelProcess.killed;
   }
 
+  getDurationSeconds() {
+    if (!this.startTime) return 0;
+    return (Date.now() - this.startTime) / 1000;
+  }
+
   reset() {
     this.clearTimeout();
     this.tunnelId = null;
@@ -122,6 +132,7 @@ class TunnelState {
     this.port = null;
     this.tunnelProcess = null;
     this.connectionCount = 0;
+    this.startTime = null;
   }
 }
 
@@ -337,6 +348,11 @@ class VersionManager {
       const shouldUpdate =
         this.compareVersions(latestVersion, CONFIG.CURRENT_VERSION) > 0;
 
+      // Track update notification if available
+      if (shouldUpdate) {
+        analytics.trackUpdateAvailable(CONFIG.CURRENT_VERSION, latestVersion);
+      }
+
       return {
         current: CONFIG.CURRENT_VERSION,
         latest: latestVersion,
@@ -505,6 +521,12 @@ class TunnelOrchestrator {
   static async start(config) {
     state.setTunnel(null, config.subdomain, config.port);
 
+    // Initialize analytics
+    await analytics.initialize();
+
+    // Track CLI start
+    analytics.trackCliStart(config.port, config.subdomain, CONFIG.CURRENT_VERSION);
+
     // Display UI
     UI.displayStartupBanner(config.port);
 
@@ -514,6 +536,7 @@ class TunnelOrchestrator {
 
     // Validate binary
     if (!BinaryManager.validate(PATHS.BIN_PATH)) {
+      await analytics.trackTunnelError("binary_missing", "Cloudflared binary not found");
       process.exit(1);
     }
 
@@ -523,6 +546,9 @@ class TunnelOrchestrator {
       // Create tunnel
       const tunnel = await APIClient.createTunnel(config.subdomain);
       state.setTunnel(tunnel.tunnelId, config.subdomain, config.port);
+
+      // Track successful tunnel creation
+      analytics.trackTunnelCreated(config.subdomain, config.port);
 
       spinner.succeed(chalk.green("Tunnel created!"));
       UI.displayTunnelSuccess(tunnel.url);
@@ -539,16 +565,22 @@ class TunnelOrchestrator {
       // Set timeout
       const timeoutId = setTimeout(() => {
         UI.displayTimeoutWarning();
-        this.cleanup();
+        this.cleanup("timeout");
       }, TUNNEL_TIMEOUT_MS);
       state.setTimeout(timeoutId);
     } catch (error) {
+      // Track tunnel creation error
+      const errorType = error.message.includes("already taken") 
+        ? "subdomain_taken" 
+        : "tunnel_creation_failed";
+      analytics.trackTunnelError(errorType, error.message);
+
       UI.displayError(error, spinner);
       process.exit(1);
     }
   }
 
-  static async cleanup() {
+  static async cleanup(reason = "manual") {
     state.clearTimeout();
 
     if (!state.hasTunnel()) {
@@ -556,6 +588,10 @@ class TunnelOrchestrator {
     }
 
     UI.displayCleanupStart();
+
+    // Track tunnel shutdown with duration
+    const duration = state.getDurationSeconds();
+    analytics.trackTunnelShutdown(reason, duration);
 
     try {
       // Kill process
@@ -569,6 +605,9 @@ class TunnelOrchestrator {
     } catch (err) {
       UI.displayCleanupError();
     }
+
+    // Give analytics a moment to send (non-blocking)
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     process.exit(0);
   }
