@@ -393,6 +393,13 @@ class UI {
     if (!updateInfo || !updateInfo.shouldUpdate) return;
 
     const border = "═".repeat(59);
+    const boxWidth = 59;
+    
+    // Calculate padding dynamically
+    const currentVersionText = `  Current version: v${updateInfo.current}`;
+    const latestVersionText = `  Latest version:  v${updateInfo.latest}`;
+    const runCommandText = `  Run: npm install -g ${CONFIG.PACKAGE_NAME}@latest`;
+    
     console.log(chalk.yellow(`\n╔${border}╗`));
     console.log(
       chalk.yellow("║") +
@@ -405,14 +412,14 @@ class UI {
       chalk.yellow("║") +
         chalk.gray(`  Current version: `) +
         chalk.red(`v${updateInfo.current}`) +
-        " ".repeat(26) +
+        " ".repeat(boxWidth - currentVersionText.length) +
         chalk.yellow("║")
     );
     console.log(
       chalk.yellow("║") +
         chalk.gray(`  Latest version:  `) +
         chalk.green(`v${updateInfo.latest}`) +
-        " ".repeat(26) +
+        " ".repeat(boxWidth - latestVersionText.length) +
         chalk.yellow("║")
     );
     console.log(chalk.yellow(`╠${border}╣`));
@@ -420,7 +427,7 @@ class UI {
       chalk.yellow("║") +
         chalk.cyan(`  Run: `) +
         chalk.bold(`npm install -g ${CONFIG.PACKAGE_NAME}@latest`) +
-        " ".repeat(10) +
+        " ".repeat(boxWidth - runCommandText.length) +
         chalk.yellow("║")
     );
     console.log(chalk.yellow(`╚${border}╝\n`));
