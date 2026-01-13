@@ -2,14 +2,16 @@ import { CONFIG } from "./config.js";
 
 /**
  * Command Line Argument Parser
- * Handles parsing of CLI arguments for port, subdomain, and language
+ * Handles parsing of CLI arguments for port, subdomain, language, and backend URL
  */
 export class ArgumentParser {
   static parse(argv) {
     const port = this.parsePort(argv);
     const subdomain = this.parseSubdomain(argv);
     const language = this.parseLanguage(argv);
-    return { port, subdomain, language };
+    const backendUrl = this.parseBackendUrl(argv);
+    const setBackend = this.parseSetBackend(argv);
+    return { port, subdomain, language, backendUrl, setBackend };
   }
 
   static parsePort(argv) {
@@ -64,6 +66,43 @@ export class ArgumentParser {
     }
 
     return null; // No language specified
+  }
+
+  static parseBackendUrl(argv) {
+    // Try backend URL flag formats: --backend=url, --backend url, -b url
+    const formats = [
+      () => this.findFlagWithEquals(argv, "--backend="),
+      () => this.findFlagWithEquals(argv, "-b="),
+      () => this.findFlagWithValue(argv, "--backend"),
+      () => this.findFlagWithValue(argv, "-b"),
+    ];
+
+    for (const format of formats) {
+      const url = format();
+      if (url) return url;
+    }
+
+    return null; // No backend URL specified
+  }
+
+  static parseSetBackend(argv) {
+    // Try set-backend flag formats: --set-backend=url, --set-backend url
+    const formats = [
+      () => this.findFlagWithEquals(argv, "--set-backend="),
+      () => this.findFlagWithValue(argv, "--set-backend"),
+    ];
+
+    for (const format of formats) {
+      const url = format();
+      if (url) return url;
+    }
+
+    // Check if --set-backend flag exists without value (to clear)
+    if (argv.includes('--set-backend')) {
+      return 'clear';
+    }
+
+    return null; // No set-backend specified
   }
 
   static findFlagWithEquals(argv, flag) {

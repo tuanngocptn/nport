@@ -6,32 +6,73 @@ This guide will help you set up and use the NPort CLI client to create tunnels t
 
 - [Node.js](https://nodejs.org/) >= 18.0.0
 - npm >= 8.0.0
-- A running NPort server (see [Server Setup](./server/README.md))
+- A running NPort backend server (see [Server Setup](./server/README.md))
 
 ## Installation
 
-### Option 1: Install from npm (Recommended)
+Install NPort from npm:
 
 ```bash
 npm install -g nport
 ```
 
-### Option 2: Install from Source
+That's it! NPort will automatically download the required binary on first use.
+
+## Backend Configuration
+
+### Option 1: Set Backend Permanently (Recommended)
+
+Save your backend URL once, and it will be used for all future sessions:
 
 ```bash
-# Clone the repository
-git clone https://github.com/tuanngocptn/nport.git
-cd nport
+# Set your backend URL
+nport --set-backend https://api.nport.link
 
-# Install dependencies
-npm install
-
-# Link globally for development
-npm link
-
-# Or run directly
-node index.js
+# Now use nport normally
+nport 3000
+nport 3000 -s myapp
 ```
+
+To clear the saved backend:
+```bash
+nport --set-backend
+```
+
+### Option 2: Use Backend Temporarily
+
+Specify backend for just one session:
+
+```bash
+# Using --backend flag
+nport 3000 --backend https://api.nport.link
+
+# Using -b shorthand
+nport 3000 -b https://api.nport.link
+```
+
+### Option 3: Use Environment Variable
+
+Set the backend via environment variable:
+
+```bash
+# Linux/macOS
+export NPORT_BACKEND_URL=https://api.nport.link
+nport 3000
+
+# Windows (PowerShell)
+$env:NPORT_BACKEND_URL="https://api.nport.link"
+nport 3000
+
+# Windows (CMD)
+set NPORT_BACKEND_URL=https://api.nport.link
+nport 3000
+```
+
+**Priority Order:**
+1. CLI flag (`--backend` / `-b`) - Highest priority
+2. Saved config (`--set-backend`)
+3. Environment variable (`NPORT_BACKEND_URL`)
+4. Default (`https://api.nport.link`) - Lowest priority
 
 ## Quick Start
 
@@ -151,30 +192,27 @@ nport 8000 -s demo
 
 ## Configuration
 
-### Backend URL
+### View Current Configuration
 
-By default, nport connects to the official backend at `https://nport.tuanngocptn.workers.dev`.
-
-To use your own backend server, edit `index.js`:
-
-```javascript
-const CONFIG = {
-  BACKEND_URL: "https://your-worker-name.your-account.workers.dev",
-  // or your custom domain:
-  // BACKEND_URL: "https://api.nport.link",
-  // ...
-};
+```bash
+# Check saved backend URL
+cat ~/.nport/config.json
 ```
 
-### Auto-Cleanup Timeout
+### Backend Examples
 
-Tunnels automatically close after 4 hours. To change this, edit `index.js`:
+```bash
+# Official backend (default)
+nport --set-backend https://api.nport.link
 
-```javascript
-const CONFIG = {
-  TUNNEL_TIMEOUT_HOURS: 8,  // Change from 4 to 8 hours
-  // ...
-};
+# Self-hosted backend
+nport --set-backend https://your-backend.example.com
+
+# Local development backend
+nport --set-backend http://localhost:8787
+
+# Cloudflare Worker
+nport --set-backend https://your-worker.your-account.workers.dev
 ```
 
 ## Command-Line Options
@@ -189,9 +227,13 @@ nport [port] [options]
 
 ### Options
 
-- `--subdomain <name>` or `-s <name>` - Custom subdomain for your tunnel
-  - Example: `-s my-app` creates `https://my-app.nport.link`
-  - If not provided, a random subdomain like `user-1234` is generated
+| Option | Short | Description | Example |
+|--------|-------|-------------|---------|
+| `--subdomain <name>` | `-s` | Custom subdomain | `nport 3000 -s myapp` |
+| `--backend <url>` | `-b` | Backend URL (temporary) | `nport 3000 -b https://api.nport.link` |
+| `--set-backend <url>` | - | Save backend URL permanently | `nport --set-backend https://api.nport.link` |
+| `--language <lang>` | `-l` | Set language (en/vi) | `nport -l en` |
+| `--version` | `-v` | Show version | `nport -v` |
 
 ## Features
 
@@ -306,88 +348,53 @@ If you see a 522 error in your browser but the tunnel shows as active:
 4. **Try incognito mode** - Opens a fresh session
 5. **Try a different device** - Test from your phone
 
-## Development
-
-### Building from Source
-
-```bash
-# Clone repository
-git clone https://github.com/tuanngocptn/nport.git
-cd nport
-
-# Install dependencies
-npm install
-
-# Run locally
-node index.js 3000 -s test
-
-# Link globally for development
-npm link
-
-# Test
-nport 3000 -s test
-```
-
-### Project Structure
-
-```
-nport/
-├── index.js              # Main CLI application
-├── bin-manager.js        # Binary download & management
-├── bin/                  # Downloaded cloudflared binaries
-│   └── cloudflared      # Platform-specific binary
-├── package.json          # Dependencies & scripts
-└── README.md            # Documentation
-```
-
-### Key Components
-
-1. **`index.js`** - Main application
-   - Argument parsing
-   - API client for backend
-   - Cloudflared process management
-   - UI display and logging
-
-2. **`bin-manager.js`** - Binary management
-   - Downloads cloudflared binary on first run
-   - Platform detection (Windows/macOS/Linux)
-   - Architecture detection (x64/arm64)
-   - Permission management
-
 ## Advanced Usage
 
-### Using with ngrok Alternative Config
+### Migrating from ngrok
 
-If you're migrating from ngrok, nport works similarly:
+If you're coming from ngrok, nport works similarly:
 
 ```bash
 # ngrok
 ngrok http 3000
 
 # nport equivalent
-nport 3000
+nport 3000 --backend https://api.nport.link
 
 
 # ngrok with custom subdomain
 ngrok http 3000 --subdomain my-app
 
-# nport equivalent
-nport 3000 -s my-app
+# nport equivalent  
+nport 3000 -s my-app --backend https://api.nport.link
 ```
 
-### Environment Variables
+### Multiple Environments
 
-You can configure nport behavior via code in `index.js`:
+```bash
+# Development
+nport --set-backend http://localhost:8787
+nport 3000
 
-```javascript
-const CONFIG = {
-  PACKAGE_NAME: "nport",
-  BACKEND_URL: "https://your-backend.workers.dev",
-  DEFAULT_PORT: 8080,
-  SUBDOMAIN_PREFIX: "user-",
-  TUNNEL_TIMEOUT_HOURS: 4,
-  UPDATE_CHECK_TIMEOUT: 3000,
-};
+# Staging
+nport --set-backend https://staging-api.nport.link
+nport 3000
+
+# Production
+nport --set-backend https://api.nport.link
+nport 3000
+```
+
+### Team Setup
+
+Share the backend configuration command with your team:
+
+```bash
+# Everyone runs this once
+nport --set-backend https://company-backend.example.com
+
+# Then everyone can use nport normally
+nport 3000
 ```
 
 ## Best Practices

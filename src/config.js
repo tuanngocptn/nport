@@ -7,11 +7,23 @@ const __dirname = path.dirname(path.dirname(__filename));
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
 
+// Helper function to get backend URL with priority order
+function getBackendUrl() {
+  // Priority 1: Environment variable
+  if (process.env.NPORT_BACKEND_URL) {
+    return process.env.NPORT_BACKEND_URL;
+  }
+  
+  // Priority 2: Saved config (will be set by config-manager if available)
+  // Priority 3: Default
+  return "https://api.nport.link";
+}
+
 // Application constants
 export const CONFIG = {
   PACKAGE_NAME: packageJson.name,
   CURRENT_VERSION: packageJson.version,
-  BACKEND_URL: "https://nport.tuanngocptn.workers.dev",
+  BACKEND_URL: getBackendUrl(),
   DEFAULT_PORT: 8080,
   SUBDOMAIN_PREFIX: "user-",
   TUNNEL_TIMEOUT_HOURS: 4,

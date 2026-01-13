@@ -158,6 +158,8 @@ nport <port> [options]
 |--------|-------|-------------|---------|
 | `<port>` | - | Local port to tunnel (default: 8080) | `nport 3000` |
 | `--subdomain` | `-s` | Custom subdomain | `nport 3000 -s myapp` |
+| `--backend` | `-b` | Custom backend URL (temporary) | `nport 3000 -b https://your-backend.com` |
+| `--set-backend` | - | Save backend URL permanently | `nport --set-backend https://your-backend.com` |
 | `--language` | `-l` | Set language (en/vi) or prompt | `nport 3000 -l vi` |
 | `--version` | `-v` | Show version information | `nport -v` |
 
@@ -176,6 +178,61 @@ nport -l                    # Interactive prompt
 ```
 
 On first run or when using `--language` without a value, you'll see an interactive language picker. Your choice is automatically saved for future sessions.
+
+### Backend URL Options
+
+NPort uses a default backend at `https://api.nport.link`, but you can use your own backend server.
+
+#### Temporary Backend (One-time Use)
+
+Use a custom backend for just the current session:
+
+```bash
+# Use custom backend via CLI flag
+nport 3000 --backend https://your-backend.com
+nport 3000 -b https://your-backend.com
+
+# Use custom backend via environment variable
+export NPORT_BACKEND_URL=https://your-backend.com
+nport 3000
+
+# Combine with other options
+nport 3000 -s myapp -b https://your-backend.com
+```
+
+#### Persistent Backend (Saved Configuration)
+
+Save a backend URL to use automatically in all future sessions:
+
+```bash
+# Save backend URL permanently
+nport --set-backend https://your-backend.com
+
+# Now all future commands will use this backend
+nport 3000              # Uses saved backend
+nport 3000 -s myapp     # Uses saved backend
+
+# Clear saved backend (return to default)
+nport --set-backend
+
+# Override saved backend temporarily
+nport 3000 -b https://different-backend.com
+```
+
+**Configuration Priority:**
+1. CLI flag (`--backend` or `-b`) - Highest priority
+2. Saved config (`--set-backend`)
+3. Environment variable (`NPORT_BACKEND_URL`)
+4. Default (`https://api.nport.link`) - Lowest priority
+
+**Configuration Storage:**
+Your backend preference is saved in `~/.nport/config.json`
+
+This is useful if you want to:
+- **Self-host**: Run your own NPort backend (see [server/](server/) directory)
+- **Development**: Test against a local backend
+- **Custom domains**: Use your own domain for tunnel URLs
+- **Enterprise**: Use a company-hosted backend server
 
 ### Version Information
 

@@ -8,9 +8,10 @@ import { state } from "./state.js";
  * Handles communication with the NPort backend service
  */
 export class APIClient {
-  static async createTunnel(subdomain) {
+  static async createTunnel(subdomain, backendUrl = null) {
+    const url = backendUrl || CONFIG.BACKEND_URL;
     try {
-      const { data } = await axios.post(CONFIG.BACKEND_URL, { subdomain });
+      const { data } = await axios.post(url, { subdomain });
 
       if (!data.success) {
         throw new Error(data.error || "Unknown error from backend");
@@ -26,8 +27,9 @@ export class APIClient {
     }
   }
 
-  static async deleteTunnel(subdomain, tunnelId) {
-    await axios.delete(CONFIG.BACKEND_URL, {
+  static async deleteTunnel(subdomain, tunnelId, backendUrl = null) {
+    const url = backendUrl || CONFIG.BACKEND_URL;
+    await axios.delete(url, {
       data: { subdomain, tunnelId },
     });
   }

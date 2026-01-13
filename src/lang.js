@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import readline from "readline";
+import { configManager } from "./config-manager.js";
 
 // ============================================================================
 // Language Translations
@@ -126,8 +127,6 @@ const TRANSLATIONS = {
 class LanguageManager {
   constructor() {
     this.currentLanguage = "en";
-    this.configDir = path.join(os.homedir(), ".nport");
-    this.configFile = path.join(this.configDir, "lang");
     this.availableLanguages = ["en", "vi"];
   }
 
@@ -154,15 +153,9 @@ class LanguageManager {
    * @returns {string|null} Saved language code or null
    */
   loadLanguagePreference() {
-    try {
-      if (fs.existsSync(this.configFile)) {
-        const lang = fs.readFileSync(this.configFile, "utf8").trim();
-        if (this.availableLanguages.includes(lang)) {
-          return lang;
-        }
-      }
-    } catch (error) {
-      // Ignore errors, will prompt user
+    const lang = configManager.getLanguage();
+    if (lang && this.availableLanguages.includes(lang)) {
+      return lang;
     }
     return null;
   }
@@ -172,16 +165,7 @@ class LanguageManager {
    * @param {string} lang - Language code to save
    */
   saveLanguagePreference(lang) {
-    try {
-      // Ensure .nport directory exists
-      if (!fs.existsSync(this.configDir)) {
-        fs.mkdirSync(this.configDir, { recursive: true });
-      }
-      fs.writeFileSync(this.configFile, lang, "utf8");
-    } catch (error) {
-      // Silently fail if can't save
-      console.warn("Warning: Could not save language preference");
-    }
+    configManager.setLanguage(lang);
   }
 
   /**

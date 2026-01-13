@@ -7,6 +7,7 @@ class TunnelState {
     this.tunnelId = null;
     this.subdomain = null;
     this.port = null;
+    this.backendUrl = null;
     this.tunnelProcess = null;
     this.timeoutId = null;
     this.connectionCount = 0;
@@ -14,10 +15,11 @@ class TunnelState {
     this.updateInfo = null;
   }
 
-  setTunnel(tunnelId, subdomain, port) {
+  setTunnel(tunnelId, subdomain, port, backendUrl = null) {
     this.tunnelId = tunnelId;
     this.subdomain = subdomain;
     this.port = port;
+    this.backendUrl = backendUrl;
     if (!this.startTime) {
       this.startTime = Date.now();
     }
@@ -65,6 +67,7 @@ class TunnelState {
     this.tunnelId = null;
     this.subdomain = null;
     this.port = null;
+    this.backendUrl = null;
     this.tunnelProcess = null;
     this.connectionCount = 0;
     this.startTime = null;

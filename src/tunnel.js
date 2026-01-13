@@ -15,7 +15,7 @@ import { lang } from "./lang.js";
  */
 export class TunnelOrchestrator {
   static async start(config) {
-    state.setTunnel(null, config.subdomain, config.port);
+    state.setTunnel(null, config.subdomain, config.port, config.backendUrl);
 
     // Initialize analytics
     await analytics.initialize();
@@ -42,8 +42,8 @@ export class TunnelOrchestrator {
 
     try {
       // Create tunnel
-      const tunnel = await APIClient.createTunnel(config.subdomain);
-      state.setTunnel(tunnel.tunnelId, config.subdomain, config.port);
+      const tunnel = await APIClient.createTunnel(config.subdomain, config.backendUrl);
+      state.setTunnel(tunnel.tunnelId, config.subdomain, config.port, config.backendUrl);
 
       // Track successful tunnel creation
       analytics.trackTunnelCreated(config.subdomain, config.port);
@@ -101,7 +101,7 @@ export class TunnelOrchestrator {
       }
 
       // Delete tunnel
-      await APIClient.deleteTunnel(state.subdomain, state.tunnelId);
+      await APIClient.deleteTunnel(state.subdomain, state.tunnelId, state.backendUrl);
       UI.displayCleanupSuccess();
     } catch (err) {
       UI.displayCleanupError();
