@@ -29,6 +29,7 @@ Perfect for:
 - 📡 **WebSocket Support**: Full WebSocket and Server-Sent Events support
 - 🎯 **No Configuration**: Works out of the box
 - 💻 **Cross-Platform**: Windows, macOS, and Linux support
+- 🗣️ **Multilingual**: English and Vietnamese UI support
 - 🆓 **100% Free**: No accounts, no limits, no paywalls
 - 🔓 **Open Source**: MIT licensed
 
@@ -61,18 +62,29 @@ nport 3000
 
 Output:
 ```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  NPort - Free & Open Source ngrok Alternative
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  🌐 Website: https://nport.link
-  📦 NPM:     https://www.npmjs.com/package/nport
-  💻 GitHub:  https://github.com/tuanngocptn/nport
-  ☕ Support: https://buymeacoffee.com/tuanngocptn
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ ╭────────────────────────────────────────────────────────╮
+ │  N P O R T  ⚡️  Free & Open Source from Vietnam        │
+ ╰────────────────────────────────────────────────────────╯
 
-🚀 Starting Tunnel for port 3000...
-✔ Tunnel created!
-🌍 Public URL: https://user-1234.nport.link
+⠋ Creating tunnel for port 3000...
+   🚀 WE LIVE BABY!
+   
+   👉  https://user-1234.nport.link  👈
+   
+   ───────────────────────────────────────────────────────
+   
+   ⏱️  Time:     4h remaining
+   
+   ✔ [1/2] Connection established...
+   ✔ [2/2] Compression enabled...
+   
+   ───────────────────────────────────────────────────────
+   
+   🔥 KEEP THE VIBE ALIVE?
+      (Made with ❤️ in Vietnam)
+
+   ⭐️  Drop a Star:   https://github.com/tuanngocptn/nport
+   ☕️  Buy Coffee:    https://buymeacoffee.com/tuanngocptn
 ```
 
 ### Custom Subdomain
@@ -146,7 +158,32 @@ nport <port> [options]
 |--------|-------|-------------|---------|
 | `<port>` | - | Local port to tunnel (default: 8080) | `nport 3000` |
 | `--subdomain` | `-s` | Custom subdomain | `nport 3000 -s myapp` |
-| `-s=value` | - | Alternative format | `nport 3000 -s=myapp` |
+| `--language` | `-l` | Set language (en/vi) or prompt | `nport 3000 -l vi` |
+| `--version` | `-v` | Show version information | `nport -v` |
+
+### Language Options
+
+NPort supports multiple languages with automatic detection on first run.
+
+```bash
+# Set language directly
+nport 3000 --language en    # English
+nport 3000 -l vi            # Vietnamese
+
+# Open language selection menu
+nport --language            # Interactive prompt
+nport -l                    # Interactive prompt
+```
+
+On first run or when using `--language` without a value, you'll see an interactive language picker. Your choice is automatically saved for future sessions.
+
+### Version Information
+
+```bash
+# Check current version and updates
+nport -v
+nport --version
+```
 
 ## 🔧 How It Works
 
@@ -162,12 +199,36 @@ Internet → Cloudflare Edge → Cloudflare Tunnel → Your localhost:3000
          (https://myapp.nport.link)
 ```
 
+## 🏗️ Project Structure
+
+NPort uses a modular architecture for better maintainability:
+
+```
+nport/
+├── index.js              # Main entry point
+├── src/
+│   ├── analytics.js      # Analytics tracking
+│   ├── api.js            # Backend API client
+│   ├── args.js           # CLI argument parser
+│   ├── binary.js         # Cloudflared binary manager
+│   ├── bin-manager.js    # Binary download/installation
+│   ├── config.js         # Configuration constants
+│   ├── lang.js           # Multilingual support
+│   ├── state.js          # Application state
+│   ├── tunnel.js         # Tunnel orchestration
+│   ├── ui.js             # User interface display
+│   └── version.js        # Version management
+└── bin/
+    └── cloudflared       # Cloudflare tunnel binary
+```
+
 ## 🛡️ Security
 
 - **HTTPS by default**: All tunnels use SSL/TLS encryption
 - **Cloudflare protection**: DDoS protection and security features
 - **Automatic cleanup**: Tunnels are removed when you stop the process
 - **No data logging**: We don't store or log your traffic
+- **Privacy**: Anonymous analytics (can be disabled with `NPORT_ANALYTICS=false`)
 
 ## 🆚 Comparison with ngrok
 
@@ -177,9 +238,10 @@ Internet → Cloudflare Edge → Cloudflare Tunnel → Your localhost:3000
 | Custom subdomains | ✅ Always | ❌ Paid only |
 | HTTPS | ✅ Always | ✅ |
 | Account required | ❌ No | ✅ Yes |
-| Time limits | ❌ None | ⚠️ Free tier limited |
+| Time limits | ❌ None (4h auto-cleanup) | ⚠️ Free tier limited |
 | Open source | ✅ MIT | ❌ Proprietary |
 | Global network | ✅ Cloudflare | ✅ ngrok Edge |
+| Multilingual | ✅ EN/VI | ❌ English only |
 
 ## 🧹 Cleanup
 
@@ -192,6 +254,8 @@ The cleanup process:
 1. ✅ Deletes DNS record (`myapp.nport.link`)
 2. ✅ Removes Cloudflare Tunnel
 3. ✅ Stops cloudflared process
+
+Tunnels also auto-cleanup after **4 hours** to prevent resource waste.
 
 ## 🐛 Troubleshooting
 
@@ -222,6 +286,24 @@ nport 3000 -s myapp-v2
 
 The `ERR Cannot determine default origin certificate path` warning is harmless and can be ignored. It appears because cloudflared checks for certificate-based authentication (we use token-based instead).
 
+### Change language
+
+To change your language preference:
+```bash
+nport --language
+# or
+nport -l
+```
+
+Then select your preferred language from the menu.
+
+## 🌍 Supported Languages
+
+- 🇺🇸 **English** (`en`) - Default
+- 🇻🇳 **Vietnamese** (`vi`) - Tiếng Việt
+
+Want to add your language? Contributions are welcome! Check out `src/lang.js` to see how easy it is to add translations.
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -232,6 +314,24 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+### Adding a New Language
+
+To add a new language:
+
+1. Open `src/lang.js`
+2. Add your language code to `availableLanguages` array
+3. Add translations to the `TRANSLATIONS` object
+4. Submit a PR!
+
+Example:
+```javascript
+const TRANSLATIONS = {
+  en: { /* English translations */ },
+  vi: { /* Vietnamese translations */ },
+  es: { /* Your Spanish translations */ },
+};
+```
+
 ## 💖 Support
 
 If you find NPort useful, please consider supporting the project:
@@ -240,6 +340,7 @@ If you find NPort useful, please consider supporting the project:
 - ☕ [Buy me a coffee](https://buymeacoffee.com/tuanngocptn)
 - 💬 Share with your friends and colleagues
 - 🐛 [Report bugs](https://github.com/tuanngocptn/nport/issues)
+- 🌍 [Add translations](https://github.com/tuanngocptn/nport/blob/main/src/lang.js)
 
 ## 📄 License
 
@@ -247,7 +348,7 @@ If you find NPort useful, please consider supporting the project:
 
 ## 🙏 Credits
 
-- Created by [Nick Pham](https://github.com/tuanngocptn) 🇻🇳
+- Created by [Nick Pham](https://github.com/tuanngocptn) from Vietnam
 - Powered by [Cloudflare Tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/)
 - Inspired by [ngrok](https://ngrok.com) and [localtunnel](https://github.com/localtunnel/localtunnel)
 
@@ -260,4 +361,4 @@ If you find NPort useful, please consider supporting the project:
 
 ---
 
-Made with ❤️ by [Nick Pham](https://github.com/tuanngocptn)
+Made with ❤️ in Vietnam by [Nick Pham](https://github.com/tuanngocptn)

@@ -11,7 +11,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(path.dirname(__filename));
 
 // Firebase/GA4 Configuration (from website/home.html)
 // Full Firebase config for reference (if needed for future features)
@@ -36,7 +36,7 @@ const ANALYTICS_CONFIG = {
   enabled: true, // Can be disabled by environment variable
   debug: process.env.NPORT_DEBUG === "true",
   timeout: 2000, // Don't block CLI for too long
-  userIdFile: path.join(os.homedir(), ".nport-analytics"),
+  userIdFile: path.join(os.homedir(), ".nport", "analytics-id"),
 };
 
 // ============================================================================
@@ -92,6 +92,12 @@ class AnalyticsManager {
    */
   async getUserId() {
     try {
+      // Ensure .nport directory exists
+      const configDir = path.join(os.homedir(), ".nport");
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+
       // Try to read existing user ID
       if (fs.existsSync(ANALYTICS_CONFIG.userIdFile)) {
         const userId = fs.readFileSync(ANALYTICS_CONFIG.userIdFile, "utf8").trim();

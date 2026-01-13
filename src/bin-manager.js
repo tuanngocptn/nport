@@ -11,7 +11,7 @@ import { fileURLToPath } from "url";
 
 // Fix for __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(path.dirname(__filename));
 
 // Binary configuration
 const BIN_DIR = path.join(__dirname, "bin");
@@ -376,3 +376,4 @@ async function main() {
 if (process.argv[1] === __filename) {
   main();
 }
+
