@@ -9,8 +9,13 @@ import { lang } from "./lang.js";
 export class UI {
   static displayProjectInfo() {
     const line = "─".repeat(56);
+    const headerText = lang.t("header");
+    // Calculate proper padding (accounting for emojis which take visual space)
+    const visualLength = 59; // Target visual width
+    const padding = " ".repeat(Math.max(0, visualLength - headerText.length - 4));
+    
     console.log(chalk.gray(`\n ╭${line}╮`));
-    console.log(chalk.cyan.bold(` │  ${lang.t("header")}`) + " ".repeat(56 - lang.t("header").length - 4) + chalk.gray("│"));
+    console.log(chalk.cyan.bold(` │  ${headerText}`) + padding + chalk.gray("│"));
     console.log(chalk.gray(` ╰${line}╯\n`));
   }
 

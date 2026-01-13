@@ -10,7 +10,7 @@ import readline from "readline";
 const TRANSLATIONS = {
   en: {
     // Header
-    header: "N P O R T  ⚡️  Free & Open Source from Vietnam",
+    header: "N P O R T  ⚡️  Free & Open Source from Vietnam ❤️",
     
     // Spinners
     creatingTunnel: "Creating tunnel for port {port}...",
@@ -24,7 +24,7 @@ const TRANSLATIONS = {
     
     // Footer
     footerTitle: "🔥 KEEP THE VIBE ALIVE?",
-    footerSubtitle: "(Made with ❤️ in Vietnam)",
+    footerSubtitle: "(Made with ❤️  in Vietnam)",
     dropStar: "⭐️  Drop a Star:   ",
     sendCoffee: "☕️  Buy Coffee:    ",
     newVersion: "🚨 NEW VERSION (v{version}) detected!",
@@ -78,7 +78,7 @@ const TRANSLATIONS = {
     timeRemaining: "⏱️  Tăng tốc thần sầu: Còn {hours}h để quẩy!",
     
     // Footer
-    footerTitle: "🔥 LƯU DANH SỬ SÁCH! KHÔNG QUÊN STAR",
+    footerTitle: "🔥 LƯU DANH SỬ SÁCH! ĐỪNG QUÊN STAR ⭐️",
     footerSubtitle: "(Made in Việt Nam, chuẩn không cần chỉnh! ❤️)",
     dropStar: "⭐️  Thả Star: ",
     sendCoffee: "☕️  Tặng Coffee: ",
@@ -97,7 +97,7 @@ const TRANSLATIONS = {
     goodbyeTitle: "👋 GẶP LẠI BẠN Ở ĐƯỜNG BĂNG KHÁC...",
     goodbyeMessage: "Cảm ơn đã quẩy NPort! Lần sau chơi tiếp nha 😘",
     website: "🌐 Sân chơi chính: ",
-    author: "👤 Nhà tài trợ chương trình: ",
+    author: "👤 Nhà tài trợ: ",
     changeLanguage: "🌍 Đổi ngôn ngữ: ",
     changeLanguageHint: "nport --language",
     
