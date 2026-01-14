@@ -2,12 +2,25 @@
 
 Backend API server for NPort tunnel management, deployed as a Cloudflare Worker.
 
+## What's New in v1.0.1
+
+🎉 **Major Improvements:**
+- ✅ Added support for **API Token authentication** (recommended over API Key)
+- ✅ Fixed DNS record conflict error `[#81053]` - now automatically detects and cleans up orphaned DNS records
+- ✅ Enhanced DNS record detection to check for A, AAAA, and CNAME records (not just CNAME)
+- ✅ Improved error handling for Cloudflare API authentication issues
+- ✅ Better validation of environment variables and credentials
+
+See [CHANGELOG.md](./CHANGELOG.md) for full details.
+
 ## Features
 
 - 🚀 Creates and manages Cloudflare Tunnels via API
-- 🌐 Automatically configures DNS records
+- 🌐 Automatically configures DNS records (supports A, AAAA, and CNAME records)
 - 🧹 Auto-cleanup of inactive tunnels via cron job (every 30 minutes)
-- 🔒 Secure authentication using Cloudflare credentials
+- 🔒 Secure authentication using Cloudflare credentials (API Token or API Key)
+- 🛠️ Automatic orphaned DNS record cleanup
+- ✅ Smart conflict resolution for existing tunnels and DNS records
 
 ## Prerequisites
 
@@ -31,17 +44,32 @@ Backend API server for NPort tunnel management, deployed as a Cloudflare Worker.
 3. Scroll down on the **Overview** page
 4. Copy **Zone ID** from the right sidebar
 
-#### 1.3 API Key (Global API Key)
+#### 1.3 Authentication Credentials (Choose ONE method)
+
+**Option A: API Token (Recommended)** 🌟
+
+API Tokens are more secure and have granular permissions.
+
+1. Go to [My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens)
+2. Click **Create Token**
+3. Choose **Edit Cloudflare Workers** template (or create custom token)
+4. Add the following permissions:
+   - **Account** → **Cloudflare Tunnel** → **Edit**
+   - **Zone** → **DNS** → **Edit**
+5. Set **Zone Resources** to include your domain
+6. Click **Continue to summary** → **Create Token**
+7. Copy the token (you won't see it again!)
+
+**Option B: Global API Key (Legacy)**
+
 1. Go to [My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens)
 2. Scroll down to **API Keys** section
 3. Click **View** next to "Global API Key"
 4. Enter your password to reveal the key
 5. Copy the API Key
+6. You'll also need your Cloudflare account email address
 
-⚠️ **Important**: Keep your Global API Key secure. Never commit it to git.
-
-#### 1.4 Email
-Your Cloudflare account email address.
+⚠️ **Important**: Keep your credentials secure. Never commit them to git.
 
 ### Step 2: Install Dependencies
 
@@ -60,6 +88,16 @@ cp .dev.vars.example .dev.vars
 ```
 
 Edit `.dev.vars` with your values:
+
+**Option A: Using API Token (Recommended):**
+```bash
+CF_API_TOKEN=your_api_token_here
+CF_ACCOUNT_ID=your_account_id_here
+CF_ZONE_ID=your_zone_id_here
+CF_DOMAIN=your_domain_here
+```
+
+**Option B: Using Global API Key (Legacy):**
 ```bash
 CF_EMAIL=your-cloudflare-email@example.com
 CF_API_KEY=your_global_api_key_here
@@ -68,10 +106,9 @@ CF_ZONE_ID=your_zone_id_here
 CF_DOMAIN=your_domain_here
 ```
 
-**Example:**
+**Example with API Token:**
 ```bash
-CF_EMAIL=john@example.com
-CF_API_KEY=abc123def456ghi789jkl012mno345pqr678stu
+CF_API_TOKEN=abc123def456ghi789jkl012mno345pqr678stu
 CF_ACCOUNT_ID=40f40ad7644468d2f786a6674319dc50
 CF_ZONE_ID=f693c43670e6992ffb63cefe86c87135
 CF_DOMAIN=nport.link
@@ -120,7 +157,29 @@ Current Deployment ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 ### Step 6: Set Production Secrets
 
-After deploying, set the secrets in production:
+After deploying, set the secrets in production.
+
+**Option A: Using API Token (Recommended):**
+
+```bash
+# Set API Token
+wrangler secret put CF_API_TOKEN
+# When prompted, paste your API Token
+
+# Set Account ID
+wrangler secret put CF_ACCOUNT_ID
+# When prompted, paste your Account ID
+
+# Set Zone ID
+wrangler secret put CF_ZONE_ID
+# When prompted, paste your Zone ID
+
+# Set Domain
+wrangler secret put CF_DOMAIN
+# When prompted, paste your domain (e.g., nport.link)
+```
+
+**Option B: Using Global API Key (Legacy):**
 
 ```bash
 # Set Email
@@ -149,7 +208,17 @@ Verify secrets are set:
 wrangler secret list
 ```
 
-You should see:
+**With API Token:**
+```json
+[
+  {"name": "CF_ACCOUNT_ID", "type": "secret_text"},
+  {"name": "CF_API_TOKEN", "type": "secret_text"},
+  {"name": "CF_DOMAIN", "type": "secret_text"},
+  {"name": "CF_ZONE_ID", "type": "secret_text"}
+]
+```
+
+**With API Key:**
 ```json
 [
   {"name": "CF_ACCOUNT_ID", "type": "secret_text"},
@@ -292,13 +361,29 @@ wrangler tail
 - **Problem**: Environment variables not set in production
 - **Solution**: Run `wrangler secret put` for each required variable
 
-#### Tunnel Creation Fails with "already exists"
-- **Problem**: A tunnel with the same name is active
+#### "[10001] Unable to authenticate request"
+- **Problem**: Invalid or missing authentication credentials
+- **Solutions**:
+  - Verify your API Token or API Key is correct
+  - Check that all required secrets are set: `wrangler secret list`
+  - If using API Token, ensure it has the correct permissions (Cloudflare Tunnel Edit + DNS Edit)
+  - Try re-creating your API Token with proper permissions
+  - Switch from API Key to API Token (recommended)
+
+#### "[81053] An A, AAAA, or CNAME record with that host already exists"
+- **Problem**: DNS record already exists (usually orphaned from previous tunnel)
+- **Solution**: The worker now automatically detects and cleans up orphaned DNS records (v1.0.1+)
+- **Manual Fix**: Delete the DNS record from Cloudflare Dashboard → DNS → Records
+
+#### Tunnel Creation Fails with "SUBDOMAIN_IN_USE"
+- **Problem**: A tunnel with the same name is currently active
 - **Solution**: Choose a different subdomain or wait for the existing tunnel to disconnect
 
 #### DNS Record Not Created
-- **Problem**: API Key doesn't have DNS edit permissions
-- **Solution**: Make sure you're using the Global API Key (not a scoped API token)
+- **Problem**: API credentials don't have DNS edit permissions
+- **Solutions**:
+  - Using API Token: Ensure it has **Zone → DNS → Edit** permission
+  - Using API Key: Make sure you're using the Global API Key (not a scoped API token)
 
 #### 401 Unauthorized
 - **Problem**: Invalid email or API key
@@ -324,10 +409,12 @@ server/
 ⚠️ **Important Security Practices:**
 
 1. **Never commit** `.dev.vars` to git (it's in `.gitignore`)
-2. **Global API Key** has full access to your account - keep it secure
-3. **Use secrets** for production (via `wrangler secret put`)
-4. **Rotate keys** regularly if you suspect they've been compromised
-5. **Limit access** - only share credentials with trusted team members
+2. **Use API Tokens** instead of Global API Key when possible (more secure, granular permissions)
+3. **Global API Key** has full access to your account - keep it extremely secure
+4. **Use secrets** for production (via `wrangler secret put`)
+5. **Rotate keys** regularly if you suspect they've been compromised
+6. **Limit access** - only share credentials with trusted team members
+7. **Monitor usage** - Regularly check Cloudflare audit logs for suspicious activity
 
 ## Updating the Worker
 

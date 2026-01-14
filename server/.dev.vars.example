@@ -1,5 +1,44 @@
+# NPort Server Environment Variables
+# Copy this file to .dev.vars and fill in your actual values
+# NEVER commit .dev.vars to git!
+
+# Required for all configurations
 CF_ACCOUNT_ID=<cloudflare_account_id>
 CF_ZONE_ID=<cloudflare_zone_id>
-CF_EMAIL=<cloudflare_email>
-CF_API_KEY=<cloudflare_api_key>
-CF_DOMAIN=<cloudflare_domain>
+CF_DOMAIN=<your_domain>
+
+# ============================================================================
+# Authentication - Choose ONE of the following options:
+# ============================================================================
+
+# OPTION A: API Token (RECOMMENDED)
+# More secure with granular permissions
+# Get from: https://dash.cloudflare.com/profile/api-tokens
+# Required permissions:
+#   - Account → Cloudflare Tunnel → Edit
+#   - Zone → DNS → Edit
+CF_API_TOKEN=<your_api_token>
+
+# OPTION B: Global API Key (Legacy)
+# Less secure, has full account access
+# Get from: https://dash.cloudflare.com/profile/api-tokens (scroll to API Keys)
+# If using this option, comment out CF_API_TOKEN above
+# CF_EMAIL=<your_cloudflare_email>
+# CF_API_KEY=<your_global_api_key>
+
+# ============================================================================
+# Example Configuration
+# ============================================================================
+
+# Example with API Token:
+# CF_ACCOUNT_ID=40f40ad7644468d2f786a6674319dc50
+# CF_ZONE_ID=f693c43670e6992ffb63cefe86c87135
+# CF_DOMAIN=nport.link
+# CF_API_TOKEN=abc123def456ghi789jkl012mno345pqr678stu
+
+# Example with API Key (legacy):
+# CF_ACCOUNT_ID=40f40ad7644468d2f786a6674319dc50
+# CF_ZONE_ID=f693c43670e6992ffb63cefe86c87135
+# CF_DOMAIN=nport.link
+# CF_EMAIL=john@example.com
+# CF_API_KEY=abc123def456ghi789jkl012mno345pqr678stu

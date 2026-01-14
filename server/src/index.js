@@ -2,7 +2,8 @@
 // Configuration & Constants
 // ============================================================================
 
-const REQUIRED_ENV_VARS = ['CF_EMAIL', 'CF_API_KEY', 'CF_ACCOUNT_ID', 'CF_ZONE_ID', 'CF_DOMAIN'];
+// Note: Either CF_API_TOKEN or (CF_EMAIL + CF_API_KEY) is required
+const REQUIRED_ENV_VARS = ['CF_ACCOUNT_ID', 'CF_ZONE_ID', 'CF_DOMAIN'];
 
 // Note: Empty array means no prefix filtering - all tunnels will be cleaned up
 const CLEANUP_PREFIXES = [];
@@ -23,9 +24,17 @@ const CLEANUP_PREFIXES = [];
 async function callCloudflareAPI(url, method, body, env) {
 	const headers = {
 		'Content-Type': 'application/json',
-		'X-Auth-Email': env.CF_EMAIL,
-		'X-Auth-Key': env.CF_API_KEY,
 	};
+
+	// Prefer API Token (recommended by Cloudflare), fallback to API Key
+	if (env.CF_API_TOKEN) {
+		headers['Authorization'] = `Bearer ${env.CF_API_TOKEN}`;
+	} else if (env.CF_EMAIL && env.CF_API_KEY) {
+		headers['X-Auth-Email'] = env.CF_EMAIL;
+		headers['X-Auth-Key'] = env.CF_API_KEY;
+	} else {
+		throw new Error('Missing authentication: Need either CF_API_TOKEN or (CF_EMAIL + CF_API_KEY)');
+	}
 
 	const response = await fetch(url, {
 		method,
@@ -55,13 +64,14 @@ async function callCloudflareAPI(url, method, body, env) {
 // ============================================================================
 
 /**
- * Finds a DNS CNAME record by full domain name
+ * Finds any DNS record (A, AAAA, or CNAME) by full domain name
  * @param {string} fullDnsName - Complete domain name (e.g., "test.nport.link")
  * @param {object} env - Environment variables
  * @returns {Promise<object|null>} DNS record object or null if not found
  */
 async function findDnsRecord(fullDnsName, env) {
-	const url = `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records?type=CNAME&name=${fullDnsName}`;
+	// Check all record types that could conflict (A, AAAA, CNAME)
+	const url = `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/dns_records?name=${fullDnsName}`;
 	const response = await callCloudflareAPI(url, 'GET', null, env);
 	return response.result.find((r) => r.name === fullDnsName) || null;
 }
@@ -86,8 +96,11 @@ async function createDnsRecord(fullDnsName, target, env) {
 	try {
 		return await callCloudflareAPI(url, 'POST', payload, env);
 	} catch (error) {
-		// Ignore duplicate record errors
-		if (JSON.stringify(error).includes('already exists')) {
+		// Ignore duplicate record errors (check multiple patterns)
+		const errorString = JSON.stringify(error);
+		if (errorString.includes('already exists') || 
+		    errorString.includes('81053') ||
+		    error.message?.includes('already exists')) {
 			console.log(`[DNS] Record already exists: ${fullDnsName}`);
 			return null;
 		}
@@ -196,6 +209,14 @@ function validateEnvironment(env) {
 		return `Missing Secrets: ${missing.join(', ')}`;
 	}
 
+	// Check authentication credentials
+	const hasApiToken = !!env.CF_API_TOKEN;
+	const hasApiKey = !!(env.CF_EMAIL && env.CF_API_KEY);
+
+	if (!hasApiToken && !hasApiKey) {
+		return `Missing Authentication: Need either CF_API_TOKEN or (CF_EMAIL + CF_API_KEY)`;
+	}
+
 	return null;
 }
 
@@ -288,6 +309,18 @@ async function handleCreateTunnel(body, env) {
 		}
 		// Otherwise, log and continue (tunnel lookup failed, but we can try to create anyway)
 		console.log(`[Worker] Warning: Could not check for existing tunnel: ${error.message}`);
+	}
+
+	// Step 1.5: Check for orphaned DNS records (records without tunnels)
+	try {
+		const existingDnsRecord = await findDnsRecord(fullDnsName, env);
+		if (existingDnsRecord) {
+			console.log(`[Worker] Found orphaned DNS record: ${existingDnsRecord.id} (type: ${existingDnsRecord.type})`);
+			console.log(`[Worker] Cleaning up orphaned DNS record...`);
+			await deleteDnsRecord(fullDnsName, env);
+		}
+	} catch (error) {
+		console.log(`[Worker] Warning: Could not check for existing DNS record: ${error.message}`);
 	}
 
 	// Step 2: Create the tunnel
