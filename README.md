@@ -399,7 +399,7 @@ If you find NPort useful, please consider supporting the project:
 - 🐛 [Report bugs](https://github.com/tuanngocptn/nport/issues)
 - 🌍 [Add translations](https://github.com/tuanngocptn/nport/blob/main/src/lang.js)
 
-## 🎉 Sponsors
+## 🎉 Powered by Cloudflare
 
 <a href="https://www.cloudflare.com" target="_blank">
    <img src="https://nport.link/assets/webp/cloudflare-logo-black.webp" alt="Cloudflare" height="60">
