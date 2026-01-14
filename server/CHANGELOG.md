@@ -5,6 +5,45 @@ All notable changes to the NPort Server (Cloudflare Worker) will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-01-14
+
+### Added
+- 🔒 **Protected Subdomains**: Infrastructure to protect critical subdomains from being overwritten or deleted
+  - New `PROTECTED_SUBDOMAINS` constant array for easy management of reserved subdomains
+  - Default protected subdomain: `api` (reserved for NPort backend service)
+  - Easy to add more protected subdomains: just add to the array
+  - Protected subdomains are blocked at both creation and cleanup stages
+
+### Security
+- 🛡️ **Backend Service Protection**: Prevents accidental deletion or overwriting of production services
+  - `api` subdomain is now protected from user creation attempts
+  - Scheduled cleanup job skips protected subdomains
+  - Returns clear error message when users try to use protected names
+
+### Improved
+- ✅ **Enhanced Tunnel Creation Validation**: Added subdomain protection check before tunnel creation
+  - Step 0: Check if subdomain is in protected list (NEW)
+  - Returns `SUBDOMAIN_PROTECTED` error with user-friendly message
+  - Error message clearly states "Record already exists" for better UX
+- 🧹 **Smarter Cleanup Job**: Enhanced scheduled cleanup to respect protected subdomains
+  - Updated `shouldCleanupTunnel()` function to check protected list first
+  - Protected subdomains are never cleaned up regardless of status
+  - Logged messages clearly indicate when subdomains are skipped for protection
+
+### Technical Details
+- **New Constant**: `PROTECTED_SUBDOMAINS = ['api']` (line 12)
+- **Updated Functions**:
+  - `shouldCleanupTunnel()`: Added protection check before cleanup logic
+  - `handleCreateTunnel()`: Added protection validation before tunnel creation
+- **Error Format**: `SUBDOMAIN_PROTECTED: Subdomain "{name}" is reserved and cannot be used. Record already exists.`
+- **Cleanup Priority**: Protected subdomains > Prefix filtering > Status-based cleanup
+
+### Configuration
+To protect additional subdomains, simply add them to the constant:
+```javascript
+const PROTECTED_SUBDOMAINS = ['api', 'staging', 'prod', 'admin'];
+```
+
 ## [1.0.1] - 2026-01-14
 
 ### Added

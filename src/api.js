@@ -38,6 +38,21 @@ export class APIClient {
     if (error.response?.data?.error) {
       const errorMsg = error.response.data.error;
 
+      // Check for protected subdomain (reserved for production services)
+      if (errorMsg.includes("SUBDOMAIN_PROTECTED:")) {
+        return new Error(
+          `Subdomain "${subdomain}" is already taken or in use.\n\n` +
+            chalk.yellow(`💡 Try one of these options:\n`) +
+            chalk.gray(`   1. Choose a different subdomain: `) +
+            chalk.cyan(`nport ${state.port || CONFIG.DEFAULT_PORT} -s ${subdomain}-v2\n`) +
+            chalk.gray(`   2. Use a random subdomain:       `) +
+            chalk.cyan(`nport ${state.port || CONFIG.DEFAULT_PORT}\n`) +
+            chalk.gray(
+              `   3. Wait a few minutes and retry if you just stopped a tunnel with this name`
+            )
+        );
+      }
+
       // Check for subdomain in use (active tunnel)
       if (
         errorMsg.includes("SUBDOMAIN_IN_USE:") ||

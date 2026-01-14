@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Smart throttling: Shows warning only after 5 errors, max once per 30 seconds
   - Clear explanations of what's happening and how to fix it
   - Automatic reset when connection is restored
+- 🔒 **Protected Subdomain Support**: Enhanced error handling for reserved subdomains
+  - User-friendly error message when trying to create protected subdomains (like `api`)
+  - Formatted error output matching existing error style
+  - Helpful suggestions to use alternative subdomain names
+  - Prevents accidental use of backend service subdomains
 
 ### Improved
 - 🔇 **Cleaner Terminal Output**: No more error spam from cloudflared
@@ -27,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tunnel continues working via HTTP/2 fallback
   - Provides actionable troubleshooting steps
   - Reassures users that the tunnel is still functional
+- ✨ **Better Error Messages**: Enhanced user feedback for protected subdomains
+  - Catches `SUBDOMAIN_PROTECTED` errors from backend
+  - Formats error messages consistently with other error types
+  - Shows actionable options when subdomain is reserved
 
 ### Technical Details
 - **Network Error Patterns**: Added detection for 7 common QUIC/network error patterns
@@ -36,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `shouldShowNetworkWarning()`: Smart decision logic
 - **Configuration**: New `NETWORK_CONFIG` with threshold and cooldown settings
 - **Bilingual Messages**: Complete translations for all network warning messages
+- **Protected Subdomain Handling**: Enhanced error handling in `src/api.js`
+  - Added check for `SUBDOMAIN_PROTECTED` error type
+  - Consistent formatting with existing error messages
+  - Clear user guidance for alternative subdomain choices
 
 ### User Experience
 **Before:**

@@ -8,6 +8,9 @@ const REQUIRED_ENV_VARS = ['CF_ACCOUNT_ID', 'CF_ZONE_ID', 'CF_DOMAIN'];
 // Note: Empty array means no prefix filtering - all tunnels will be cleaned up
 const CLEANUP_PREFIXES = [];
 
+// Protected subdomains that cannot be created or cleaned up (e.g., production services)
+const PROTECTED_SUBDOMAINS = ['api'];
+
 // ============================================================================
 // Cloudflare API Client
 // ============================================================================
@@ -236,7 +239,12 @@ function buildFullDnsName(subdomain, baseDomain) {
  * @returns {boolean} True if tunnel should be cleaned up
  */
 function shouldCleanupTunnel(tunnelName) {
-	// If CLEANUP_PREFIXES is empty, clean up all tunnels
+	// Never clean up protected subdomains
+	if (PROTECTED_SUBDOMAINS.includes(tunnelName)) {
+		return false;
+	}
+	
+	// If CLEANUP_PREFIXES is empty, clean up all tunnels (except protected ones)
 	if (CLEANUP_PREFIXES.length === 0) {
 		return true;
 	}
@@ -272,6 +280,14 @@ async function handleCreateTunnel(body, env) {
 	const fullDnsName = buildFullDnsName(subdomain, env.CF_DOMAIN);
 
 	console.log(`[Worker] Creating tunnel: ${subdomain}`);
+
+	// Step 0: Check if subdomain is protected
+	if (PROTECTED_SUBDOMAINS.includes(subdomain)) {
+		console.log(`[Worker] Cannot create tunnel: ${subdomain} is a protected subdomain`);
+		throw new Error(
+			`SUBDOMAIN_PROTECTED: Subdomain "${subdomain}" is reserved and cannot be used. Record already exists.`
+		);
+	}
 
 	// Step 1: Check if tunnel with this name already exists
 	try {
