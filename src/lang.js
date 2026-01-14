@@ -62,6 +62,21 @@ const TRANSLATIONS = {
     languageVietnamese: "2. Tiếng Việt (Vietnamese)",
     languageInvalid: "Invalid choice. Using English by default.",
     languageSaved: "✔ Language preference saved!",
+    
+    // Network warnings
+    networkIssueTitle: "\n⚠️  NETWORK CONNECTIVITY ISSUE DETECTED",
+    networkIssueDesc: "   Cloudflared is having trouble maintaining a stable connection to Cloudflare's edge servers.",
+    networkIssueTunnel: "   📡 Your tunnel is still working, but connection quality may be affected.",
+    networkIssueReasons: "\n   💡 Possible reasons:",
+    networkIssueReason1: "      • Unstable internet connection or high packet loss",
+    networkIssueReason2: "      • Firewall/Router blocking UDP traffic (QUIC protocol)",
+    networkIssueReason3: "      • ISP throttling or network congestion",
+    networkIssueFix: "\n   🔧 What to try:",
+    networkIssueFix1: "      • Check your internet connection stability",
+    networkIssueFix2: "      • Try connecting from a different network",
+    networkIssueFix3: "      • Disable VPN/Proxy if you're using one",
+    networkIssueFix4: "      • The tunnel will automatically fallback to HTTP/2 if QUIC fails",
+    networkIssueIgnore: "\n   ℹ️  This is usually not critical - your tunnel should continue working normally.\n",
   },
   
   vi: {
@@ -104,7 +119,7 @@ const TRANSLATIONS = {
     
     // Version
     versionTitle: "NPort v{version}",
-    versionSubtitle: "Hơn cả Ngrok - Ma-de in Ziệt Nam",
+    versionSubtitle: "Hơn cả Ngrok - Ma-de in Việt Nam",
     versionLatest: "🎉 Chúc mừng! Đang cùng server với bản mới nhất!",
     versionAvailable: "🌟 Vèo vèo: Có bản mới v{version} vừa cập bến!",
     versionUpdate: "Update khẩn trương lẹ làng: ",
@@ -117,6 +132,21 @@ const TRANSLATIONS = {
     languageVietnamese: "2. Tiếng Việt (Đỉnh của chóp)",
     languageInvalid: "Ơ hơ, chọn sai rồi! Mặc định Tiếng Việt luôn cho nóng.",
     languageSaved: "🎯 Xong rồi! Lưu ngôn ngữ thành công!",
+    
+    // Network warnings
+    networkIssueTitle: "\n⚠️  PHÁT HIỆN VẤN ĐỀ MẠNG",
+    networkIssueDesc: "   Cloudflared đang gặp khó khăn khi giữ kết nối ổn định tới Cloudflare edge servers.",
+    networkIssueTunnel: "   📡 Tunnel của bạn vẫn hoạt động, nhưng chất lượng kết nối có thể bị ảnh hưởng.",
+    networkIssueReasons: "\n   💡 Có thể do:",
+    networkIssueReason1: "      • Mạng internet không ổn định hoặc mất gói tin",
+    networkIssueReason2: "      • Firewall/Router chặn UDP traffic (giao thức QUIC)",
+    networkIssueReason3: "      • Nhà mạng throttle hoặc tắc nghẽn mạng",
+    networkIssueFix: "\n   🔧 Thử các cách sau:",
+    networkIssueFix1: "      • Kiểm tra kết nối internet của bạn",
+    networkIssueFix2: "      • Thử đổi sang mạng khác (ví dụ: 4G/5G)",
+    networkIssueFix3: "      • Tắt VPN/Proxy nếu đang bật",
+    networkIssueFix4: "      • Tunnel sẽ tự động chuyển sang HTTP/2 nếu QUIC fail",
+    networkIssueIgnore: "\n   ℹ️  Lỗi này thường không nghiêm trọng - tunnel vẫn hoạt động bình thường.\n",
   }
 };
 

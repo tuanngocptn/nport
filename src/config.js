@@ -46,6 +46,18 @@ export const PATHS = {
 export const LOG_PATTERNS = {
   SUCCESS: ["Registered tunnel connection"],
   ERROR: ["ERR", "error"],
+  
+  // Network-related warnings (not critical errors)
+  NETWORK_WARNING: [
+    "failed to accept QUIC stream",
+    "failed to dial to edge with quic",
+    "failed to accept incoming stream requests",
+    "Failed to dial a quic connection",
+    "timeout: no recent network activity",
+    "failed to dial to edge",
+    "quic:",
+  ],
+  
   IGNORE: [
     "Cannot determine default origin certificate path",
     "No file cert.pem",
@@ -63,6 +75,12 @@ export const LOG_PATTERNS = {
     "use of closed network connection",
     "Application error 0x0",
   ],
+};
+
+// Network warning configuration
+export const NETWORK_CONFIG = {
+  WARNING_THRESHOLD: 5,  // Show warning after 5 network errors
+  WARNING_COOLDOWN: 30000,  // Only show warning every 30 seconds
 };
 
 // Computed constants

@@ -13,6 +13,11 @@ class TunnelState {
     this.connectionCount = 0;
     this.startTime = null;
     this.updateInfo = null;
+    
+    // Network issue tracking
+    this.networkIssueCount = 0;
+    this.lastNetworkWarningTime = 0;
+    this.networkWarningShown = false;
   }
 
   setTunnel(tunnelId, subdomain, port, backendUrl = null) {
@@ -62,6 +67,32 @@ class TunnelState {
     return (Date.now() - this.startTime) / 1000;
   }
 
+  // Network issue tracking methods
+  incrementNetworkIssue() {
+    this.networkIssueCount++;
+    return this.networkIssueCount;
+  }
+
+  resetNetworkIssues() {
+    this.networkIssueCount = 0;
+  }
+
+  shouldShowNetworkWarning(threshold, cooldown) {
+    const now = Date.now();
+    if (
+      this.networkIssueCount >= threshold &&
+      now - this.lastNetworkWarningTime > cooldown
+    ) {
+      this.lastNetworkWarningTime = now;
+      return true;
+    }
+    return false;
+  }
+
+  setNetworkWarningShown(value) {
+    this.networkWarningShown = value;
+  }
+
   reset() {
     this.clearTimeout();
     this.tunnelId = null;
@@ -72,6 +103,11 @@ class TunnelState {
     this.connectionCount = 0;
     this.startTime = null;
     this.updateInfo = null;
+    
+    // Reset network tracking
+    this.networkIssueCount = 0;
+    this.lastNetworkWarningTime = 0;
+    this.networkWarningShown = false;
   }
 }
 

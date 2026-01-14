@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import chalk from "chalk";
 import fs from "fs";
-import { LOG_PATTERNS } from "./config.js";
+import { LOG_PATTERNS, NETWORK_CONFIG } from "./config.js";
 import { state } from "./state.js";
 import { UI } from "./ui.js";
 import { lang } from "./lang.js";
@@ -52,11 +52,19 @@ export class BinaryManager {
       return;
     }
 
+    // Check for network warnings (QUIC/connectivity issues)
+    if (LOG_PATTERNS.NETWORK_WARNING.some((pattern) => msg.includes(pattern))) {
+      this.handleNetworkWarning(msg);
+      return; // Don't show the raw error to user
+    }
+
     // Show success messages with connection count
     if (LOG_PATTERNS.SUCCESS.some((pattern) => msg.includes(pattern))) {
       const count = state.incrementConnection();
       
+      // Reset network issue count when connection succeeds
       if (count === 1) {
+        state.resetNetworkIssues();
         console.log(chalk.green(lang.t("connection1")));
       } else if (count === 4) {
         console.log(chalk.green(lang.t("connection2")));
@@ -70,6 +78,36 @@ export class BinaryManager {
     if (LOG_PATTERNS.ERROR.some((pattern) => msg.includes(pattern))) {
       console.error(chalk.red(`[Cloudflared] ${msg.trim()}`));
     }
+  }
+
+  static handleNetworkWarning(msg) {
+    const count = state.incrementNetworkIssue();
+    
+    // Show user-friendly warning after threshold is reached
+    if (
+      state.shouldShowNetworkWarning(
+        NETWORK_CONFIG.WARNING_THRESHOLD,
+        NETWORK_CONFIG.WARNING_COOLDOWN
+      )
+    ) {
+      this.displayNetworkWarning();
+    }
+  }
+
+  static displayNetworkWarning() {
+    console.log(chalk.yellow(lang.t("networkIssueTitle")));
+    console.log(chalk.gray(lang.t("networkIssueDesc")));
+    console.log(chalk.cyan(lang.t("networkIssueTunnel")));
+    console.log(chalk.yellow(lang.t("networkIssueReasons")));
+    console.log(chalk.gray(lang.t("networkIssueReason1")));
+    console.log(chalk.gray(lang.t("networkIssueReason2")));
+    console.log(chalk.gray(lang.t("networkIssueReason3")));
+    console.log(chalk.yellow(lang.t("networkIssueFix")));
+    console.log(chalk.gray(lang.t("networkIssueFix1")));
+    console.log(chalk.gray(lang.t("networkIssueFix2")));
+    console.log(chalk.gray(lang.t("networkIssueFix3")));
+    console.log(chalk.gray(lang.t("networkIssueFix4")));
+    console.log(chalk.blue(lang.t("networkIssueIgnore")));
   }
 
   static handleError(err, spinner) {
