@@ -35,6 +35,17 @@ Perfect for:
 
 ## 📦 Installation
 
+### Requirements
+
+- **Node.js** >= 20.0.0
+- **npm** >= 10.0.0
+
+Check your versions:
+```bash
+node --version
+npm --version
+```
+
 ### NPM (Recommended)
 
 ```bash
@@ -399,12 +410,6 @@ If you find NPort useful, please consider supporting the project:
 - 🐛 [Report bugs](https://github.com/tuanngocptn/nport/issues)
 - 🌍 [Add translations](https://github.com/tuanngocptn/nport/blob/main/src/lang.js)
 
-## 🎉 Powered by Cloudflare
-
-<a href="https://www.cloudflare.com" target="_blank">
-   <img src="https://nport.link/assets/webp/cloudflare-logo-black.webp" alt="Cloudflare" height="60">
-</a>
-
 ## 📄 License
 
 [MIT License](LICENSE) - Feel free to use NPort in your projects!
@@ -412,8 +417,12 @@ If you find NPort useful, please consider supporting the project:
 ## 🙏 Credits
 
 - Created by [Nick Pham](https://github.com/tuanngocptn) from Vietnam
-- Powered by [Cloudflare Tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/)
 - Inspired by [ngrok](https://ngrok.com) and [localtunnel](https://github.com/localtunnel/localtunnel)
+- Powered by [Cloudflare Tunnels](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/)
+
+   <a href="https://www.cloudflare.com" target="_blank">
+      <img src="https://nport.link/assets/webp/cloudflare-logo-black.webp" alt="Cloudflare" height="60">
+   </a>
 
 ## 🔗 Links
 
