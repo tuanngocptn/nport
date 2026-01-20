@@ -8,6 +8,19 @@ import { configManager } from "./config-manager.js";
 // Language Translations
 // ============================================================================
 
+/**
+ * Translation strings for all supported languages.
+ * 
+ * Each language has a complete set of UI strings.
+ * Variables use {varName} syntax for substitution.
+ * 
+ * To add a new language:
+ * 1. Add language code to LanguageManager.availableLanguages
+ * 2. Add translation object here with all keys
+ * 
+ * @constant {Object.<string, Object.<string, string>>}
+ * @private
+ */
 const TRANSLATIONS = {
   en: {
     // Header
@@ -154,17 +167,61 @@ const TRANSLATIONS = {
 // Language Manager
 // ============================================================================
 
+/**
+ * Language Manager
+ * 
+ * Handles internationalization (i18n) for the CLI.
+ * Supports English and Vietnamese with automatic language detection.
+ * 
+ * Features:
+ * - Variable substitution in translation strings
+ * - Persistent language preference storage
+ * - Interactive language selection prompt
+ * - Graceful fallback to English
+ * 
+ * @example
+ * // Initialize with saved preference or prompt
+ * await lang.initialize();
+ * 
+ * // Get translated string
+ * console.log(lang.t("tunnelLive")); // "🚀 WE LIVE BABY!"
+ * 
+ * // With variable substitution
+ * console.log(lang.t("creatingTunnel", { port: 3000 }));
+ * // "Creating tunnel for port 3000..."
+ */
 class LanguageManager {
   constructor() {
+    /**
+     * Currently active language code
+     * @type {string}
+     */
     this.currentLanguage = "en";
+    
+    /**
+     * List of supported language codes
+     * @type {string[]}
+     */
     this.availableLanguages = ["en", "vi"];
   }
 
   /**
-   * Get translation string with variable substitution
-   * @param {string} key - Translation key
-   * @param {object} vars - Variables to substitute
-   * @returns {string} Translated string
+   * Gets a translated string with variable substitution.
+   * 
+   * Variables in the format {varName} are replaced with values from vars.
+   * Falls back to English if translation not found.
+   * Falls back to key if no translation exists.
+   * 
+   * @param {string} key - Translation key (e.g., "tunnelLive")
+   * @param {Object.<string, string|number>} [vars={}] - Variables to substitute
+   * @returns {string} Translated string with variables replaced
+   * 
+   * @example
+   * lang.t("header")
+   * // "N P O R T  ⚡️  Free & Open Source from Vietnam ❤️"
+   * 
+   * lang.t("timeRemaining", { hours: 4 })
+   * // "⏱️  Time:     4h remaining"
    */
   t(key, vars = {}) {
     const translations = TRANSLATIONS[this.currentLanguage] || TRANSLATIONS.en;
@@ -179,8 +236,10 @@ class LanguageManager {
   }
 
   /**
-   * Load saved language preference
-   * @returns {string|null} Saved language code or null
+   * Loads saved language preference from config.
+   * 
+   * @returns {string|null} Saved language code, or null if not set/invalid
+   * @private
    */
   loadLanguagePreference() {
     const lang = configManager.getLanguage();
@@ -191,16 +250,25 @@ class LanguageManager {
   }
 
   /**
-   * Save language preference
+   * Saves language preference to config.
+   * 
    * @param {string} lang - Language code to save
+   * @returns {void}
+   * @private
    */
   saveLanguagePreference(lang) {
     configManager.setLanguage(lang);
   }
 
   /**
-   * Set current language
-   * @param {string} lang - Language code
+   * Sets the current language.
+   * 
+   * @param {string} lang - Language code (e.g., "en", "vi")
+   * @returns {boolean} True if language was valid and set, false otherwise
+   * 
+   * @example
+   * lang.setLanguage("vi"); // true
+   * lang.setLanguage("fr"); // false (not available)
    */
   setLanguage(lang) {
     if (this.availableLanguages.includes(lang)) {
@@ -211,7 +279,8 @@ class LanguageManager {
   }
 
   /**
-   * Get current language
+   * Gets the current language code.
+   * 
    * @returns {string} Current language code
    */
   getLanguage() {
@@ -219,8 +288,20 @@ class LanguageManager {
   }
 
   /**
-   * Prompt user to select language
+   * Prompts user to select a language interactively.
+   * 
+   * Shows a numbered list of available languages and waits for input.
+   * Saves the selection and updates current language.
+   * 
    * @returns {Promise<string>} Selected language code
+   * 
+   * @example
+   * const selected = await lang.promptLanguageSelection();
+   * // Shows:
+   * // 🌍 Language Selection / Chọn ngôn ngữ
+   * //    1. English
+   * //    2. Tiếng Việt (Vietnamese)
+   * // Choose your language (1-2):
    */
   async promptLanguageSelection() {
     return new Promise((resolve) => {
@@ -257,9 +338,26 @@ class LanguageManager {
   }
 
   /**
-   * Initialize language - load from config or prompt user
-   * @param {string|null} cliLanguage - Language from CLI argument (or 'prompt' to force prompt)
-   * @returns {Promise<string>} Selected language code
+   * Initializes the language system.
+   * 
+   * Priority order:
+   * 1. CLI argument with value (e.g., --language en)
+   * 2. Force prompt if --language flag without value
+   * 3. Saved preference from config
+   * 4. Interactive prompt on first run
+   * 
+   * @param {string|null} [cliLanguage=null] - Language from CLI, or 'prompt' to force selection
+   * @returns {Promise<string>} The selected/active language code
+   * 
+   * @example
+   * // Use saved preference or prompt if first run
+   * await lang.initialize();
+   * 
+   * // Force specific language
+   * await lang.initialize("vi");
+   * 
+   * // Force interactive prompt
+   * await lang.initialize("prompt");
    */
   async initialize(cliLanguage = null) {
     // Priority 1: CLI argument with value (e.g., --language en)
@@ -289,5 +387,15 @@ class LanguageManager {
 // Export singleton instance
 // ============================================================================
 
+/**
+ * Singleton instance of LanguageManager.
+ * 
+ * @type {LanguageManager}
+ * 
+ * @example
+ * import { lang } from "./lang.js";
+ * 
+ * await lang.initialize();
+ * console.log(lang.t("tunnelLive"));
+ */
 export const lang = new LanguageManager();
-

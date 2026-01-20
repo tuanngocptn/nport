@@ -3,21 +3,62 @@ import path from "path";
 import os from "os";
 
 /**
+ * @typedef {Object} UserConfig
+ * @property {string} [language] - Preferred language code (e.g., "en", "vi")
+ * @property {string} [backendUrl] - Custom backend URL
+ */
+
+/**
  * Configuration Manager
- * Handles persistent storage of user preferences (backend URL, language, etc.)
+ * 
+ * Handles persistent storage of user preferences in ~/.nport/config.json.
+ * Manages settings like language preference and custom backend URL.
+ * 
+ * Features:
+ * - Automatic migration from old config format (pre-2.0.5)
+ * - Graceful handling of missing/corrupted config files
+ * - JSON-based storage for easy debugging
+ * 
+ * @example
+ * // Get saved backend URL
+ * const url = configManager.getBackendUrl();
+ * 
+ * // Save a new language preference
+ * configManager.setLanguage("vi");
  */
 class ConfigManager {
   constructor() {
+    /**
+     * Path to the .nport config directory
+     * @type {string}
+     */
     this.configDir = path.join(os.homedir(), ".nport");
+    
+    /**
+     * Path to the config.json file
+     * @type {string}
+     */
     this.configFile = path.join(this.configDir, "config.json");
-    this.oldLangFile = path.join(this.configDir, "lang"); // For migration
+    
+    /**
+     * Path to old language file (for migration)
+     * @type {string}
+     */
+    this.oldLangFile = path.join(this.configDir, "lang");
+    
+    /**
+     * In-memory config object
+     * @type {UserConfig}
+     */
     this.config = this.loadConfig();
     this.migrateOldConfig();
   }
 
   /**
-   * Load configuration from file
-   * @returns {object} Configuration object
+   * Loads configuration from the JSON file.
+   * 
+   * @returns {UserConfig} Configuration object, or empty object if not found
+   * @private
    */
   loadConfig() {
     try {
@@ -33,7 +74,13 @@ class ConfigManager {
   }
 
   /**
-   * Migrate old configuration files to new unified format from version 2.0.5
+   * Migrates old configuration files to the new unified format.
+   * 
+   * In version 2.0.5, configuration was unified into config.json.
+   * This method migrates the old ~/.nport/lang file to the new format.
+   * 
+   * @returns {void}
+   * @private
    */
   migrateOldConfig() {
     try {
@@ -57,7 +104,12 @@ class ConfigManager {
   }
 
   /**
-   * Save configuration to file
+   * Saves the current configuration to disk.
+   * 
+   * Creates the ~/.nport directory if it doesn't exist.
+   * 
+   * @returns {boolean} True if save succeeded, false otherwise
+   * @private
    */
   saveConfig() {
     try {
@@ -74,17 +126,32 @@ class ConfigManager {
   }
 
   /**
-   * Get backend URL from config
-   * @returns {string|null} Saved backend URL or null
+   * Gets the saved backend URL.
+   * 
+   * @returns {string|null} Saved backend URL, or null if not set
+   * 
+   * @example
+   * const url = configManager.getBackendUrl();
+   * if (url) {
+   *   console.log(`Using custom backend: ${url}`);
+   * }
    */
   getBackendUrl() {
     return this.config.backendUrl || null;
   }
 
   /**
-   * Set backend URL in config
-   * @param {string} url - Backend URL to save
-   * @returns {boolean} Success status
+   * Sets or clears the backend URL.
+   * 
+   * @param {string|null} url - Backend URL to save, or null/falsy to clear
+   * @returns {boolean} True if save succeeded
+   * 
+   * @example
+   * // Set custom backend
+   * configManager.setBackendUrl("https://my-backend.com");
+   * 
+   * // Clear custom backend (use default)
+   * configManager.setBackendUrl(null);
    */
   setBackendUrl(url) {
     if (!url) {
@@ -96,17 +163,28 @@ class ConfigManager {
   }
 
   /**
-   * Get language from config
-   * @returns {string|null} Saved language code or null
+   * Gets the saved language preference.
+   * 
+   * @returns {string|null} Language code (e.g., "en", "vi"), or null if not set
+   * 
+   * @example
+   * const lang = configManager.getLanguage();
+   * if (lang) {
+   *   console.log(`Using language: ${lang}`);
+   * }
    */
   getLanguage() {
     return this.config.language || null;
   }
 
   /**
-   * Set language in config
-   * @param {string} lang - Language code to save (e.g., 'en', 'vi')
-   * @returns {boolean} Success status
+   * Sets or clears the language preference.
+   * 
+   * @param {string|null} lang - Language code to save (e.g., "en", "vi"), or null to clear
+   * @returns {boolean} True if save succeeded
+   * 
+   * @example
+   * configManager.setLanguage("vi");
    */
   setLanguage(lang) {
     if (!lang) {
@@ -118,16 +196,25 @@ class ConfigManager {
   }
 
   /**
-   * Get all configuration
-   * @returns {object} All configuration
+   * Gets a copy of all configuration.
+   * 
+   * @returns {UserConfig} Copy of the configuration object
+   * 
+   * @example
+   * const allConfig = configManager.getAll();
+   * console.log(JSON.stringify(allConfig, null, 2));
    */
   getAll() {
     return { ...this.config };
   }
 
   /**
-   * Clear all configuration
-   * @returns {boolean} Success status
+   * Clears all configuration and saves empty config.
+   * 
+   * @returns {boolean} True if save succeeded
+   * 
+   * @example
+   * configManager.clear();
    */
   clear() {
     this.config = {};
@@ -135,5 +222,9 @@ class ConfigManager {
   }
 }
 
-// Export singleton instance
+/**
+ * Singleton instance of ConfigManager.
+ * 
+ * @type {ConfigManager}
+ */
 export const configManager = new ConfigManager();

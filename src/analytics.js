@@ -13,8 +13,15 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
 
-// Firebase/GA4 Configuration (from website/home.html)
-// Full Firebase config for reference (if needed for future features)
+/**
+ * Firebase/GA4 Web Configuration.
+ * 
+ * Full Firebase config from the website for reference.
+ * Used for potential future features requiring Firebase services.
+ * 
+ * @constant {Object}
+ * @private
+ */
 const FIREBASE_WEB_CONFIG = {
   apiKey: "AIzaSyArRxHZJUt4o2RxiLqX1yDSkuUd6ZFy45I",
   authDomain: "nport-link.firebaseapp.com",
@@ -25,15 +32,31 @@ const FIREBASE_WEB_CONFIG = {
   measurementId: "G-8MYXZL6PGD"
 };
 
-// Analytics-specific config (for GA4 Measurement Protocol)
+/**
+ * Analytics-specific configuration for GA4 Measurement Protocol.
+ * 
+ * @constant {Object}
+ * @property {string} measurementId - GA4 Measurement ID
+ * @property {string} apiSecret - API secret for Measurement Protocol (from env)
+ * @private
+ */
 const FIREBASE_CONFIG = {
   measurementId: FIREBASE_WEB_CONFIG.measurementId,
-  apiSecret: process.env.NPORT_ANALYTICS_SECRET || "YOUR_API_SECRET_HERE", // Get from Firebase Console
+  apiSecret: process.env.NPORT_ANALYTICS_SECRET || "YOUR_API_SECRET_HERE",
 };
 
-// Analytics Configuration
+/**
+ * Analytics behavior configuration.
+ * 
+ * @constant {Object}
+ * @property {boolean} enabled - Whether analytics is enabled
+ * @property {boolean} debug - Whether to log debug messages
+ * @property {number} timeout - Request timeout in ms
+ * @property {string} userIdFile - Path to persistent user ID file
+ * @private
+ */
 const ANALYTICS_CONFIG = {
-  enabled: true, // Can be disabled by environment variable
+  enabled: true,
   debug: process.env.NPORT_DEBUG === "true",
   timeout: 2000, // Don't block CLI for too long
   userIdFile: path.join(os.homedir(), ".nport", "analytics-id"),
@@ -43,10 +66,49 @@ const ANALYTICS_CONFIG = {
 // Analytics Manager
 // ============================================================================
 
+/**
+ * Analytics Manager
+ * 
+ * Handles anonymous usage tracking via Google Analytics 4 Measurement Protocol.
+ * Tracks CLI usage patterns to help improve the product.
+ * 
+ * Privacy features:
+ * - Anonymous user ID based on machine characteristics (hashed)
+ * - Can be disabled via NPORT_ANALYTICS=false environment variable
+ * - No personal information collected
+ * - Non-blocking (won't slow down CLI)
+ * 
+ * Events tracked:
+ * - cli_start: When CLI is launched
+ * - tunnel_created: When a tunnel is successfully created
+ * - tunnel_error: When tunnel creation fails
+ * - tunnel_shutdown: When tunnel is closed (with duration)
+ * - update_available: When a new version is detected
+ * 
+ * @example
+ * // Initialize and track
+ * await analytics.initialize();
+ * analytics.trackCliStart(3000, "myapp", "2.0.7");
+ * analytics.trackTunnelCreated("myapp", 3000);
+ */
 class AnalyticsManager {
   constructor() {
+    /**
+     * Anonymous user ID (machine-based hash)
+     * @type {string|null}
+     */
     this.userId = null;
+    
+    /**
+     * Random session ID for this CLI session
+     * @type {string|null}
+     */
     this.sessionId = null;
+    
+    /**
+     * Whether analytics is disabled
+     * @type {boolean}
+     */
     this.disabled = false;
     
     // Disable analytics if environment variable is set
@@ -56,7 +118,15 @@ class AnalyticsManager {
   }
 
   /**
-   * Initialize analytics - must be called before tracking
+   * Initializes analytics - must be called before tracking.
+   * 
+   * Sets up user ID (persistent) and session ID (per-run).
+   * Silently disables if API secret is not configured.
+   * 
+   * @returns {Promise<void>}
+   * 
+   * @example
+   * await analytics.initialize();
    */
   async initialize() {
     if (this.disabled) return;
@@ -88,7 +158,15 @@ class AnalyticsManager {
   }
 
   /**
-   * Get or create a persistent user ID
+   * Gets or creates a persistent anonymous user ID.
+   * 
+   * The user ID is:
+   * - Generated from machine characteristics (hostname, platform, etc.)
+   * - Hashed with SHA-256 for anonymity
+   * - Stored in ~/.nport/analytics-id for persistence
+   * 
+   * @returns {Promise<string>} 32-character anonymous user ID
+   * @private
    */
   async getUserId() {
     try {
@@ -118,7 +196,13 @@ class AnalyticsManager {
   }
 
   /**
-   * Generate anonymous user ID based on machine characteristics
+   * Generates an anonymous user ID based on machine characteristics.
+   * 
+   * Uses hostname, platform, architecture, and home directory.
+   * The result is hashed to ensure anonymity.
+   * 
+   * @returns {string} 32-character SHA-256 hash
+   * @private
    */
   generateAnonymousId() {
     const machineId = [
@@ -132,14 +216,25 @@ class AnalyticsManager {
   }
 
   /**
-   * Generate session ID
+   * Generates a random session ID for this CLI session.
+   * 
+   * @returns {string} UUID v4 string
+   * @private
    */
   generateSessionId() {
     return randomUUID();
   }
 
   /**
-   * Track an event
+   * Tracks an event to Google Analytics.
+   * 
+   * Events are sent non-blocking to avoid slowing down the CLI.
+   * Failures are silently ignored (unless debug mode is enabled).
+   * 
+   * @param {string} eventName - Name of the event (e.g., "cli_start")
+   * @param {Object} [params={}] - Event parameters
+   * @returns {Promise<void>}
+   * @private
    */
   async trackEvent(eventName, params = {}) {
     if (this.disabled || !ANALYTICS_CONFIG.enabled) return;
@@ -174,7 +269,12 @@ class AnalyticsManager {
   }
 
   /**
-   * Build GA4 Measurement Protocol payload
+   * Builds the GA4 Measurement Protocol payload.
+   * 
+   * @param {string} eventName - Event name
+   * @param {Object} params - Event parameters
+   * @returns {Object} GA4 payload object
+   * @private
    */
   buildPayload(eventName, params) {
     return {
@@ -194,7 +294,10 @@ class AnalyticsManager {
   }
 
   /**
-   * Get system information for context
+   * Gets system information for analytics context.
+   * 
+   * @returns {Object} System info (platform, version, arch, node version)
+   * @private
    */
   getSystemInfo() {
     return {
@@ -206,7 +309,17 @@ class AnalyticsManager {
   }
 
   /**
-   * Track CLI start
+   * Tracks CLI start event.
+   * 
+   * Called when user runs the nport command.
+   * 
+   * @param {number} port - Port being tunneled
+   * @param {string} subdomain - Subdomain being used
+   * @param {string} version - CLI version
+   * @returns {Promise<void>}
+   * 
+   * @example
+   * analytics.trackCliStart(3000, "myapp", "2.0.7");
    */
   async trackCliStart(port, subdomain, version) {
     await this.trackEvent("cli_start", {
@@ -217,7 +330,14 @@ class AnalyticsManager {
   }
 
   /**
-   * Track tunnel creation
+   * Tracks successful tunnel creation.
+   * 
+   * @param {string} subdomain - Subdomain used (type tracked, not actual value)
+   * @param {number} port - Port being tunneled
+   * @returns {Promise<void>}
+   * 
+   * @example
+   * analytics.trackTunnelCreated("myapp", 3000);
    */
   async trackTunnelCreated(subdomain, port) {
     await this.trackEvent("tunnel_created", {
@@ -227,7 +347,14 @@ class AnalyticsManager {
   }
 
   /**
-   * Track tunnel error
+   * Tracks tunnel creation errors.
+   * 
+   * @param {string} errorType - Type of error (e.g., "subdomain_taken")
+   * @param {string} errorMessage - Error message (truncated to 100 chars)
+   * @returns {Promise<void>}
+   * 
+   * @example
+   * analytics.trackTunnelError("subdomain_taken", "Subdomain myapp is in use");
    */
   async trackTunnelError(errorType, errorMessage) {
     await this.trackEvent("tunnel_error", {
@@ -237,17 +364,31 @@ class AnalyticsManager {
   }
 
   /**
-   * Track tunnel shutdown
+   * Tracks tunnel shutdown.
+   * 
+   * @param {string} reason - Shutdown reason ("manual", "timeout", "error")
+   * @param {number} durationSeconds - How long the tunnel was running
+   * @returns {Promise<void>}
+   * 
+   * @example
+   * analytics.trackTunnelShutdown("manual", 3600);
    */
   async trackTunnelShutdown(reason, durationSeconds) {
     await this.trackEvent("tunnel_shutdown", {
-      shutdown_reason: reason, // "manual", "timeout", "error"
+      shutdown_reason: reason,
       duration_seconds: String(Math.floor(durationSeconds)),
     });
   }
 
   /**
-   * Track CLI update notification shown
+   * Tracks when update notification is shown.
+   * 
+   * @param {string} currentVersion - Currently installed version
+   * @param {string} latestVersion - Latest available version
+   * @returns {Promise<void>}
+   * 
+   * @example
+   * analytics.trackUpdateAvailable("2.0.6", "2.0.7");
    */
   async trackUpdateAvailable(currentVersion, latestVersion) {
     await this.trackEvent("update_available", {
@@ -261,5 +402,9 @@ class AnalyticsManager {
 // Export singleton instance
 // ============================================================================
 
+/**
+ * Singleton instance of AnalyticsManager.
+ * 
+ * @type {AnalyticsManager}
+ */
 export const analytics = new AnalyticsManager();
-

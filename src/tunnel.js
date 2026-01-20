@@ -10,10 +10,59 @@ import { analytics } from "./analytics.js";
 import { lang } from "./lang.js";
 
 /**
+ * @typedef {Object} TunnelConfig
+ * @property {number} port - Local port to tunnel (e.g., 3000)
+ * @property {string} subdomain - Subdomain to use (e.g., "myapp")
+ * @property {string|null} backendUrl - Custom backend URL or null for default
+ * @property {string|null} language - Language code or null for default
+ */
+
+/**
  * Tunnel Orchestrator
- * Main controller for tunnel lifecycle management
+ * 
+ * Main controller for the entire tunnel lifecycle. This is the core module
+ * that coordinates all other components (API, Binary, UI, Analytics).
+ * 
+ * Lifecycle:
+ * 1. `start()` - Initialize analytics, create tunnel, spawn cloudflared
+ * 2. (Running) - cloudflared maintains connection to Cloudflare Edge
+ * 3. `cleanup()` - Kill process, delete tunnel, remove DNS record
+ * 
+ * @example
+ * // Start a tunnel
+ * await TunnelOrchestrator.start({
+ *   port: 3000,
+ *   subdomain: "myapp",
+ *   backendUrl: null
+ * });
+ * 
+ * // Cleanup is automatic on SIGINT/SIGTERM, but can be called manually
+ * await TunnelOrchestrator.cleanup();
  */
 export class TunnelOrchestrator {
+  /**
+   * Starts the tunnel creation process.
+   * 
+   * This method orchestrates the entire tunnel startup:
+   * 1. Initializes analytics tracking
+   * 2. Displays startup UI banner
+   * 3. Checks for CLI updates
+   * 4. Validates cloudflared binary exists
+   * 5. Creates tunnel via backend API
+   * 6. Spawns cloudflared process with tunnel token
+   * 7. Sets up auto-cleanup timeout (4 hours)
+   * 
+   * @param {TunnelConfig} config - Tunnel configuration options
+   * @returns {Promise<void>}
+   * @throws {Error} If binary is missing or tunnel creation fails
+   * 
+   * @example
+   * await TunnelOrchestrator.start({
+   *   port: 3000,
+   *   subdomain: "myapp",
+   *   backendUrl: null
+   * });
+   */
   static async start(config) {
     state.setTunnel(null, config.subdomain, config.port, config.backendUrl);
 
@@ -81,6 +130,32 @@ export class TunnelOrchestrator {
     }
   }
 
+  /**
+   * Gracefully shuts down the tunnel and cleans up resources.
+   * 
+   * This method handles:
+   * 1. Clears the auto-cleanup timeout
+   * 2. Tracks shutdown analytics with duration
+   * 3. Kills the cloudflared process
+   * 4. Calls backend API to delete tunnel and DNS record
+   * 5. Displays goodbye message
+   * 6. Exits the process
+   * 
+   * Called automatically when:
+   * - User presses Ctrl+C (SIGINT)
+   * - Process receives SIGTERM
+   * - 4-hour timeout expires
+   * 
+   * @param {string} [reason="manual"] - Shutdown reason for analytics
+   *   - "manual" - User pressed Ctrl+C
+   *   - "timeout" - 4-hour limit reached
+   *   - "error" - Unexpected error occurred
+   * @returns {Promise<void>}
+   * 
+   * @example
+   * // Called automatically on SIGINT, but can be manual:
+   * await TunnelOrchestrator.cleanup("manual");
+   */
   static async cleanup(reason = "manual") {
     state.clearTimeout();
 
@@ -113,4 +188,3 @@ export class TunnelOrchestrator {
     process.exit(0);
   }
 }
-

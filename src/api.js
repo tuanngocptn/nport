@@ -4,10 +4,50 @@ import { CONFIG } from "./config.js";
 import { state } from "./state.js";
 
 /**
+ * @typedef {Object} TunnelResponse
+ * @property {string} tunnelId - UUID of the created tunnel
+ * @property {string} tunnelToken - Base64-encoded token for cloudflared authentication
+ * @property {string} url - Full HTTPS URL of the tunnel (e.g., "https://myapp.nport.link")
+ */
+
+/**
  * API Client
- * Handles communication with the NPort backend service
+ * 
+ * Handles all communication with the NPort backend service.
+ * The backend is a Cloudflare Worker that manages tunnel creation/deletion
+ * via Cloudflare's Tunnel and DNS APIs.
+ * 
+ * @example
+ * // Create a tunnel
+ * const tunnel = await APIClient.createTunnel("myapp");
+ * console.log(tunnel.url); // https://myapp.nport.link
+ * 
+ * @example
+ * // Delete a tunnel
+ * await APIClient.deleteTunnel("myapp", tunnel.tunnelId);
  */
 export class APIClient {
+  /**
+   * Creates a new Cloudflare tunnel via the backend API.
+   * 
+   * This method:
+   * 1. Sends a POST request to the backend with the subdomain
+   * 2. Backend creates a Cloudflare Tunnel and DNS CNAME record
+   * 3. Returns the tunnel credentials needed for cloudflared
+   * 
+   * @param {string} subdomain - The subdomain to use (e.g., "myapp" for myapp.nport.link)
+   * @param {string|null} [backendUrl=null] - Custom backend URL, or null to use default
+   * @returns {Promise<TunnelResponse>} Tunnel credentials and URL
+   * @throws {Error} If subdomain is taken, protected, or API fails
+   * 
+   * @example
+   * const tunnel = await APIClient.createTunnel("myapp");
+   * // tunnel = {
+   * //   tunnelId: "abc123...",
+   * //   tunnelToken: "eyJ...",
+   * //   url: "https://myapp.nport.link"
+   * // }
+   */
   static async createTunnel(subdomain, backendUrl = null) {
     const url = backendUrl || CONFIG.BACKEND_URL;
     try {
@@ -27,6 +67,23 @@ export class APIClient {
     }
   }
 
+  /**
+   * Deletes an existing tunnel and its associated DNS record.
+   * 
+   * This method:
+   * 1. Sends a DELETE request to the backend
+   * 2. Backend removes the DNS CNAME record
+   * 3. Backend deletes the Cloudflare Tunnel
+   * 
+   * @param {string} subdomain - The subdomain to remove (e.g., "myapp")
+   * @param {string} tunnelId - The tunnel UUID to delete
+   * @param {string|null} [backendUrl=null] - Custom backend URL, or null to use default
+   * @returns {Promise<void>}
+   * @throws {Error} If the API request fails
+   * 
+   * @example
+   * await APIClient.deleteTunnel("myapp", "abc123-def456-...");
+   */
   static async deleteTunnel(subdomain, tunnelId, backendUrl = null) {
     const url = backendUrl || CONFIG.BACKEND_URL;
     await axios.delete(url, {
@@ -34,6 +91,25 @@ export class APIClient {
     });
   }
 
+  /**
+   * Transforms API errors into user-friendly error messages.
+   * 
+   * Handles specific error types:
+   * - SUBDOMAIN_PROTECTED: Reserved subdomains (e.g., "api")
+   * - SUBDOMAIN_IN_USE: Active tunnel exists with this subdomain
+   * - Cloudflare [1013] errors: Duplicate tunnel name
+   * 
+   * @param {Error} error - The original error from axios
+   * @param {string} subdomain - The subdomain that was attempted
+   * @returns {Error} A new error with formatted, user-friendly message
+   * @private
+   * 
+   * @example
+   * // Internal use - transforms API error to readable format
+   * catch (error) {
+   *   throw this.handleError(error, "myapp");
+   * }
+   */
   static handleError(error, subdomain) {
     if (error.response?.data?.error) {
       const errorMsg = error.response.data.error;
@@ -101,4 +177,3 @@ export class APIClient {
     return error;
   }
 }
-

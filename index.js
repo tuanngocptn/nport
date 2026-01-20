@@ -1,5 +1,28 @@
 #!/usr/bin/env node
 
+/**
+ * NPort - Free & Open Source ngrok Alternative
+ * 
+ * Main entry point for the NPort CLI application.
+ * Handles command-line arguments and orchestrates tunnel creation.
+ * 
+ * @module nport
+ * @see https://nport.link
+ * @see https://github.com/tuanngocptn/nport
+ * 
+ * @example
+ * // Basic usage
+ * $ nport 3000
+ * 
+ * @example
+ * // With custom subdomain
+ * $ nport 3000 -s myapp
+ * 
+ * @example
+ * // Check version
+ * $ nport -v
+ */
+
 import ora from "ora";
 import chalk from "chalk";
 import { ArgumentParser } from "./src/args.js";
@@ -11,14 +34,13 @@ import { lang } from "./src/lang.js";
 import { configManager } from "./src/config-manager.js";
 
 /**
- * NPort - Free & Open Source ngrok Alternative
+ * Displays version information with update check.
  * 
- * Main entry point for the NPort CLI application.
- * Handles command-line arguments and orchestrates tunnel creation.
- */
-
-/**
- * Display version information with update check
+ * Shows current version and checks npm registry for updates.
+ * Used when user runs `nport -v` or `nport --version`.
+ * 
+ * @returns {Promise<void>}
+ * @private
  */
 async function displayVersion() {
   const spinner = ora(lang.t("checkingUpdates")).start();
@@ -29,7 +51,14 @@ async function displayVersion() {
 }
 
 /**
- * Handle --set-backend command
+ * Handles the --set-backend command.
+ * 
+ * Saves or clears the custom backend URL in persistent config.
+ * Used when user runs `nport --set-backend <url>`.
+ * 
+ * @param {string} value - Backend URL to save, or 'clear' to remove
+ * @returns {void}
+ * @private
  */
 function handleSetBackend(value) {
   if (value === 'clear') {
@@ -55,7 +84,17 @@ function handleSetBackend(value) {
 }
 
 /**
- * Main application entry point
+ * Main application entry point.
+ * 
+ * Execution flow:
+ * 1. Parse command-line arguments
+ * 2. Initialize language (may prompt user on first run)
+ * 3. Handle special flags (-v, --set-backend, --language)
+ * 4. Load saved backend URL if not specified via CLI
+ * 5. Start tunnel via TunnelOrchestrator
+ * 
+ * @returns {Promise<void>}
+ * @throws {Error} Exits with code 1 on fatal errors
  */
 async function main() {
   try {
