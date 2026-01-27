@@ -1,9 +1,8 @@
-#!/usr/bin/env node
-
 /**
  * NPort - Free & Open Source ngrok Alternative
  * 
  * Main entry point for the NPort CLI application.
+ * Note: Shebang is added by esbuild during build process.
  */
 
 import ora from 'ora';

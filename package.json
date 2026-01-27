@@ -63,13 +63,14 @@
     }
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "node scripts/build.js",
+    "dev": "node scripts/build.js --watch",
     "start": "node dist/index.js",
     "postinstall": "node scripts/postinstall.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "axios": "^1.13.2",
@@ -78,14 +79,14 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.24.0",
     "typescript": "^5.7.0",
     "vitest": "~3.2.0"
   },
   "files": [
     "dist/",
-    "scripts/",
+    "scripts/postinstall.js",
     "README.md",
-    "CHANGELOG.md",
     "LICENSE"
   ],
   "os": [
