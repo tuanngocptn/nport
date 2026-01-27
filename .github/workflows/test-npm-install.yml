@@ -24,7 +24,7 @@ jobs:
           - windows-2025
           - windows-2022
           # macOS Intel (x64)
-          - macos-13
+          - macos-15-intel
           # macOS ARM64 (M1/M-series)
           - macos-latest
           - macos-14
@@ -101,35 +101,77 @@ jobs:
 
       - name: Run nport and check for errors (Windows)
         if: runner.os == 'Windows'
-        shell: cmd
+        shell: pwsh
         run: |
-          echo Starting nport on port 3000...
+          Write-Host "Starting nport on port 3000..."
           
-          REM Get npm global prefix to find nport
-          for /f "tokens=*" %%i in ('npm prefix -g') do set NPM_PREFIX=%%i
-          echo NPM prefix: %NPM_PREFIX%
+          # Start nport as a background job
+          $job = Start-Job -ScriptBlock {
+            nport 3000 -l en -s test-$using:env:MATRIX_OS-$using:env:RUN_ID 2>&1
+          }
           
-          REM Start nport in background using start command
-          start /b cmd /c "nport 3000 -l en -s test-${{ matrix.os }}-${{ github.run_id }} > nport_output.log 2>&1"
+          Write-Host "nport started as job ID: $($job.Id)"
+          Write-Host "Waiting 30 seconds..."
+          Start-Sleep -Seconds 30
           
-          echo Waiting 30 seconds...
-          timeout /t 30 /nobreak > nul
+          # Get job output
+          $output = Receive-Job -Job $job -ErrorAction SilentlyContinue
           
-          echo.
-          echo === nport output ===
-          if exist nport_output.log type nport_output.log
-          echo ====================
+          # Check if job is still running
+          if ($job.State -eq 'Running') {
+            Write-Host "✅ nport is still running after 30 seconds"
+            Stop-Job -Job $job -ErrorAction SilentlyContinue
+          } else {
+            Write-Host "⚠️ nport job state: $($job.State)"
+          }
           
-          REM Check for critical errors in output (ignore cloudflared warnings)
-          findstr /i /c:"Failed to spawn" /c:"EACCES" /c:"ENOENT" /c:"Unsupported architecture" /c:"Unsupported platform" /c:"Installation failed" /c:"not a valid" nport_output.log > nul 2>&1
-          if %errorlevel% equ 0 (
-            echo.
-            echo X Critical errors detected in nport output!
-            exit /b 1
+          Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+          
+          # Show output
+          Write-Host ""
+          Write-Host "=== nport output ==="
+          if ($output) {
+            $output | ForEach-Object { Write-Host $_ }
+            $output | Out-File -FilePath "nport_output.log" -Encoding UTF8
+          } else {
+            Write-Host "(no output captured)"
+          }
+          Write-Host "===================="
+          
+          # Check for critical errors
+          $criticalErrors = @(
+            "Failed to spawn",
+            "EACCES",
+            "ENOENT", 
+            "Unsupported architecture",
+            "Unsupported platform",
+            "Installation failed",
+            "not a valid"
           )
           
-          echo.
-          echo Test passed - no critical errors detected
+          $hasErrors = $false
+          if ($output) {
+            $outputText = $output -join "`n"
+            foreach ($pattern in $criticalErrors) {
+              if ($outputText -match [regex]::Escape($pattern)) {
+                $hasErrors = $true
+                Write-Host "Found critical error: $pattern"
+                break
+              }
+            }
+          }
+          
+          if ($hasErrors) {
+            Write-Host ""
+            Write-Host "❌ Critical errors detected in nport output!"
+            exit 1
+          }
+          
+          Write-Host ""
+          Write-Host "✅ Test passed - no critical errors detected"
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          RUN_ID: ${{ github.run_id }}
 
       - name: Upload logs on failure
         if: failure()
