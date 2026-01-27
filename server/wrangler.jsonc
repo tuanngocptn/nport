@@ -3,6 +3,7 @@
   "name": "nport",
   "main": "src/index.ts",
   "compatibility_date": "2025-09-27",
+  "preview_urls": false,
   "observability": {
     "enabled": true
   },
