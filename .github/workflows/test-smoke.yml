@@ -1,16 +1,19 @@
 name: Test Smoke
 
 on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'NPM package version/tag to test (e.g., 2.1.1, latest)'
-        required: true
-        default: 'latest'
-        type: string
 
 jobs:
-  test-install:
+  test-smoke:
     strategy:
       fail-fast: false
       matrix:
@@ -34,16 +37,36 @@ jobs:
     name: Test on ${{ matrix.os }}
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install nport from npm
-        run: npm install -g nport@${{ inputs.version }}
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Create npm package (simulate publish)
+        run: npm pack
+
+      - name: Get package filename
+        id: package
+        shell: bash
+        run: |
+          PACKAGE_FILE=$(ls nport-*.tgz)
+          echo "filename=$PACKAGE_FILE" >> $GITHUB_OUTPUT
+          echo "📦 Package: $PACKAGE_FILE"
+
+      - name: Install package globally from tarball
+        run: npm install -g ./${{ steps.package.outputs.filename }}
 
       - name: Verify nport installation
-        run: nport --version
+        run: nport -l en --version
 
       - name: Run nport and check for errors (Unix)
         if: runner.os != 'Windows'
