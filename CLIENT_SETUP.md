@@ -4,8 +4,8 @@ This guide will help you set up and use the NPort CLI client to create tunnels t
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) >= 18.0.0
-- npm >= 8.0.0
+- [Node.js](https://nodejs.org/) >= 20.0.0
+- npm >= 10.0.0
 - A running NPort backend server (see [Server Setup](./server/README.md))
 
 ## Installation
@@ -279,7 +279,7 @@ npm install -g nport
 
 # If running from source
 cd nport
-rm -rf bin/
+rm -rf packages/cli/bin/
 npm install
 ```
 
@@ -321,7 +321,7 @@ spawn ENOEXEC
 **Solution:** The binary doesn't have execute permissions
 ```bash
 # Fix permissions
-chmod +x bin/cloudflared
+chmod +x packages/cli/bin/cloudflared
 
 # Or reinstall
 npm uninstall -g nport
@@ -347,6 +347,42 @@ If you see a 522 error in your browser but the tunnel shows as active:
 3. **Hard refresh browser:** `Ctrl+Shift+R` or `Cmd+Shift+R`
 4. **Try incognito mode** - Opens a fresh session
 5. **Try a different device** - Test from your phone
+
+## Development Setup
+
+If you're contributing to NPort:
+
+```bash
+# Clone the repository
+git clone https://github.com/tuanngocptn/nport.git
+cd nport
+
+# Install dependencies (all packages)
+npm install
+
+# Build all packages
+npm run build
+
+# Run CLI locally
+node packages/cli/dist/index.js 3000 -s test
+
+# Run tests
+npm test
+```
+
+## Project Structure
+
+```
+nport/
+├── packages/
+│   ├── cli/                 # Main CLI package (TypeScript)
+│   │   ├── src/             # Source files
+│   │   ├── tests/           # Unit tests
+│   │   └── dist/            # Compiled output
+│   └── shared/              # Shared types and constants
+├── server/                  # Backend (Cloudflare Worker)
+└── docs/                    # Documentation
+```
 
 ## Advanced Usage
 
@@ -462,4 +498,3 @@ MIT License - See [LICENSE](./LICENSE) for details.
 ---
 
 Made with ❤️ by [@tuanngocptn](https://github.com/tuanngocptn)
-
