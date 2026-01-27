@@ -5,6 +5,78 @@ All notable changes to the NPort Server (Cloudflare Worker) will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-01-27
+
+### Added
+- 🔷 **TypeScript Migration**: Complete rewrite in TypeScript
+  - Type-safe Cloudflare Worker handlers
+  - Properly typed API responses and requests
+  - Full type coverage for Cloudflare API interactions
+  - Better IDE support and IntelliSense
+- 🔒 **Protected Subdomains**: Infrastructure to protect critical subdomains from deletion or overwriting
+  - New `PROTECTED_SUBDOMAINS` constant array for easy management of reserved subdomains
+  - Default protected subdomain: `api` (reserved for NPort backend service)
+  - Easy to add more protected subdomains by updating the array
+  - Protected subdomains are blocked at both creation and cleanup stages
+- 🔧 **Manual Cleanup Endpoint**: Added `GET /scheduled` endpoint
+  - Manually trigger the scheduled cleanup job on-demand
+  - Useful for testing and debugging
+  - Returns JSON response with cleanup results
+  - Respects protected subdomains configuration
+
+### Security
+- 🛡️ **Backend Service Protection**: Prevents accidental deletion or overwriting of production services
+  - `api` subdomain is now protected from user creation attempts
+  - Scheduled cleanup job skips protected subdomains
+  - Returns clear error message when users try to use protected names
+  - Error format: `SUBDOMAIN_PROTECTED: Subdomain "{name}" is reserved and cannot be used. Record already exists.`
+
+### Improved
+- ✅ **Enhanced Tunnel Creation Validation**: Added subdomain protection check before tunnel creation
+  - Step 0: Check if subdomain is in protected list (NEW)
+  - Returns `SUBDOMAIN_PROTECTED` error with user-friendly message
+  - Error message clearly states "Record already exists" for better UX
+- 🧹 **Smarter Cleanup Job**: Enhanced scheduled cleanup to respect protected subdomains
+  - Updated `shouldCleanupTunnel()` function to check protected list first
+  - Protected subdomains are never cleaned up regardless of status
+  - Logged messages clearly indicate when subdomains are skipped for protection
+
+### Changed
+- 🏗️ **Project Structure**: Updated for TypeScript
+  - Source files now use `.ts` extension
+  - Type definitions throughout the codebase
+  - Compiled output for deployment
+- 🧪 **Test Suite**: Migrated to TypeScript
+  - Vitest with Cloudflare Workers pool
+  - Tests for all API endpoints
+  - Scheduled task testing
+  - Type-safe test assertions
+
+### Technical Details
+- **Type System**:
+  - `Env` interface for environment variables
+  - Typed request/response objects
+  - Cloudflare API response types
+- **New Constant**: `PROTECTED_SUBDOMAINS = ['api']`
+- **Updated Functions**:
+  - `shouldCleanupTunnel()`: Added protection check before cleanup logic
+  - `handleCreateTunnel()`: Added protection validation before tunnel creation
+  - All functions now properly typed with TypeScript
+- **Cleanup Priority**: Protected subdomains > Prefix filtering > Status-based cleanup
+- **Manual Cleanup**: `GET /scheduled` endpoint calls `scheduled()` function directly
+
+### Configuration
+To protect additional subdomains, simply add them to the constant:
+```typescript
+const PROTECTED_SUBDOMAINS = ['api', 'staging', 'prod', 'admin'] as const;
+```
+
+### Migration
+- Automatic migration - no manual steps required
+- All environment variables remain the same
+- API endpoints unchanged
+- Fully backward compatible
+
 ## [1.0.2] - 2026-01-14
 
 ### Added

@@ -2,14 +2,14 @@
 
 Backend API server for NPort tunnel management, deployed as a Cloudflare Worker.
 
-## What's New in v1.0.1
+## What's New in v1.1.0
 
-🎉 **Major Improvements:**
-- ✅ Added support for **API Token authentication** (recommended over API Key)
-- ✅ Fixed DNS record conflict error `[#81053]` - now automatically detects and cleans up orphaned DNS records
-- ✅ Enhanced DNS record detection to check for A, AAAA, and CNAME records (not just CNAME)
-- ✅ Improved error handling for Cloudflare API authentication issues
-- ✅ Better validation of environment variables and credentials
+🎉 **TypeScript Migration:**
+- ✅ Migrated entire codebase to TypeScript for better type safety
+- ✅ Added comprehensive type definitions for all API responses
+- ✅ Improved error handling with typed exceptions
+- ✅ Updated tests to TypeScript
+- ✅ Added TypeScript compiler checks in CI
 
 See [CHANGELOG.md](./CHANGELOG.md) for full details.
 
@@ -21,12 +21,29 @@ See [CHANGELOG.md](./CHANGELOG.md) for full details.
 - 🔒 Secure authentication using Cloudflare credentials (API Token or API Key)
 - 🛠️ Automatic orphaned DNS record cleanup
 - ✅ Smart conflict resolution for existing tunnels and DNS records
+- 📝 Full TypeScript support with type definitions
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) >= 18.0.0
+- [Node.js](https://nodejs.org/) >= 20.0.0
 - [Cloudflare Account](https://dash.cloudflare.com/sign-up)
 - A domain managed by Cloudflare
+
+## Project Structure
+
+```
+server/
+├── src/
+│   └── index.ts          # Main worker code (TypeScript)
+├── test/
+│   └── index.spec.ts     # Tests (TypeScript)
+├── .dev.vars             # Local environment variables (DO NOT COMMIT)
+├── .dev.vars.example     # Example environment variables
+├── wrangler.jsonc        # Cloudflare Worker configuration
+├── tsconfig.json         # TypeScript configuration
+├── vitest.config.ts      # Test configuration
+└── package.json          # Dependencies
+```
 
 ## Setup Guide
 
@@ -106,21 +123,11 @@ CF_ZONE_ID=your_zone_id_here
 CF_DOMAIN=your_domain_here
 ```
 
-**Example with API Token:**
-```bash
-CF_API_TOKEN=abc123def456ghi789jkl012mno345pqr678stu
-CF_ACCOUNT_ID=40f40ad7644468d2f786a6674319dc50
-CF_ZONE_ID=f693c43670e6992ffb63cefe86c87135
-CF_DOMAIN=nport.link
-```
-
 ### Step 4: Test Locally
 
 Start the development server:
 ```bash
 npm run dev
-# or
-wrangler dev
 ```
 
 The server will be available at `http://localhost:8787`
@@ -142,91 +149,29 @@ curl -X DELETE http://localhost:8787 \
 
 ```bash
 npm run deploy
-# or
-wrangler deploy
-```
-
-You should see output like:
-```
-Total Upload: xx.xx KiB / gzip: xx.xx KiB
-Uploaded nport (x.xx sec)
-Published nport (x.xx sec)
-  https://nport.your-account.workers.dev
-Current Deployment ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
 ### Step 6: Set Production Secrets
 
-After deploying, set the secrets in production.
-
-**Option A: Using API Token (Recommended):**
+After deploying, set the secrets in production:
 
 ```bash
 # Set API Token
 wrangler secret put CF_API_TOKEN
-# When prompted, paste your API Token
 
 # Set Account ID
 wrangler secret put CF_ACCOUNT_ID
-# When prompted, paste your Account ID
 
 # Set Zone ID
 wrangler secret put CF_ZONE_ID
-# When prompted, paste your Zone ID
 
 # Set Domain
 wrangler secret put CF_DOMAIN
-# When prompted, paste your domain (e.g., nport.link)
-```
-
-**Option B: Using Global API Key (Legacy):**
-
-```bash
-# Set Email
-wrangler secret put CF_EMAIL
-# When prompted, paste: your-cloudflare-email@example.com
-
-# Set API Key
-wrangler secret put CF_API_KEY
-# When prompted, paste your Global API Key
-
-# Set Account ID
-wrangler secret put CF_ACCOUNT_ID
-# When prompted, paste your Account ID
-
-# Set Zone ID
-wrangler secret put CF_ZONE_ID
-# When prompted, paste your Zone ID
-
-# Set Domain
-wrangler secret put CF_DOMAIN
-# When prompted, paste your domain (e.g., nport.link)
 ```
 
 Verify secrets are set:
 ```bash
 wrangler secret list
-```
-
-**With API Token:**
-```json
-[
-  {"name": "CF_ACCOUNT_ID", "type": "secret_text"},
-  {"name": "CF_API_TOKEN", "type": "secret_text"},
-  {"name": "CF_DOMAIN", "type": "secret_text"},
-  {"name": "CF_ZONE_ID", "type": "secret_text"}
-]
-```
-
-**With API Key:**
-```json
-[
-  {"name": "CF_ACCOUNT_ID", "type": "secret_text"},
-  {"name": "CF_API_KEY", "type": "secret_text"},
-  {"name": "CF_DOMAIN", "type": "secret_text"},
-  {"name": "CF_EMAIL", "type": "secret_text"},
-  {"name": "CF_ZONE_ID", "type": "secret_text"}
-]
 ```
 
 ### Step 7: Configure Custom Domain (Optional)
@@ -240,8 +185,6 @@ If you want to use a custom domain like `api.nport.link`:
 5. Enter your subdomain (e.g., `api.nport.link`)
 6. Click **Add Custom Domain**
 
-Your API will now be available at `https://api.nport.link`
-
 ## API Endpoints
 
 ### `POST /`
@@ -249,7 +192,7 @@ Creates a new tunnel with optional custom subdomain.
 
 **Request:**
 ```bash
-curl -X POST https://nport.your-account.workers.dev \
+curl -X POST https://api.nport.link \
   -H "Content-Type: application/json" \
   -d '{"subdomain":"my-app"}'
 ```
@@ -269,7 +212,7 @@ Deletes an existing tunnel and its DNS record.
 
 **Request:**
 ```bash
-curl -X DELETE https://nport.your-account.workers.dev \
+curl -X DELETE https://api.nport.link \
   -H "Content-Type: application/json" \
   -d '{
     "subdomain": "my-app",
@@ -295,25 +238,32 @@ Configuration in `wrangler.jsonc`:
 ```json
 {
   "triggers": {
-    "crons": ["0/30 0 * * *"]
+    "crons": ["*/30 * * * *"]
   }
 }
 ```
 
 ### How it works:
-1. Finds all tunnels with status `down`
+1. Finds all tunnels with status `down`, `inactive`, or `degraded`
 2. Deletes associated DNS records
 3. Removes the tunnels
 
 ### Customizing cleanup:
-Edit the `CLEANUP_PREFIXES` constant in `src/index.js`:
+Edit the `CLEANUP_PREFIXES` constant in `src/index.ts`:
 
-```javascript
-// Clean up all tunnels
-const CLEANUP_PREFIXES = [];
+```typescript
+// Clean up all tunnels (except protected ones)
+const CLEANUP_PREFIXES: string[] = [];
 
 // Or clean up only specific prefixes
-const CLEANUP_PREFIXES = ['user-', 'temp-', 'test-'];
+const CLEANUP_PREFIXES: string[] = ['user-', 'temp-', 'test-'];
+```
+
+### Protected Subdomains:
+Edit the `PROTECTED_SUBDOMAINS` constant to prevent certain subdomains from being created or cleaned up:
+
+```typescript
+const PROTECTED_SUBDOMAINS: string[] = ['api', 'www', 'admin'];
 ```
 
 ## Development Commands
@@ -324,22 +274,57 @@ npm install
 
 # Run local development server
 npm run dev
-# or
-wrangler dev
+
+# Run TypeScript type checking
+npm run typecheck
+
+# Run tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
 
 # Deploy to production
 npm run deploy
-# or
-wrangler deploy
 
 # View live logs
 wrangler tail
 
 # List secrets
 wrangler secret list
+```
 
-# Run tests
-npm test
+## Type Definitions
+
+The server includes comprehensive TypeScript types:
+
+```typescript
+// Environment variables
+interface Env {
+  CF_ACCOUNT_ID: string;
+  CF_ZONE_ID: string;
+  CF_DOMAIN: string;
+  CF_API_TOKEN?: string;
+  CF_EMAIL?: string;
+  CF_API_KEY?: string;
+}
+
+// API responses
+interface ApiResponse {
+  success: boolean;
+  error?: string;
+  tunnelId?: string;
+  tunnelToken?: string;
+  url?: string;
+}
+
+// Tunnel status
+interface Tunnel {
+  id: string;
+  name: string;
+  status: 'healthy' | 'degraded' | 'down' | 'inactive';
+  token?: string;
+}
 ```
 
 ## Monitoring & Debugging
@@ -366,70 +351,25 @@ wrangler tail
 - **Solutions**:
   - Verify your API Token or API Key is correct
   - Check that all required secrets are set: `wrangler secret list`
-  - If using API Token, ensure it has the correct permissions (Cloudflare Tunnel Edit + DNS Edit)
-  - Try re-creating your API Token with proper permissions
-  - Switch from API Key to API Token (recommended)
-
-#### "[81053] An A, AAAA, or CNAME record with that host already exists"
-- **Problem**: DNS record already exists (usually orphaned from previous tunnel)
-- **Solution**: The worker now automatically detects and cleans up orphaned DNS records (v1.0.1+)
-- **Manual Fix**: Delete the DNS record from Cloudflare Dashboard → DNS → Records
+  - If using API Token, ensure it has the correct permissions
 
 #### Tunnel Creation Fails with "SUBDOMAIN_IN_USE"
 - **Problem**: A tunnel with the same name is currently active
 - **Solution**: Choose a different subdomain or wait for the existing tunnel to disconnect
 
-#### DNS Record Not Created
-- **Problem**: API credentials don't have DNS edit permissions
-- **Solutions**:
-  - Using API Token: Ensure it has **Zone → DNS → Edit** permission
-  - Using API Key: Make sure you're using the Global API Key (not a scoped API token)
-
-#### 401 Unauthorized
-- **Problem**: Invalid email or API key
-- **Solution**: Double-check your credentials are correct
-
-## Project Structure
-
-```
-server/
-├── src/
-│   └── index.js          # Main worker code
-├── test/
-│   └── index.spec.js     # Tests
-├── .dev.vars             # Local environment variables (DO NOT COMMIT)
-├── .dev.vars.example     # Example environment variables
-├── wrangler.jsonc        # Cloudflare Worker configuration
-├── vitest.config.js      # Test configuration
-└── package.json          # Dependencies
-```
+#### Tunnel Creation Fails with "SUBDOMAIN_PROTECTED"
+- **Problem**: The subdomain is in the protected list
+- **Solution**: Choose a different subdomain
 
 ## Security Notes
 
 ⚠️ **Important Security Practices:**
 
 1. **Never commit** `.dev.vars` to git (it's in `.gitignore`)
-2. **Use API Tokens** instead of Global API Key when possible (more secure, granular permissions)
-3. **Global API Key** has full access to your account - keep it extremely secure
-4. **Use secrets** for production (via `wrangler secret put`)
-5. **Rotate keys** regularly if you suspect they've been compromised
-6. **Limit access** - only share credentials with trusted team members
-7. **Monitor usage** - Regularly check Cloudflare audit logs for suspicious activity
-
-## Updating the Worker
-
-When you make changes to the code:
-
-```bash
-# 1. Test locally
-wrangler dev
-
-# 2. Deploy to production
-wrangler deploy
-
-# 3. Monitor logs to ensure everything works
-wrangler tail
-```
+2. **Use API Tokens** instead of Global API Key when possible
+3. **Use secrets** for production (via `wrangler secret put`)
+4. **Rotate keys** regularly if you suspect they've been compromised
+5. **Monitor usage** - Regularly check Cloudflare audit logs
 
 ## Support & Resources
 
@@ -441,4 +381,3 @@ wrangler tail
 ## License
 
 MIT
-

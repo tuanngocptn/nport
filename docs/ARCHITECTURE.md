@@ -6,9 +6,8 @@
 
 - [System Overview](#system-overview)
 - [Architecture Diagram](#architecture-diagram)
-- [Components](#components)
-- [Data Flow](#data-flow)
 - [Project Structure](#project-structure)
+- [Data Flow](#data-flow)
 - [Key Modules](#key-modules)
 - [Configuration](#configuration)
 - [Security](#security)
@@ -19,8 +18,8 @@
 
 NPort is a tunnel solution that exposes local development servers to the internet using Cloudflare's global edge network. It consists of three main components:
 
-1. **CLI Client** - Node.js command-line tool users install via npm
-2. **Backend Server** - Cloudflare Worker that manages tunnel lifecycle
+1. **CLI Client** (`src/`) - TypeScript command-line tool users install via npm
+2. **Backend Server** (`server/`) - Cloudflare Worker that manages tunnel lifecycle
 3. **Cloudflared Binary** - Cloudflare's tunnel client that handles the actual connection
 
 ---
@@ -67,38 +66,54 @@ NPort is a tunnel solution that exposes local development servers to the interne
 
 ---
 
-## Components
+## Project Structure
 
-### 1. CLI Client (`/src/` + `index.js`)
-
-The main npm package that users install globally. Responsible for:
-
-- Parsing command-line arguments
-- Communicating with the backend API
-- Managing the cloudflared binary
-- Displaying UI and status information
-- Handling graceful shutdown and cleanup
-
-**Technology:** Node.js (ES Modules), chalk, ora, axios
-
-### 2. Backend Server (`/server/`)
-
-A Cloudflare Worker that acts as the control plane. Responsible for:
-
-- Creating and deleting Cloudflare Tunnels via API
-- Managing DNS records (CNAME) for subdomains
-- Scheduled cleanup of inactive tunnels
-- Protecting reserved subdomains
-
-**Technology:** Cloudflare Workers, Wrangler
-
-### 3. Cloudflared Binary (`/bin/`)
-
-Cloudflare's official tunnel client. Downloaded automatically on first run.
-
-- Handles the actual tunnel connection to Cloudflare Edge
-- Manages connection pooling and reconnection
-- Supports QUIC and HTTP/2 protocols
+```
+nport/
+├── src/                         # CLI source (TypeScript)
+│   ├── index.ts                 # Entry point
+│   ├── tunnel.ts                # Tunnel orchestration
+│   ├── api.ts                   # Backend API client
+│   ├── args.ts                  # CLI argument parser
+│   ├── binary.ts                # Cloudflared process manager
+│   ├── bin-manager.ts           # Binary download/installation
+│   ├── config.ts                # Configuration constants
+│   ├── config-manager.ts        # Persistent config storage
+│   ├── state.ts                 # Application state
+│   ├── ui.ts                    # Console UI components
+│   ├── lang.ts                  # i18n translations
+│   ├── analytics.ts             # Usage analytics
+│   ├── version.ts               # Version checking
+│   ├── constants.ts             # Shared constants
+│   └── types/                   # TypeScript type definitions
+│       ├── index.ts             # Type exports
+│       ├── tunnel.ts            # Tunnel types
+│       ├── config.ts            # Config types
+│       ├── analytics.ts         # Analytics types
+│       ├── version.ts           # Version types
+│       └── i18n.ts              # i18n types
+│
+├── tests/                       # Unit tests (vitest)
+├── dist/                        # Compiled JavaScript output
+├── bin/                         # cloudflared binary (downloaded)
+│
+├── server/                      # Backend (Cloudflare Worker)
+│   ├── src/index.ts             # Worker entry point
+│   ├── test/index.spec.ts       # Worker tests
+│   ├── wrangler.jsonc           # Wrangler configuration
+│   └── tsconfig.json            # TypeScript config
+│
+├── website/                     # Static landing page
+├── docs/                        # Documentation
+│   ├── ARCHITECTURE.md          # This file
+│   ├── API.md                   # API reference
+│   └── CONTRIBUTING.md          # Contribution guide
+│
+├── .ai/                         # AI context files
+├── package.json                 # Dependencies and scripts
+├── tsconfig.json                # TypeScript config
+└── vitest.config.ts             # Test config
+```
 
 ---
 
@@ -163,85 +178,52 @@ Cloudflare's official tunnel client. Downloaded automatically on first run.
 
 ---
 
-## Project Structure
-
-```
-nport/
-├── index.js                 # CLI entry point
-├── src/
-│   ├── analytics.js         # Usage analytics (Firebase/GA4)
-│   ├── api.js               # Backend API client
-│   ├── args.js              # CLI argument parser
-│   ├── binary.js            # Cloudflared process manager
-│   ├── bin-manager.js       # Binary download/installation
-│   ├── config.js            # Application constants
-│   ├── config-manager.js    # Persistent config storage
-│   ├── lang.js              # i18n translations
-│   ├── state.js             # Application state manager
-│   ├── tunnel.js            # Tunnel orchestration
-│   ├── ui.js                # Console UI components
-│   └── version.js           # Version checking
-├── bin/
-│   └── cloudflared          # Downloaded binary (gitignored)
-├── server/
-│   ├── src/
-│   │   └── index.js         # Cloudflare Worker
-│   ├── test/
-│   │   └── index.spec.js    # Worker tests
-│   └── wrangler.jsonc       # Wrangler configuration
-├── website/                 # Static landing page
-├── docs/                    # Documentation
-└── package.json
-```
-
----
-
 ## Key Modules
 
-### `tunnel.js` - TunnelOrchestrator
+### `tunnel.ts` - TunnelOrchestrator
 
 The main controller that orchestrates the entire tunnel lifecycle.
 
-```javascript
+```typescript
 TunnelOrchestrator.start(config)  // Initialize and create tunnel
 TunnelOrchestrator.cleanup()      // Graceful shutdown
 ```
 
-### `api.js` - APIClient
+### `api.ts` - APIClient
 
 Handles all communication with the backend server.
 
-```javascript
+```typescript
 APIClient.createTunnel(subdomain, backendUrl)  // POST to create tunnel
 APIClient.deleteTunnel(subdomain, tunnelId)    // DELETE to remove tunnel
 ```
 
-### `binary.js` - BinaryManager
+### `binary.ts` - BinaryManager
 
 Manages the cloudflared binary process.
 
-```javascript
+```typescript
 BinaryManager.validate(path)      // Check if binary exists
 BinaryManager.spawn(path, token)  // Start cloudflared process
 BinaryManager.attachHandlers()    // Handle stdout/stderr
 ```
 
-### `state.js` - TunnelState
+### `state.ts` - TunnelState
 
 Singleton that holds all runtime state.
 
-```javascript
+```typescript
 state.setTunnel(id, subdomain, port)  // Store tunnel info
 state.setProcess(process)              // Store child process
 state.hasTunnel()                      // Check if active
 state.getDurationSeconds()             // Get uptime
 ```
 
-### `config.js` - CONFIG
+### `config.ts` - CONFIG
 
 Application constants and environment configuration.
 
-```javascript
+```typescript
 CONFIG.BACKEND_URL      // API endpoint
 CONFIG.DEFAULT_PORT     // Default port (8080)
 CONFIG.CURRENT_VERSION  // Package version
@@ -301,6 +283,24 @@ Required secrets in `wrangler.jsonc`:
 
 - Reserved subdomains (e.g., `api`) cannot be claimed by users
 - Backend validates subdomain availability before creation
+
+---
+
+## Development Commands
+
+```bash
+# Install dependencies
+npm install
+
+# Build TypeScript
+npm run build
+
+# Run tests
+npm test
+
+# Development mode
+npm run dev
+```
 
 ---
 

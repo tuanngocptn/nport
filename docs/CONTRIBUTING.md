@@ -49,18 +49,30 @@ By participating in this project, you agree to be respectful and inclusive. We w
 
 ## Development Setup
 
-### CLI Development
+### Install Dependencies
 
 ```bash
-# Install dependencies
 npm install
+```
 
-# Run locally (instead of globally installed version)
-node index.js 3000 -s test
+### Build TypeScript
 
-# Or link globally for testing
-npm link
-nport 3000 -s test
+```bash
+npm run build
+```
+
+### Development Mode
+
+```bash
+# Watch mode - recompiles on changes
+npm run dev
+```
+
+### Run CLI Locally
+
+```bash
+# After building
+node dist/index.js 3000 -s test
 ```
 
 ### Server Development (Cloudflare Worker)
@@ -78,112 +90,73 @@ npm run dev
 npm test
 ```
 
-### Website Development
-
-```bash
-cd website
-
-# Install dependencies
-npm install
-
-# Start local server (use any static server)
-npx serve .
-```
-
 ---
 
 ## Project Structure
 
 ```
 nport/
-├── index.js              # CLI entry point
-├── src/                  # CLI source code
-│   ├── analytics.js      # Usage analytics
-│   ├── api.js            # Backend API client
-│   ├── args.js           # Argument parsing
-│   ├── binary.js         # cloudflared process management
-│   ├── bin-manager.js    # Binary download/installation
-│   ├── config.js         # Constants and configuration
-│   ├── config-manager.js # Persistent user config
-│   ├── lang.js           # i18n translations
-│   ├── state.js          # Application state
-│   ├── tunnel.js         # Main tunnel orchestration
-│   ├── ui.js             # Console UI components
-│   └── version.js        # Version checking
-├── server/               # Backend (Cloudflare Worker)
-│   ├── src/index.js      # Worker entry point
-│   └── test/             # Worker tests
-├── website/              # Static landing page
-├── docs/                 # Documentation
-└── bin/                  # cloudflared binary (auto-downloaded)
+├── src/                     # TypeScript source
+│   ├── index.ts             # Entry point
+│   ├── tunnel.ts            # Tunnel orchestration
+│   ├── api.ts               # Backend API client
+│   ├── args.ts              # CLI argument parser
+│   ├── binary.ts            # Cloudflared manager
+│   ├── types/               # Type definitions
+│   └── ...
+├── tests/                   # Unit tests
+├── dist/                    # Compiled output
+├── server/                  # Backend (Cloudflare Worker)
+├── website/                 # Static landing page
+└── docs/                    # Documentation
 ```
 
 ---
 
 ## Coding Guidelines
 
-### General Principles
+### TypeScript
 
-- **Keep it simple**: Prefer clear, readable code over clever solutions
-- **Single responsibility**: Each module should do one thing well
-- **Fail gracefully**: Handle errors without crashing the CLI
-- **User experience first**: CLI output should be helpful and pretty
+- Use **strict TypeScript** with full type annotations
+- Prefer `interface` over `type` for object shapes
+- Use `type` for unions, intersections, and simple aliases
+- Always import types with `import type { ... }`
 
-### JavaScript Style
+### Naming Conventions
 
-- Use **ES Modules** (`import`/`export`)
-- Use **async/await** for asynchronous code
-- Use **camelCase** for variables and functions
-- Use **PascalCase** for classes
-- Use **UPPER_SNAKE_CASE** for constants
+| Type | Convention | Example |
+|------|------------|---------|
+| Files | kebab-case | `config-manager.ts` |
+| Classes | PascalCase | `TunnelOrchestrator` |
+| Functions/Methods | camelCase | `createTunnel` |
+| Constants | UPPER_SNAKE_CASE | `DEFAULT_PORT` |
+| Types/Interfaces | PascalCase | `TunnelConfig` |
 
-### Code Example
+### Imports
 
-```javascript
-import chalk from "chalk";
+```typescript
+// Use .js extension for relative imports (ESM requirement)
+import { state } from './state.js';
 
-/**
- * Validates a subdomain string
- * @param {string} subdomain - The subdomain to validate
- * @returns {boolean} True if valid, false otherwise
- */
-export function validateSubdomain(subdomain) {
-  if (!subdomain || typeof subdomain !== "string") {
-    return false;
-  }
-  
-  // Subdomain rules: alphanumeric and hyphens, 3-63 chars
-  const pattern = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/i;
-  return pattern.test(subdomain);
-}
-```
-
-### JSDoc Comments
-
-Add JSDoc comments to all public functions:
-
-```javascript
-/**
- * Brief description of what the function does
- * @param {Type} paramName - Description of parameter
- * @returns {ReturnType} Description of return value
- * @throws {Error} When and why it throws
- */
+// Group imports: external, internal, types
+import axios from 'axios';
+import { CONFIG } from './config.js';
+import type { TunnelConfig } from './types/index.js';
 ```
 
 ### Console Output
 
 - Use `chalk` for colors
 - Use `ora` for spinners
-- Support i18n via `lang.t()`
+- Use `lang.t()` for translatable strings
 - Keep messages user-friendly
 
-```javascript
+```typescript
 // Good
-console.log(chalk.green(`✔ ${lang.t("tunnelCreated")}`));
+console.log(chalk.green(`✔ ${lang.t('tunnelCreated')}`));
 
 // Avoid
-console.log("tunnel created");
+console.log('tunnel created');
 ```
 
 ---
@@ -223,42 +196,49 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
 
 ## Testing
 
-### CLI Testing (Manual)
+### Run Tests
 
 ```bash
-# Test basic tunnel creation
-node index.js 3000
-
-# Test with custom subdomain
-node index.js 3000 -s mytest
-
-# Test version flag
-node index.js -v
-
-# Test language selection
-node index.js -l
-```
-
-### Server Testing
-
-```bash
-cd server
+# All tests
 npm test
+
+# Watch mode
+npm run test:watch
 ```
 
 ### Adding Tests
 
-When adding new features, include tests:
+Create test files in `tests/`:
 
-```javascript
-// server/test/feature.spec.js
-import { describe, it, expect } from "vitest";
+```typescript
+// tests/feature.test.ts
+import { describe, it, expect } from 'vitest';
+import { myFunction } from '../src/feature.js';
 
-describe("Feature Name", () => {
-  it("should do something", () => {
-    expect(true).toBe(true);
+describe('Feature Name', () => {
+  it('should do something', () => {
+    expect(myFunction()).toBe(expected);
   });
 });
+```
+
+### Manual CLI Testing
+
+```bash
+# Build first
+npm run build
+
+# Test basic tunnel creation
+node dist/index.js 3000
+
+# Test with custom subdomain
+node dist/index.js 3000 -s mytest
+
+# Test version flag
+node dist/index.js -v
+
+# Test language selection
+node dist/index.js -l
 ```
 
 ---
@@ -292,11 +272,12 @@ describe("Feature Name", () => {
 ### PR Checklist
 
 - [ ] Code follows project style guidelines
+- [ ] Used TypeScript with proper types
 - [ ] Self-reviewed my code
-- [ ] Added JSDoc comments to new functions
 - [ ] Updated documentation if needed
-- [ ] Tested changes locally
-- [ ] No console errors or warnings
+- [ ] Added/updated tests
+- [ ] All tests pass (`npm test`)
+- [ ] No TypeScript errors (`npm run lint`)
 
 ---
 
@@ -304,22 +285,30 @@ describe("Feature Name", () => {
 
 NPort supports multiple languages. To add a new language:
 
-### 1. Edit `src/lang.js`
+### 1. Update Constants
 
-Add your language code to `availableLanguages`:
+Edit `src/constants.ts`:
 
-```javascript
-this.availableLanguages = ["en", "vi", "es"]; // Add your code
+```typescript
+export const AVAILABLE_LANGUAGES = ['en', 'vi', 'es'] as const;
 ```
 
-### 2. Add Translations
+### 2. Add Type Definition
 
-Add a new object in `TRANSLATIONS`:
+Edit `src/types/i18n.ts`:
 
-```javascript
-const TRANSLATIONS = {
-  en: { /* ... */ },
-  vi: { /* ... */ },
+```typescript
+export type LanguageCode = 'en' | 'vi' | 'es';
+```
+
+### 3. Add Translations
+
+Edit `src/lang.ts`:
+
+```typescript
+const TRANSLATIONS: Record<LanguageCode, TranslationKeys> = {
+  en: { /* English */ },
+  vi: { /* Vietnamese */ },
   es: {  // Your new language
     header: "N P O R T  ⚡️  Gratis y de código abierto",
     creatingTunnel: "Creando túnel para el puerto {port}...",
@@ -329,24 +318,11 @@ const TRANSLATIONS = {
 };
 ```
 
-### 3. Update Language Selection
-
-Update the prompts in both `en` and your language:
-
-```javascript
-en: {
-  languageSpanish: "3. Español (Spanish)",
-},
-es: {
-  languageSpanish: "3. Español",
-},
-```
-
-### 4. Test Your Translation
+### 4. Rebuild and Test
 
 ```bash
-node index.js -l es
-node index.js 3000
+npm run build
+node dist/index.js -l
 ```
 
 ---

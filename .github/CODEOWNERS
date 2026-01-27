@@ -1,0 +1,30 @@
+# NPort Code Owners
+# These owners will be automatically requested for review on PRs
+
+# Default owner for everything
+* @tuanngocptn
+
+# CLI package
+/packages/cli/ @tuanngocptn
+
+# Server package (Cloudflare Worker)
+/packages/server/ @tuanngocptn
+/server/ @tuanngocptn
+
+# Shared types package
+/packages/shared/ @tuanngocptn
+
+# Documentation
+/docs/ @tuanngocptn
+/.ai/ @tuanngocptn
+README.md @tuanngocptn
+
+# Website
+/website/ @tuanngocptn
+
+# Configuration files
+package.json @tuanngocptn
+tsconfig.json @tuanngocptn
+
+# GitHub workflows
+/.github/ @tuanngocptn

@@ -1,0 +1,83 @@
+# NPort Cursor Rules
+
+## Project Overview
+NPort is a free, open-source ngrok alternative that tunnels localhost to the internet using Cloudflare infrastructure.
+
+## Architecture
+- **src/**: Main CLI source code (TypeScript)
+- **server/**: Cloudflare Worker backend (TypeScript)
+- **website/**: Static landing page
+- **tests/**: Unit tests
+
+## Code Style
+
+### TypeScript
+- Use strict TypeScript with full type annotations
+- Prefer `interface` over `type` for object shapes
+- Use `type` for unions, intersections, and simple aliases
+- Always import types with `import type { ... }`
+
+### Naming Conventions
+- Files: kebab-case (`config-manager.ts`)
+- Classes: PascalCase (`TunnelOrchestrator`)
+- Functions/Methods: camelCase (`createTunnel`)
+- Constants: UPPER_SNAKE_CASE (`DEFAULT_PORT`)
+- Types/Interfaces: PascalCase (`TunnelConfig`)
+
+### Imports
+- Use `.js` extension for relative imports (ESM requirement)
+- Group imports: external packages, then internal modules, then types
+
+### Error Handling
+- Use descriptive error messages with recovery hints
+- Never swallow errors silently in user-facing code
+- Use chalk for colored error output
+
+### Console Output
+- Use `chalk` for colors
+- Use `ora` for spinners
+- Use `lang.t()` for translatable strings
+- Keep messages user-friendly
+
+## Key Patterns
+
+### State Management
+```typescript
+import { state } from './state.js';
+state.setTunnel(id, subdomain, port);
+```
+
+### Configuration Priority
+1. CLI flags (highest)
+2. Saved config (~/.nport/config.json)
+3. Environment variables
+4. Defaults (lowest)
+
+### API Communication
+```typescript
+import { APIClient } from './api.js';
+const tunnel = await APIClient.createTunnel(subdomain);
+```
+
+## Testing
+- Use Vitest for testing
+- Test files: `tests/*.test.ts`
+- Focus on unit tests for utilities and parsers
+- Mock external dependencies (axios, fs)
+
+## Common Commands
+```bash
+# Development
+npm run dev          # Watch mode
+npm run build        # Compile TypeScript
+npm test             # Run tests
+
+# CLI testing
+node dist/index.js 3000 -s test
+```
+
+## Don't
+- Don't use CommonJS (require/module.exports)
+- Don't use `any` type unless absolutely necessary
+- Don't hardcode URLs or magic numbers
+- Don't console.log in production code (use UI or lang)

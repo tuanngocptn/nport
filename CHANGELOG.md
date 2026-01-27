@@ -5,6 +5,114 @@ All notable changes to NPort will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-01-27
+
+### Added
+- 🔷 **Full TypeScript Migration**: Complete rewrite of CLI and Server in TypeScript
+  - Strict type checking enabled across the entire codebase
+  - All modules converted from JavaScript to TypeScript
+  - Type-safe interfaces for configuration, tunnels, analytics, and i18n
+  - Better IDE support with IntelliSense and autocompletion
+- 📚 **Comprehensive Documentation**: New docs folder with detailed guides
+  - `docs/ARCHITECTURE.md`: System overview, component diagrams, and data flow
+  - `docs/API.md`: Complete API reference with endpoints and examples
+  - `docs/CONTRIBUTING.md`: Contribution guidelines and development setup
+- 🤖 **AI Context Support**: Added `.ai/context.md` for AI-assisted development
+  - Project structure and key patterns documented
+  - Coding conventions and architecture decisions
+  - Makes AI pair programming more effective
+- 🧪 **Unit Testing with Vitest**: Comprehensive test suite for CLI
+  - Tests for argument parsing (`tests/args.test.ts`)
+  - Tests for version comparison (`tests/version.test.ts`)
+  - Tests for state management (`tests/state.test.ts`)
+  - Easy to run with `npm test`
+- 📋 **Code Ownership**: Added `.github/CODEOWNERS` file
+  - Clear ownership for code review assignments
+  - Faster PR reviews with automatic reviewer assignment
+- 📝 **Cursor Rules**: Added `.cursorrules` for consistent AI assistance
+  - Project-specific coding conventions
+  - TypeScript and naming guidelines
+  - Common patterns and anti-patterns
+- 🔄 **Auto-download Cloudflared**: Binary downloads automatically on first run
+  - No need to run separate install commands
+  - Seamless first-time user experience
+  - Progress indicator during download
+- 🔒 **Protected Subdomain Support**: Enhanced error handling for reserved subdomains
+  - User-friendly error message when trying to create protected subdomains (like `api`)
+  - Formatted error output matching existing error style
+  - Helpful suggestions to use alternative subdomain names
+  - Prevents accidental use of backend service subdomains
+- 📋 **TODO Management**: Added `TODO.md` for tracking planned features
+  - Move time limit enforcement to backend
+  - Update README powered-by section
+  - Track terminal link clicks
+
+### Changed
+- 🏗️ **Project Structure**: Reorganized for better maintainability
+  - All source code in `src/` directory
+  - Type definitions in `src/types/`
+  - Shared constants in `src/constants.ts`
+  - Tests in `tests/` directory
+- 📦 **Build System**: Updated to TypeScript compilation
+  - Uses `tsc` for compilation
+  - Output to `dist/` directory
+  - Source maps for debugging
+- 🔧 **Development Workflow**: Improved developer experience
+  - `npm run dev` for watch mode
+  - `npm run build` for production
+  - `npm test` for running tests
+  - `npm run lint` for type checking
+- ⚙️ **System Requirements**: Updated to Node.js 20+
+  - Minimum Node.js version: 20.0.0
+  - Minimum npm version: 10.0.0
+  - Better security and performance with latest LTS
+
+### Improved
+- ✨ **Better Error Messages**: Enhanced user feedback for protected subdomains
+  - Catches `SUBDOMAIN_PROTECTED` errors from backend
+  - Formats error messages consistently with other error types
+  - Shows actionable options when subdomain is reserved
+
+### Server (v1.1.0)
+- 🔷 **TypeScript Migration**: Server fully converted to TypeScript
+  - Type-safe Cloudflare Worker handlers
+  - Properly typed API responses
+  - Full type coverage for Cloudflare API interactions
+- 🧪 **Server Tests**: Updated test suite for TypeScript
+  - Vitest with Cloudflare Workers pool
+  - Tests for all API endpoints
+  - Scheduled task testing
+- 🔒 **Protected Subdomains**: Infrastructure to protect critical subdomains from deletion or overwriting
+  - New `PROTECTED_SUBDOMAINS` constant array for easy management of reserved subdomains
+  - Default protected subdomain: `api` (reserved for NPort backend service)
+  - Easy to add more protected subdomains by updating the array
+  - Protected subdomains are blocked at both creation and cleanup stages
+- 🛡️ **Backend Service Protection**: Prevents accidental deletion or overwriting of production services
+  - `api` subdomain is now protected from user creation attempts
+  - Scheduled cleanup job skips protected subdomains
+  - Returns clear error message when users try to use protected names
+- 🔧 **Manual Cleanup Endpoint**: Added `GET /scheduled` endpoint to manually trigger cleanup
+  - Useful for testing and on-demand cleanup
+  - Respects protected subdomains configuration
+  - Returns JSON response with cleanup results
+
+### Technical Details
+- **Type System**: 
+  - `TunnelConfig`, `TunnelState`, `ConnectionInfo` interfaces
+  - `AnalyticsParams`, `VersionInfo`, `I18nStrings` types
+  - `LogPatterns` with readonly arrays for constants
+- **ESM Compliance**: All imports use `.js` extensions as required
+- **Constants**: Centralized in `src/constants.ts` with `as const` assertions
+- **Error Handling**: Type-safe error boundaries throughout
+
+### Migration
+- Automatic migration - no manual steps required
+- Existing configuration in `~/.nport/config.json` remains compatible
+- All CLI flags and options unchanged
+
+### Breaking Changes
+- None - fully backward compatible!
+
 ## [2.0.7] - 2026-01-14
 
 ### Added
@@ -185,6 +293,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Version Upgrade Guide
+
+### From 2.0.7 to 2.1.0
+
+```bash
+npm install -g nport@latest
+```
+
+**What's New:**
+
+1. **Full TypeScript Rewrite**
+   - Both CLI and Server now fully typed
+   - Better IDE support and autocompletion
+   - Catches errors at compile time
+
+2. **Comprehensive Documentation**
+   - Architecture guide in `docs/ARCHITECTURE.md`
+   - API reference in `docs/API.md`
+   - Contributing guide in `docs/CONTRIBUTING.md`
+
+3. **Unit Testing**
+   - Run tests with `npm test`
+   - Covers argument parsing, version checks, state management
+
+4. **Auto-download Cloudflared**
+   - Binary downloads automatically on first `nport` run
+   - No separate install step needed
+
+5. **AI-Friendly Codebase**
+   - `.ai/context.md` for AI assistants
+   - `.cursorrules` for consistent AI suggestions
+   - JSDoc comments throughout
+
+**For Contributors:**
+```bash
+git clone https://github.com/tuanngocptn/nport
+cd nport
+npm install
+npm run build
+npm run dev  # Watch mode
+```
+
+**Breaking Changes:** None - fully backward compatible!
 
 ### From 2.0.6 to 2.0.7
 

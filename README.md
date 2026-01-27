@@ -6,6 +6,7 @@
 [![NPM](https://img.shields.io/npm/v/nport?color=red&logo=npm)](https://www.npmjs.com/package/nport)
 [![Website](https://img.shields.io/website?url=https%3A%2F%2Fnport.link&up_message=nport.link&up_color=blue&down_color=lightgrey&down_message=offline)](https://nport.link)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 
 ## What is NPort?
 
@@ -269,25 +270,30 @@ Internet → Cloudflare Edge → Cloudflare Tunnel → Your localhost:3000
 
 ## 🏗️ Project Structure
 
-NPort uses a modular architecture for better maintainability:
-
 ```
 nport/
-├── index.js              # Main entry point
-├── src/
-│   ├── analytics.js      # Analytics tracking
-│   ├── api.js            # Backend API client
-│   ├── args.js           # CLI argument parser
-│   ├── binary.js         # Cloudflared binary manager
-│   ├── bin-manager.js    # Binary download/installation
-│   ├── config.js         # Configuration constants
-│   ├── lang.js           # Multilingual support
-│   ├── state.js          # Application state
-│   ├── tunnel.js         # Tunnel orchestration
-│   ├── ui.js             # User interface display
-│   └── version.js        # Version management
-└── bin/
-    └── cloudflared       # Cloudflare tunnel binary
+├── src/                         # TypeScript source files
+│   ├── index.ts                 # Entry point
+│   ├── tunnel.ts                # Tunnel orchestration
+│   ├── api.ts                   # Backend API client
+│   ├── args.ts                  # CLI argument parser
+│   ├── binary.ts                # Cloudflared process manager
+│   ├── ui.ts                    # Console UI components
+│   ├── lang.ts                  # Multilingual support
+│   ├── types/                   # TypeScript type definitions
+│   └── ...
+│
+├── tests/                       # Unit tests (vitest)
+├── dist/                        # Compiled output
+├── bin/                         # cloudflared binary (downloaded)
+│
+├── server/                      # Backend (Cloudflare Worker)
+├── website/                     # Static landing page
+├── docs/                        # Documentation
+│   ├── ARCHITECTURE.md          # Technical architecture
+│   ├── API.md                   # API reference
+│   └── CONTRIBUTING.md          # Contribution guide
+└── .ai/                         # AI context files
 ```
 
 ## 🛡️ Security
@@ -370,7 +376,7 @@ Then select your preferred language from the menu.
 - 🇺🇸 **English** (`en`) - Default
 - 🇻🇳 **Vietnamese** (`vi`) - Tiếng Việt
 
-Want to add your language? Contributions are welcome! Check out `src/lang.js` to see how easy it is to add translations.
+Want to add your language? Contributions are welcome! Check out the [Contributing Guide](docs/CONTRIBUTING.md).
 
 ## 🤝 Contributing
 
@@ -382,22 +388,26 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-### Adding a New Language
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for detailed guidelines.
 
-To add a new language:
+### Development Setup
 
-1. Open `src/lang.js`
-2. Add your language code to `availableLanguages` array
-3. Add translations to the `TRANSLATIONS` object
-4. Submit a PR!
+```bash
+# Clone the repository
+git clone https://github.com/tuanngocptn/nport.git
+cd nport
 
-Example:
-```javascript
-const TRANSLATIONS = {
-  en: { /* English translations */ },
-  vi: { /* Vietnamese translations */ },
-  es: { /* Your Spanish translations */ },
-};
+# Install dependencies
+npm install
+
+# Build TypeScript
+npm run build
+
+# Run tests
+npm test
+
+# Run CLI locally
+node dist/index.js 3000 -s test
 ```
 
 ## 💖 Support
@@ -408,7 +418,7 @@ If you find NPort useful, please consider supporting the project:
 - ☕ [Buy me a coffee](https://buymeacoffee.com/tuanngocptn)
 - 💬 Share with your friends and colleagues
 - 🐛 [Report bugs](https://github.com/tuanngocptn/nport/issues)
-- 🌍 [Add translations](https://github.com/tuanngocptn/nport/blob/main/src/lang.js)
+- 🌍 [Add translations](docs/CONTRIBUTING.md#adding-translations)
 
 ## 📄 License
 
