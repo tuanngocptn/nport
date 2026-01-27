@@ -73,6 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Formats error messages consistently with other error types
   - Shows actionable options when subdomain is reserved
 
+### Fixed
+- 🐛 **Intel Mac Binary Download**: Fixed cloudflared binary download on Intel Macs
+  - Node.js reports architecture as `x64`, not `amd64` - now correctly mapped
+  - Fixed ARM64 Macs to download the correct `cloudflared-darwin-arm64.tgz` binary
+  - Previously ARM64 Macs were incorrectly downloading the AMD64 binary
+
 ### Server (v1.1.0)
 - 🔷 **TypeScript Migration**: Server fully converted to TypeScript
   - Type-safe Cloudflare Worker handlers

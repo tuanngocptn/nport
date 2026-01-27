@@ -29,9 +29,8 @@ type PlatformMappings = Record<string, Record<string, string>>;
 
 const PLATFORM_MAPPINGS: PlatformMappings = {
   darwin: {
-    amd64: 'cloudflared-darwin-amd64.tgz',
-    arm64: 'cloudflared-darwin-amd64.tgz',
     x64: 'cloudflared-darwin-amd64.tgz',
+    arm64: 'cloudflared-darwin-arm64.tgz',
   },
   win32: {
     x64: 'cloudflared-windows-amd64.exe',
