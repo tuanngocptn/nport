@@ -1,0 +1,170 @@
+name: Test NPM Install
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'NPM package version/tag to test (e.g., 2.1.1, latest)'
+        required: true
+        default: 'latest'
+        type: string
+
+jobs:
+  test-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - ubuntu-22.04
+          - windows-latest
+          - windows-2022
+          - macos-latest
+          - macos-13  # Intel Mac
+          - macos-14  # ARM64 Mac (M1)
+
+    runs-on: ${{ matrix.os }}
+    name: Test on ${{ matrix.os }}
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install nport from npm
+        run: npm install -g nport@${{ inputs.version }}
+
+      - name: Verify nport installation
+        run: nport --version
+
+      - name: Run nport and check for errors (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          echo "Starting nport on port 3000..."
+          
+          # Start nport in background and capture output
+          nport 3000 -s test-${{ matrix.os }}-${{ github.run_id }} > nport_output.log 2>&1 &
+          NPORT_PID=$!
+          
+          echo "nport started with PID: $NPORT_PID"
+          
+          # Wait 30 seconds
+          echo "Waiting 30 seconds..."
+          sleep 30
+          
+          # Check if process is still running
+          if kill -0 $NPORT_PID 2>/dev/null; then
+            echo "✅ nport is still running after 30 seconds"
+            PROCESS_RUNNING=true
+          else
+            echo "⚠️ nport process has stopped"
+            PROCESS_RUNNING=false
+          fi
+          
+          # Stop the process
+          kill $NPORT_PID 2>/dev/null || true
+          sleep 2
+          kill -9 $NPORT_PID 2>/dev/null || true
+          
+          # Show output
+          echo ""
+          echo "=== nport output ==="
+          cat nport_output.log || true
+          echo "===================="
+          
+          # Check for errors in output
+          if grep -qi "error\|failed\|eacces\|enoent\|unsupported" nport_output.log; then
+            echo ""
+            echo "❌ Errors detected in nport output!"
+            exit 1
+          fi
+          
+          if [ "$PROCESS_RUNNING" = false ]; then
+            echo ""
+            echo "❌ nport process stopped unexpectedly"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ Test passed - no errors detected"
+
+      - name: Run nport and check for errors (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "Starting nport on port 3000..."
+          
+          # Start nport in background
+          $process = Start-Process -FilePath "nport" -ArgumentList "3000", "-s", "test-${{ matrix.os }}-${{ github.run_id }}" -PassThru -RedirectStandardOutput "nport_output.log" -RedirectStandardError "nport_error.log" -NoNewWindow
+          
+          Write-Host "nport started with PID: $($process.Id)"
+          
+          # Wait 30 seconds
+          Write-Host "Waiting 30 seconds..."
+          Start-Sleep -Seconds 30
+          
+          # Check if process is still running
+          $processRunning = $false
+          try {
+            $proc = Get-Process -Id $process.Id -ErrorAction Stop
+            $processRunning = $true
+            Write-Host "✅ nport is still running after 30 seconds"
+          } catch {
+            Write-Host "⚠️ nport process has stopped"
+          }
+          
+          # Stop the process
+          try {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          } catch {}
+          
+          Start-Sleep -Seconds 2
+          
+          # Show output
+          Write-Host ""
+          Write-Host "=== nport output ==="
+          if (Test-Path "nport_output.log") { Get-Content "nport_output.log" }
+          if (Test-Path "nport_error.log") { Get-Content "nport_error.log" }
+          Write-Host "===================="
+          
+          # Check for errors in output
+          $hasErrors = $false
+          $errorPatterns = @("error", "failed", "eacces", "enoent", "unsupported")
+          
+          $output = ""
+          if (Test-Path "nport_output.log") { $output += Get-Content "nport_output.log" -Raw }
+          if (Test-Path "nport_error.log") { $output += Get-Content "nport_error.log" -Raw }
+          
+          foreach ($pattern in $errorPatterns) {
+            if ($output -match $pattern) {
+              $hasErrors = $true
+              break
+            }
+          }
+          
+          if ($hasErrors) {
+            Write-Host ""
+            Write-Host "❌ Errors detected in nport output!"
+            exit 1
+          }
+          
+          if (-not $processRunning) {
+            Write-Host ""
+            Write-Host "❌ nport process stopped unexpectedly"
+            exit 1
+          }
+          
+          Write-Host ""
+          Write-Host "✅ Test passed - no errors detected"
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nport-logs-${{ matrix.os }}
+          path: |
+            nport_output.log
+            nport_error.log
+          retention-days: 7
