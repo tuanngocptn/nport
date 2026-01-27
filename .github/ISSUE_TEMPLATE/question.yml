@@ -1,0 +1,46 @@
+name: Question
+description: Ask a question about NPort
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about NPort? We're happy to help!
+        
+        Before asking, please check:
+        - [README](https://github.com/tuanngocptn/nport#readme)
+        - [Existing issues](https://github.com/tuanngocptn/nport/issues)
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: How do I...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide any relevant context that might help us answer your question.
+      placeholder: I'm trying to...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: What category does your question fall into?
+      options:
+        - Installation / Setup
+        - Configuration
+        - Usage / How-to
+        - Troubleshooting
+        - Self-hosting / Server
+        - Other
+    validations:
+      required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://nport.link
+    about: Check out our documentation for guides and examples
+  - name: Buy Me a Coffee
+    url: https://buymeacoffee.com/tuanngocptn
+    about: Support the development of NPort
