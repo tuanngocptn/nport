@@ -68,8 +68,24 @@ async function build() {
 
     if (isWatch) {
       console.log('👀 Watching for changes...\n');
-      const ctx = await esbuild.context(mainBuildOptions);
-      await ctx.watch();
+      
+      // Disable minification in watch mode for faster rebuilds
+      const watchMainOptions = { ...mainBuildOptions, minify: false };
+      const watchBinOptions = { ...binManagerOptions, minify: false };
+      
+      // Watch both entry points
+      const [mainCtx, binCtx] = await Promise.all([
+        esbuild.context(watchMainOptions),
+        esbuild.context(watchBinOptions),
+      ]);
+      
+      await Promise.all([
+        mainCtx.watch(),
+        binCtx.watch(),
+      ]);
+      
+      console.log('   Watching: src/index.ts → dist/index.js');
+      console.log('   Watching: src/bin-manager.ts → dist/bin-manager.js\n');
     } else {
       console.log('🔨 Building NPort CLI...\n');
       
