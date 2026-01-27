@@ -45,7 +45,7 @@ jobs:
           echo "Starting nport on port 3000..."
           
           # Start nport in background and capture output
-          nport 3000 -s test-${{ matrix.os }}-${{ github.run_id }} > nport_output.log 2>&1 &
+          nport 3000 -l en -s test-${{ matrix.os }}-${{ github.run_id }} > nport_output.log 2>&1 &
           NPORT_PID=$!
           
           echo "nport started with PID: $NPORT_PID"
