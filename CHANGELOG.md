@@ -5,6 +5,34 @@ All notable changes to NPort will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] - 2026-01-27
+
+### Changed
+- 📦 **Optimized Bundle Size**: Switched from `tsc` to `esbuild` for significantly smaller package
+  - New `scripts/build.js` bundles and minifies CLI into single file
+  - Tree-shaking removes unused code
+  - Disabled TypeScript declaration and source map generation
+  - Reduced files in npm package (only `postinstall.js` script included)
+- ⚡ **Faster Development**: Improved watch mode with esbuild
+  - Minification disabled during development for faster rebuilds
+  - Concurrent watching for main CLI and bin-manager entry points
+  - Better console output showing active file monitoring
+
+### Improved
+- 🧪 **Enhanced Smoke Tests**: Better npm package validation in CI
+  - Tests now simulate full npm pack/install flow
+  - Installation tested from generated tarball
+  - More accurate pre-publish validation
+
+### Technical Details
+- **esbuild Configuration**: 
+  - Target: Node.js 20
+  - Format: ESM
+  - External dependencies: `axios`, `chalk`, `ora` (avoids CJS/ESM issues)
+  - Shebang added via esbuild banner instead of source file
+- **tsconfig.json**: Updated with `noEmit: true`, esbuild handles output
+- **Package Size**: Significantly reduced dist folder size
+
 ## [2.1.1] - 2026-01-27
 
 ### Fixed
@@ -316,6 +344,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Version Upgrade Guide
+
+### From 2.1.1 to 2.1.2
+
+```bash
+npm install -g nport@latest
+```
+
+**What's New:**
+
+1. **Smaller Package Size**
+   - Switched from `tsc` to `esbuild` for bundling
+   - Minification and tree-shaking reduce CLI size
+   - Fewer files included in npm package
+
+2. **Faster Development**
+   - Watch mode now uses esbuild for instant rebuilds
+   - Better console output during development
+
+3. **Better CI Testing**
+   - Smoke tests now validate full npm pack/install flow
+   - More reliable pre-publish checks
+
+**For Contributors:**
+```bash
+npm run build  # Uses esbuild, outputs to dist/
+npm run dev    # Fast watch mode with esbuild
+```
+
+**Breaking Changes:** None - fully backward compatible!
 
 ### From 2.0.7 to 2.1.0
 
