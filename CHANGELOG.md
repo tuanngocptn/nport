@@ -5,7 +5,16 @@ All notable changes to NPort will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.1.2] - 2026-01-27
+## [2.1.2] - 2026-01-28
+
+### Fixed
+- 📊 **Analytics Integration**: Fixed GA4 Measurement Protocol implementation
+  - Created dedicated CLI analytics stream (`G-JJHG4DP1K9`) separate from website
+  - Fixed `session_id` format (now uses numeric timestamp as required by GA4)
+  - Fixed `engagement_time_msec` to use actual number instead of string
+  - Added `timestamp_micros` for accurate event timing
+  - Removed debug endpoint that was preventing events from being recorded
+  - Added proper debug logging when `NPORT_DEBUG=true`
 
 ### Changed
 - 📦 **Optimized Bundle Size**: Switched from `tsc` to `esbuild` for significantly smaller package
@@ -32,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Shebang added via esbuild banner instead of source file
 - **tsconfig.json**: Updated with `noEmit: true`, esbuild handles output
 - **Package Size**: Significantly reduced dist folder size
+- **Analytics Events**: `cli_start`, `tunnel_created`, `tunnel_error`, `tunnel_shutdown`, `update_available`
 
 ## [2.1.1] - 2026-01-27
 
