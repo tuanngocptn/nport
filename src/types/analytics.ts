@@ -89,6 +89,10 @@ export interface SystemInfo {
 export interface GA4Payload {
   /** Client ID (user identifier) */
   client_id: string;
+  /** Optional user ID for logged-in users */
+  user_id?: string;
+  /** Timestamp in microseconds */
+  timestamp_micros?: number;
   /** Array of events */
   events: Array<{
     /** Event name */
