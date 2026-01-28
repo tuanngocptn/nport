@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { createHash, randomUUID } from 'crypto';
+import { createHash } from 'crypto';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
@@ -7,11 +7,14 @@ import type { SystemInfo, GA4Payload } from './types/index.js';
 import { ANALYTICS_TIMEOUT } from './constants.js';
 
 /**
- * Firebase/GA4 Configuration
+ * GA4 Configuration for CLI Analytics
+ * 
+ * This uses a dedicated data stream for CLI usage tracking,
+ * separate from the website analytics.
  */
-const FIREBASE_CONFIG = {
-  measurementId: 'G-8MYXZL6PGD',
-  apiSecret: process.env.NPORT_ANALYTICS_SECRET || 'YOUR_API_SECRET_HERE',
+const GA4_CONFIG = {
+  measurementId: 'G-JJHG4DP1K9',
+  apiSecret: 'NjNID8jtRJe9s8uSBz2jfw',
 };
 
 const ANALYTICS_CONFIG = {
@@ -26,7 +29,8 @@ const ANALYTICS_CONFIG = {
  */
 class AnalyticsManager {
   private userId: string | null = null;
-  private sessionId: string | null = null;
+  private sessionId: number | null = null;
+  private sessionStartTime: number | null = null;
   private disabled = false;
 
   constructor() {
@@ -41,7 +45,7 @@ class AnalyticsManager {
   async initialize(): Promise<void> {
     if (this.disabled) return;
 
-    if (!FIREBASE_CONFIG.apiSecret || FIREBASE_CONFIG.apiSecret === 'YOUR_API_SECRET_HERE') {
+    if (!GA4_CONFIG.apiSecret) {
       if (ANALYTICS_CONFIG.debug) {
         console.warn('[Analytics] API secret not configured. Analytics disabled.');
       }
@@ -52,11 +56,17 @@ class AnalyticsManager {
     try {
       this.userId = await this.getUserId();
       this.sessionId = this.generateSessionId();
+      this.sessionStartTime = Date.now();
       
       if (ANALYTICS_CONFIG.debug) {
         console.log('[Analytics] Initialized successfully');
+        console.log(`[Analytics] User ID: ${this.userId}`);
+        console.log(`[Analytics] Session ID: ${this.sessionId}`);
       }
-    } catch {
+    } catch (error) {
+      if (ANALYTICS_CONFIG.debug) {
+        console.warn('[Analytics] Failed to initialize:', error);
+      }
       this.disabled = true;
     }
   }
@@ -100,9 +110,10 @@ class AnalyticsManager {
 
   /**
    * Generates a session ID.
+   * GA4 requires session_id to be a numeric timestamp (in seconds).
    */
-  private generateSessionId(): string {
-    return randomUUID();
+  private generateSessionId(): number {
+    return Math.floor(Date.now() / 1000);
   }
 
   /**
@@ -114,19 +125,44 @@ class AnalyticsManager {
     try {
       const payload = this.buildPayload(eventName, params);
       
-      axios.post(
-        `https://www.google-analytics.com/mp/collect?measurement_id=${FIREBASE_CONFIG.measurementId}&api_secret=${FIREBASE_CONFIG.apiSecret}`,
-        payload,
-        {
-          timeout: ANALYTICS_CONFIG.timeout,
-          headers: { 'Content-Type': 'application/json' },
+      // Always use production endpoint to record events
+      const baseUrl = 'https://www.google-analytics.com/mp/collect';
+      
+      const url = `${baseUrl}?measurement_id=${GA4_CONFIG.measurementId}&api_secret=${GA4_CONFIG.apiSecret}`;
+      
+      if (ANALYTICS_CONFIG.debug) {
+        console.log(`[Analytics] Sending event: ${eventName}`);
+        console.log('[Analytics] Payload:', JSON.stringify(payload, null, 2));
+      }
+      
+      axios.post(url, payload, {
+        timeout: ANALYTICS_CONFIG.timeout,
+        headers: { 'Content-Type': 'application/json' },
+      }).then((response) => {
+        if (ANALYTICS_CONFIG.debug) {
+          console.log(`[Analytics] Response status: ${response.status}`);
+          if (response.data) {
+            console.log('[Analytics] Response:', JSON.stringify(response.data, null, 2));
+          }
         }
-      ).catch(() => {
-        // Silently fail
+      }).catch((error) => {
+        if (ANALYTICS_CONFIG.debug) {
+          console.warn('[Analytics] Request failed:', error.message);
+        }
       });
-    } catch {
-      // Silently fail
+    } catch (error) {
+      if (ANALYTICS_CONFIG.debug) {
+        console.warn('[Analytics] Error tracking event:', error);
+      }
     }
+  }
+
+  /**
+   * Calculates engagement time since session start.
+   */
+  private getEngagementTime(): number {
+    if (!this.sessionStartTime) return 100;
+    return Math.max(100, Date.now() - this.sessionStartTime);
   }
 
   /**
@@ -135,12 +171,13 @@ class AnalyticsManager {
   private buildPayload(eventName: string, params: Record<string, string | number | boolean>): GA4Payload {
     return {
       client_id: this.userId!,
+      timestamp_micros: Date.now() * 1000, // Current time in microseconds
       events: [
         {
           name: eventName,
           params: {
-            session_id: this.sessionId!,
-            engagement_time_msec: '100',
+            session_id: String(this.sessionId!), // GA4 expects string for session_id in params
+            engagement_time_msec: this.getEngagementTime(), // Must be a number
             ...this.getSystemInfo(),
             ...params,
           },
