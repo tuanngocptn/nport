@@ -1,6 +1,6 @@
 {
   "name": "nport",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "description": "Free & open source ngrok alternative - Tunnel HTTP/HTTPS connections via Cloudflare Edge with custom subdomains",
   "type": "module",
   "main": "dist/index.js",

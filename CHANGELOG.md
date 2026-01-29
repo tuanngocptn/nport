@@ -5,6 +5,22 @@ All notable changes to NPort will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.3] - 2026-01-29
+
+### Fixed
+- 🪟 **Windows Spawn Error**: Fixed "spawn UNKNOWN" error on Windows
+  - Added Windows-specific spawn options (`windowsHide`, `shell`, `stdio`)
+  - Process now spawns correctly with proper path resolution on Windows
+  - Added helpful troubleshooting tips for Windows users when spawn fails
+
+### Improved
+- 🔧 **Better Windows Error Guidance**: Enhanced error messages for Windows users
+  - Detects common spawn errors (UNKNOWN, ENOENT)
+  - Provides actionable troubleshooting steps:
+    - Check Windows Defender/antivirus blocking
+    - Try running as Administrator
+    - Reinstall nport if needed
+
 ## [2.1.2] - 2026-01-28
 
 ### Fixed
@@ -354,6 +370,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Version Upgrade Guide
+
+### From 2.1.2 to 2.1.3
+
+```bash
+npm install -g nport@latest
+```
+
+**What's New:**
+
+1. **Windows Compatibility Fix**
+   - Fixed "spawn UNKNOWN" error that prevented cloudflared from starting on Windows
+   - Added proper spawn options for Windows path resolution
+   - Better error handling with actionable troubleshooting tips
+
+**For Windows Users:**
+If you still experience issues after upgrading:
+- Check if Windows Defender/antivirus is blocking `cloudflared.exe`
+- Try running your terminal as Administrator
+- Reinstall: `npm uninstall -g nport && npm install -g nport`
+
+**Breaking Changes:** None - fully backward compatible!
 
 ### From 2.1.1 to 2.1.2
 
