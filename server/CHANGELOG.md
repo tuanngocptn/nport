@@ -5,6 +5,44 @@ All notable changes to the NPort Server (Cloudflare Worker) will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-01-30
+
+### Added
+- ⏰ **Configurable Tunnel Max Age**: Added automatic cleanup of healthy tunnels that exceed a configurable age
+  - New `TUNNEL_MAX_AGE_HOURS` environment variable to set maximum tunnel lifetime
+  - Default value: 4 hours (configurable via wrangler.jsonc or environment)
+  - Healthy tunnels older than the configured age are automatically cleaned up
+  - Supports decimal values (e.g., `0.5` for 30 minutes)
+- 🧪 **New Test Cases**: Added comprehensive test coverage for tunnel expiration logic
+  - Tests for `getTunnelMaxAgeMs()` function with various inputs
+  - Tests for `isTunnelExpired()` function with edge cases
+  - Tests for invalid/zero/negative environment variable values
+
+### Improved
+- 🧹 **Enhanced Cleanup Job**: Scheduled cleanup now also removes stale healthy tunnels
+  - Fetches healthy tunnels and filters by age
+  - Logs include tunnel age information for better debugging
+  - Respects protected subdomains and prefix filtering
+
+### Technical Details
+- **New Environment Variable**: `TUNNEL_MAX_AGE_HOURS` (optional, defaults to 4)
+- **New Constant**: `DEFAULT_TUNNEL_MAX_AGE_HOURS = 4`
+- **Updated Tunnel Interface**: Added `created_at` field from Cloudflare API
+- **New Functions**:
+  - `getTunnelMaxAgeMs(env)`: Parses env var and returns max age in milliseconds
+  - `isTunnelExpired(tunnel, maxAgeMs)`: Checks if tunnel exceeds max age
+- **Exported for Testing**: `Tunnel`, `Env` types and utility functions
+
+### Configuration
+Set the tunnel max age in `wrangler.jsonc`:
+```json
+"vars": {
+  "TUNNEL_MAX_AGE_HOURS": "4"
+}
+```
+
+Or via environment variable / Cloudflare dashboard.
+
 ## [1.1.0] - 2026-01-27
 
 ### Added
