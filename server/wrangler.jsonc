@@ -7,6 +7,9 @@
   "observability": {
     "enabled": true
   },
+  "vars": {
+    "TUNNEL_MAX_AGE_HOURS": "4"
+  },
   "triggers": {
     "crons": ["*/30 * * * *"]
   }

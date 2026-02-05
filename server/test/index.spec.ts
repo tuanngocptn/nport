@@ -1,6 +1,12 @@
 import { env, createExecutionContext, waitOnExecutionContext, SELF } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
-import worker from '../src/index.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import worker, {
+  getTunnelMaxAgeMs,
+  isTunnelExpired,
+  DEFAULT_TUNNEL_MAX_AGE_HOURS,
+  type Tunnel,
+  type Env,
+} from '../src/index.js';
 
 // Define the environment type for tests
 interface TestEnv {
@@ -8,6 +14,7 @@ interface TestEnv {
   CF_ZONE_ID: string;
   CF_DOMAIN: string;
   CF_API_TOKEN?: string;
+  TUNNEL_MAX_AGE_HOURS?: string;
 }
 
 describe('NPort Worker', () => {
@@ -95,6 +102,126 @@ describe('NPort Worker', () => {
       const body = (await response.json()) as { success: boolean; error: string };
       expect(body.success).toBe(false);
       expect(body.error).toContain('SUBDOMAIN_PROTECTED');
+    });
+  });
+
+  describe('Tunnel max age configuration', () => {
+    const baseEnv: Env = {
+      CF_ACCOUNT_ID: 'test-account',
+      CF_ZONE_ID: 'test-zone',
+      CF_DOMAIN: 'nport.link',
+      CF_API_TOKEN: 'test-token',
+    };
+
+    describe('getTunnelMaxAgeMs', () => {
+      it('returns default value when TUNNEL_MAX_AGE_HOURS is not set', () => {
+        const result = getTunnelMaxAgeMs(baseEnv);
+        expect(result).toBe(DEFAULT_TUNNEL_MAX_AGE_HOURS * 60 * 60 * 1000);
+      });
+
+      it('returns custom value when TUNNEL_MAX_AGE_HOURS is set', () => {
+        const envWithCustomAge: Env = { ...baseEnv, TUNNEL_MAX_AGE_HOURS: '10' };
+        const result = getTunnelMaxAgeMs(envWithCustomAge);
+        expect(result).toBe(10 * 60 * 60 * 1000); // 10 hours in ms
+      });
+
+      it('supports decimal values for TUNNEL_MAX_AGE_HOURS', () => {
+        const envWithDecimal: Env = { ...baseEnv, TUNNEL_MAX_AGE_HOURS: '0.5' };
+        const result = getTunnelMaxAgeMs(envWithDecimal);
+        expect(result).toBe(0.5 * 60 * 60 * 1000); // 30 minutes in ms
+      });
+
+      it('returns default when TUNNEL_MAX_AGE_HOURS is invalid string', () => {
+        const envWithInvalid: Env = { ...baseEnv, TUNNEL_MAX_AGE_HOURS: 'invalid' };
+        const result = getTunnelMaxAgeMs(envWithInvalid);
+        expect(result).toBe(DEFAULT_TUNNEL_MAX_AGE_HOURS * 60 * 60 * 1000);
+      });
+
+      it('returns default when TUNNEL_MAX_AGE_HOURS is zero', () => {
+        const envWithZero: Env = { ...baseEnv, TUNNEL_MAX_AGE_HOURS: '0' };
+        const result = getTunnelMaxAgeMs(envWithZero);
+        expect(result).toBe(DEFAULT_TUNNEL_MAX_AGE_HOURS * 60 * 60 * 1000);
+      });
+
+      it('returns default when TUNNEL_MAX_AGE_HOURS is negative', () => {
+        const envWithNegative: Env = { ...baseEnv, TUNNEL_MAX_AGE_HOURS: '-5' };
+        const result = getTunnelMaxAgeMs(envWithNegative);
+        expect(result).toBe(DEFAULT_TUNNEL_MAX_AGE_HOURS * 60 * 60 * 1000);
+      });
+    });
+
+    describe('isTunnelExpired', () => {
+      const maxAgeMs = 5 * 60 * 60 * 1000; // 5 hours
+
+      beforeEach(() => {
+        vi.useFakeTimers();
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it('returns false when tunnel has no created_at', () => {
+        const tunnel: Tunnel = {
+          id: 'test-id',
+          name: 'test-tunnel',
+          status: 'healthy',
+        };
+        expect(isTunnelExpired(tunnel, maxAgeMs)).toBe(false);
+      });
+
+      it('returns false when tunnel is younger than max age', () => {
+        const now = new Date('2025-01-30T12:00:00Z');
+        vi.setSystemTime(now);
+
+        const tunnel: Tunnel = {
+          id: 'test-id',
+          name: 'test-tunnel',
+          status: 'healthy',
+          created_at: '2025-01-30T10:00:00Z', // 2 hours ago
+        };
+        expect(isTunnelExpired(tunnel, maxAgeMs)).toBe(false);
+      });
+
+      it('returns true when tunnel is older than max age', () => {
+        const now = new Date('2025-01-30T12:00:00Z');
+        vi.setSystemTime(now);
+
+        const tunnel: Tunnel = {
+          id: 'test-id',
+          name: 'test-tunnel',
+          status: 'healthy',
+          created_at: '2025-01-30T06:00:00Z', // 6 hours ago
+        };
+        expect(isTunnelExpired(tunnel, maxAgeMs)).toBe(true);
+      });
+
+      it('returns false when tunnel is exactly at max age', () => {
+        const now = new Date('2025-01-30T12:00:00Z');
+        vi.setSystemTime(now);
+
+        const tunnel: Tunnel = {
+          id: 'test-id',
+          name: 'test-tunnel',
+          status: 'healthy',
+          created_at: '2025-01-30T07:00:00Z', // exactly 5 hours ago
+        };
+        // At exactly max age, it should NOT be expired (uses > not >=)
+        expect(isTunnelExpired(tunnel, maxAgeMs)).toBe(false);
+      });
+
+      it('returns true when tunnel is 1ms over max age', () => {
+        const now = new Date('2025-01-30T12:00:00.001Z');
+        vi.setSystemTime(now);
+
+        const tunnel: Tunnel = {
+          id: 'test-id',
+          name: 'test-tunnel',
+          status: 'healthy',
+          created_at: '2025-01-30T07:00:00Z', // 5 hours + 1ms ago
+        };
+        expect(isTunnelExpired(tunnel, maxAgeMs)).toBe(true);
+      });
     });
   });
 });

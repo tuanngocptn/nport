@@ -12,6 +12,7 @@ interface Env {
   CF_API_TOKEN?: string;
   CF_EMAIL?: string;
   CF_API_KEY?: string;
+  TUNNEL_MAX_AGE_HOURS?: string;
 }
 
 /**
@@ -43,6 +44,7 @@ interface Tunnel {
   name: string;
   status: 'healthy' | 'degraded' | 'down' | 'inactive';
   token?: string;
+  created_at?: string;
 }
 
 /**
@@ -92,6 +94,9 @@ const CLEANUP_PREFIXES: string[] = [];
 
 /** Protected subdomains that cannot be created or cleaned up */
 const PROTECTED_SUBDOMAINS: string[] = ['api'];
+
+/** Default maximum age for healthy tunnels before cleanup (in hours) */
+const DEFAULT_TUNNEL_MAX_AGE_HOURS = 4;
 
 /** Cloudflare API base URL */
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
@@ -485,27 +490,76 @@ async function handleDeleteTunnel(body: DeleteTunnelBody, env: Env): Promise<Res
 }
 
 /**
+ * Gets the tunnel max age in milliseconds from environment or default
+ * @param env - Environment variables
+ * @returns Max age in milliseconds
+ */
+function getTunnelMaxAgeMs(env: Env): number {
+  const hours = env.TUNNEL_MAX_AGE_HOURS
+    ? parseFloat(env.TUNNEL_MAX_AGE_HOURS)
+    : DEFAULT_TUNNEL_MAX_AGE_HOURS;
+
+  // Validate parsed value, fallback to default if invalid
+  const validHours = isNaN(hours) || hours <= 0 ? DEFAULT_TUNNEL_MAX_AGE_HOURS : hours;
+
+  return validHours * 60 * 60 * 1000;
+}
+
+/**
+ * Checks if a tunnel has exceeded the maximum age for healthy tunnels
+ * @param tunnel - The tunnel to check
+ * @param maxAgeMs - Maximum age in milliseconds
+ * @returns True if tunnel is older than maxAgeMs
+ */
+function isTunnelExpired(tunnel: Tunnel, maxAgeMs: number): boolean {
+  if (!tunnel.created_at) {
+    return false;
+  }
+
+  const createdAt = new Date(tunnel.created_at).getTime();
+  const now = Date.now();
+  const age = now - createdAt;
+
+  return age > maxAgeMs;
+}
+
+/**
  * Handles the scheduled cleanup job
  * @param env - Environment variables
  */
 async function handleScheduledCleanup(env: Env): Promise<void> {
-  console.log('[Cron] Starting cleanup job...');
+  const maxAgeMs = getTunnelMaxAgeMs(env);
+  const maxAgeHours = maxAgeMs / (60 * 60 * 1000);
+  console.log(`[Cron] Starting cleanup job... (max tunnel age: ${maxAgeHours} hours)`);
 
   try {
+    // Fetch tunnels by status
     const downTunnels = await listTunnels('down', env);
     const inactiveTunnels = await listTunnels('inactive', env);
     const degradedTunnels = await listTunnels('degraded', env);
+    const healthyTunnels = await listTunnels('healthy', env);
+
+    // Dead tunnels are always cleaned up
     const deadTunnels = [...downTunnels, ...inactiveTunnels, ...degradedTunnels];
     console.log(`[Cron] Found ${deadTunnels.length} dead tunnels`);
 
-    for (const tunnel of deadTunnels) {
+    // Healthy tunnels older than configured max age should also be cleaned up
+    const expiredHealthyTunnels = healthyTunnels.filter((tunnel) => isTunnelExpired(tunnel, maxAgeMs));
+    console.log(`[Cron] Found ${expiredHealthyTunnels.length} expired healthy tunnels (older than ${maxAgeHours} hours)`);
+
+    const tunnelsToCleanup = [...deadTunnels, ...expiredHealthyTunnels];
+
+    for (const tunnel of tunnelsToCleanup) {
       // Check if tunnel should be cleaned up (based on CLEANUP_PREFIXES config)
       if (!shouldCleanupTunnel(tunnel.name)) {
         console.log(`[Cron] Skipping: ${tunnel.name} (doesn't match cleanup criteria)`);
         continue;
       }
 
-      console.log(`[Cron] Cleaning up: ${tunnel.name} (${tunnel.id})`);
+      const ageInfo = tunnel.created_at
+        ? ` (age: ${Math.round((Date.now() - new Date(tunnel.created_at).getTime()) / 1000 / 60)} min)`
+        : '';
+      console.log(`[Cron] Cleaning up: ${tunnel.name} (${tunnel.id}) [${tunnel.status}]${ageInfo}`);
 
       const fullDnsName = buildFullDnsName(tunnel.name, env.CF_DOMAIN);
 
@@ -571,3 +625,7 @@ export default {
     await handleScheduledCleanup(env);
   },
 } satisfies ExportedHandler<Env>;
+
+// Export types and utilities for testing
+export type { Tunnel, Env };
+export { getTunnelMaxAgeMs, isTunnelExpired, DEFAULT_TUNNEL_MAX_AGE_HOURS };
