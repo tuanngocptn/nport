@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.1] - 2026-01-30
 
+### Fixed
+- 🔧 **Tunnel Deletion with Active Connections**: Fixed Cloudflare API error #1022 when deleting tunnels
+  - Added `cleanupTunnelConnections()` function to remove stale connections before deletion
+  - Automatically cleans up tunnel connections before attempting to delete
+  - Prevents "Cannot delete tunnel because it has active connections" error
+  - Gracefully handles cases where connections are already cleaned up
+
 ### Added
 - ⏰ **Configurable Tunnel Max Age**: Added automatic cleanup of healthy tunnels that exceed a configurable age
   - New `TUNNEL_MAX_AGE_HOURS` environment variable to set maximum tunnel lifetime
@@ -31,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New Functions**:
   - `getTunnelMaxAgeMs(env)`: Parses env var and returns max age in milliseconds
   - `isTunnelExpired(tunnel, maxAgeMs)`: Checks if tunnel exceeds max age
+  - `cleanupTunnelConnections(tunnelId, env)`: Cleans up stale tunnel connections
 - **Exported for Testing**: `Tunnel`, `Env` types and utility functions
 
 ### Configuration

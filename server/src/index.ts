@@ -266,7 +266,31 @@ async function createTunnel(name: string, env: Env): Promise<CreatedTunnel> {
 }
 
 /**
+ * Cleans up all connections for a Cloudflare Tunnel
+ * This must be called before deleting a tunnel with active connections
+ * @param tunnelId - The tunnel ID to clean up
+ * @param env - Environment variables
+ */
+async function cleanupTunnelConnections(tunnelId: string, env: Env): Promise<void> {
+  if (!tunnelId) {
+    return;
+  }
+
+  const url = `${CF_API_BASE}/accounts/${env.CF_ACCOUNT_ID}/tunnels/${tunnelId}/connections`;
+
+  try {
+    await callCloudflareAPI<void>(url, 'DELETE', null, env);
+    console.log(`[Tunnel] Cleaned up connections for: ${tunnelId}`);
+  } catch (error) {
+    // Log but don't fail - connections might already be cleaned up
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.log(`[Tunnel] Connection cleanup note: ${errorMessage}`);
+  }
+}
+
+/**
  * Deletes a Cloudflare Tunnel by ID
+ * Automatically cleans up connections before deletion
  * @param tunnelId - The tunnel ID to delete
  * @param env - Environment variables
  */
@@ -275,6 +299,9 @@ async function deleteTunnel(tunnelId: string, env: Env): Promise<void> {
     console.log('[Tunnel] No tunnel ID provided, skipping deletion');
     return;
   }
+
+  // Clean up any active connections first (required by Cloudflare API)
+  await cleanupTunnelConnections(tunnelId, env);
 
   const url = `${CF_API_BASE}/accounts/${env.CF_ACCOUNT_ID}/tunnels/${tunnelId}`;
   await callCloudflareAPI<void>(url, 'DELETE', null, env);
