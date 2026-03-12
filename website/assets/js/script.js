@@ -15,3 +15,19 @@ function nportToggleTheme() {
   var isDark = document.documentElement.classList.toggle('dark');
   localStorage.setItem('nport-theme', isDark ? 'dark' : 'light');
 }
+
+(function() {
+  var learnMore = null;
+  function onScroll() {
+    if (!learnMore) learnMore = document.getElementById('learn-more');
+    if (!learnMore) return;
+    if (window.scrollY > 80) {
+      learnMore.style.opacity = '0';
+      learnMore.style.pointerEvents = 'none';
+    } else {
+      learnMore.style.opacity = '1';
+      learnMore.style.pointerEvents = '';
+    }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+})();
