@@ -326,7 +326,7 @@
         </div>
 
         <!-- Scroll indicator -->
-        <a href="#how-it-works" class="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 text-light-muted dark:text-text-muted hover:text-accent transition-colors duration-200 cursor-pointer" aria-label="Scroll down for more">
+        <a id="learn-more" href="#how-it-works" class="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 text-light-muted dark:text-text-muted hover:text-accent transition-all duration-300 cursor-pointer" aria-label="Scroll down for more">
           <span class="text-xs tracking-widest uppercase">Learn more</span>
           <svg class="w-5 h-5 animate-bounce" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
         </a>
@@ -345,36 +345,36 @@
           <!-- Step 1 -->
           <div class="relative group">
             <div class="absolute -top-3 -left-3 w-10 h-10 flex items-center justify-center bg-accent text-white font-bold font-mono rounded-xl text-sm shadow-lg shadow-accent/25">1</div>
-            <div class="p-6 pt-10 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl h-full transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20">
+            <div class="flex flex-col p-6 pt-10 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl h-full transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20">
               <h3 class="font-semibold text-lg mb-2">Install</h3>
-              <p class="text-light-muted dark:text-text-muted text-sm mb-4">One command to install globally via npm</p>
-              <code class="inline-flex items-center gap-2 px-3 py-2 bg-light-bg dark:bg-surface rounded-lg font-mono text-sm text-light-text dark:text-text-primary border border-light-border dark:border-border">
-                <span class="text-light-muted dark:text-text-muted select-none">$</span> npm i -g nport
-              </code>
+              <p class="text-light-muted dark:text-text-muted text-sm mb-2">One command to install globally via npm</p>
+              <button onclick="nportCopy('npm i -g nport')" class="group/cmd flex items-center gap-2 mt-auto w-full px-3 py-2 bg-light-bg dark:bg-surface rounded-lg font-mono text-xs text-light-text dark:text-text-primary border border-light-border dark:border-border hover:border-accent/50 dark:hover:border-accent/50 transition-all duration-200 cursor-pointer" style="white-space:nowrap">
+                <span class="flex-shrink-0 text-light-muted dark:text-text-muted select-none">$</span><span class="flex-shrink-0">npm i -g nport</span><svg class="w-3.5 h-3.5 flex-shrink-0 ml-auto text-light-muted dark:text-text-muted group-hover/cmd:text-accent transition-colors duration-200" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
             </div>
           </div>
 
           <!-- Step 2 -->
           <div class="relative group">
             <div class="absolute -top-3 -left-3 w-10 h-10 flex items-center justify-center bg-accent text-white font-bold font-mono rounded-xl text-sm shadow-lg shadow-accent/25">2</div>
-            <div class="p-6 pt-10 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl h-full transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20">
+            <div class="flex flex-col p-6 pt-10 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl h-full transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20">
               <h3 class="font-semibold text-lg mb-2">Run</h3>
-              <p class="text-light-muted dark:text-text-muted text-sm mb-4">Start your tunnel with a custom subdomain</p>
-              <code class="inline-flex items-center gap-2 px-3 py-2 bg-light-bg dark:bg-surface rounded-lg font-mono text-sm text-light-text dark:text-text-primary border border-light-border dark:border-border">
-                <span class="text-light-muted dark:text-text-muted select-none">$</span> nport 3000 -s myapp
-              </code>
+              <p class="text-light-muted dark:text-text-muted text-sm mb-2">Start your tunnel with a custom subdomain</p>
+              <button onclick="nportCopy('nport 3000 -s myapp')" class="group/cmd flex items-center gap-2 mt-auto w-full px-3 py-2 bg-light-bg dark:bg-surface rounded-lg font-mono text-xs text-light-text dark:text-text-primary border border-light-border dark:border-border hover:border-accent/50 dark:hover:border-accent/50 transition-all duration-200 cursor-pointer" style="white-space:nowrap">
+                <span class="flex-shrink-0 text-light-muted dark:text-text-muted select-none">$</span><span class="flex-shrink-0">nport 3000 -s myapp</span><svg class="w-3.5 h-3.5 flex-shrink-0 ml-auto text-light-muted dark:text-text-muted group-hover/cmd:text-accent transition-colors duration-200" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
             </div>
           </div>
 
           <!-- Step 3 -->
           <div class="relative group">
             <div class="absolute -top-3 -left-3 w-10 h-10 flex items-center justify-center bg-accent text-white font-bold font-mono rounded-xl text-sm shadow-lg shadow-accent/25">3</div>
-            <div class="p-6 pt-10 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl h-full transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20">
+            <div class="flex flex-col p-6 pt-10 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl h-full transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20">
               <h3 class="font-semibold text-lg mb-2">Share</h3>
-              <p class="text-light-muted dark:text-text-muted text-sm mb-4">Your local server is now publicly accessible</p>
-              <code class="inline-flex items-center gap-2 px-3 py-2 bg-light-bg dark:bg-surface rounded-lg font-mono text-sm text-accent border border-accent/20">
-                https://myapp.nport.link
-              </code>
+              <p class="text-light-muted dark:text-text-muted text-sm mb-2">Your local server is now publicly accessible</p>
+              <button onclick="nportCopy('https://myapp.nport.link')" class="group/cmd flex items-center gap-2 mt-auto w-full px-3 py-2 bg-light-bg dark:bg-surface rounded-lg font-mono text-xs text-accent border border-accent/20 hover:border-accent/50 transition-all duration-200 cursor-pointer" style="white-space:nowrap">
+                <span class="flex-shrink-0">https://myapp.nport.link</span><svg class="w-3.5 h-3.5 flex-shrink-0 ml-auto text-accent/50 group-hover/cmd:text-accent transition-colors duration-200" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
             </div>
           </div>
         </div>
