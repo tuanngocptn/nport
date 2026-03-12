@@ -1,6 +1,4 @@
 User-agent: *
-Allow: /index.html
-Allow: /$
-Disallow: /
+Allow: /
 
-Sitemap: https://nport.link/sitemap.xml 
+Sitemap: https://nport.link/sitemap.xml

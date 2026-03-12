@@ -1,42 +1,50 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="NPort - A free and open source ngrok alternative that tunnels HTTP(s) connections for straightforward access to localhost via public URLs"
+      content="NPort is a free, open-source ngrok alternative. Tunnel localhost to the internet with custom subdomains, automatic HTTPS, and zero configuration. Install with npm."
     />
     <meta
       name="keywords"
-      content="nport, ngrok alternative, localhost tunnel, local tunnel, HTTP tunnel, HTTPS tunnel, URL forwarding, web development, free ngrok alternative, open source ngrok alternative"
+      content="nport, ngrok alternative, localhost tunnel, local tunnel, HTTP tunnel, HTTPS tunnel, URL forwarding, web development, free ngrok, open source tunnel, cloudflare tunnel, port forwarding, webhook testing, subdomain tunnel"
     />
     <meta name="author" content="Nick - Ngoc Pham" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://nport.link/" />
     <meta name="apple-mobile-web-app-title" content="NPort" />
     <meta name="application-name" content="NPort" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="#1e1e1e">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#1e1e1e">
+    <meta name="apple-mobile-web-app-status-bar-style" content="#0F172A">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0F172A">
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="NPort" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:url" content="https://nport.link/" />
-    <meta property="og:title" content="NPort - Local Tunnel Made Easy | Ngrok Alternative | Free & Open Source" />
+    <meta property="og:title" content="NPort - Free & Open Source Ngrok Alternative | Tunnel Localhost to Internet" />
     <meta
       property="og:description"
-      content="A free and open source ngrok alternative that tunnels HTTP(s) connections for straightforward access to localhost via public URLs"
+      content="Tunnel localhost to the internet in seconds. Free, open-source ngrok alternative with custom subdomains, automatic HTTPS, and zero configuration."
     />
     <meta property="og:image" content="https://nport.link/assets/webp/nport-site.webp" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="NPort - Tunnel localhost to the internet" />
 
     <!-- Twitter -->
-    <meta property="twitter:card" content="summary_large_image" />
-    <meta property="twitter:url" content="https://nport.link/" />
-    <meta property="twitter:title" content="NPort - Local Tunnel Made Easy | Ngrok Alternative | Free & Open Source" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://nport.link/" />
+    <meta name="twitter:title" content="NPort - Free & Open Source Ngrok Alternative | Tunnel Localhost to Internet" />
     <meta
-      property="twitter:description"
-      content="A free and open source ngrok alternative that tunnels HTTP(s) connections for straightforward access to localhost via public URLs"
+      name="twitter:description"
+      content="Tunnel localhost to the internet in seconds. Free, open-source ngrok alternative with custom subdomains, automatic HTTPS, and zero configuration."
     />
-    <meta property="twitter:image" content="https://nport.link/assets/webp/nport-site.webp" />
+    <meta name="twitter:image" content="https://nport.link/assets/webp/nport-site.webp" />
+    <meta name="twitter:image:alt" content="NPort - Tunnel localhost to the internet" />
 
     <!-- Favicon -->
     <link rel="apple-touch-icon" sizes="180x180" href="https://nport.link/assets/favicon_io/apple-touch-icon.png" />
@@ -48,44 +56,171 @@
     <link rel="shortcut icon" type="image/x-icon" href="https://nport.link/assets/favicon_io/favicon.ico" />
     <link rel="manifest" href="https://nport.link/assets/favicon_io/site.webmanifest" />
 
-    <title>NPort - Local Tunnel Made Easy | Ngrok Alternative | Free & Open Source</title>
+    <title>NPort - Free & Open Source Ngrok Alternative | Tunnel Localhost to Internet</title>
 
-    <!-- JSON-LD -->
+    <!-- JSON-LD: SoftwareApplication -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
+      "@id": "https://nport.link/#software",
       "name": "NPort",
-      "description": "A free and open source ngrok alternative that tunnels HTTP(s) connections for straightforward access to localhost via public URLs",
+      "alternateName": "nport",
+      "headline": "Free & Open Source Ngrok Alternative",
+      "description": "NPort is a free, open-source ngrok alternative that tunnels localhost to the internet with custom subdomains, automatic HTTPS, and zero configuration.",
       "applicationCategory": "DeveloperApplication",
-      "operatingSystem": "Cross-platform",
+      "applicationSubCategory": "Networking Tool",
+      "operatingSystem": "Windows, macOS, Linux",
       "offers": {
         "@type": "Offer",
         "price": "0",
-        "priceCurrency": "USD"
+        "priceCurrency": "USD",
+        "availability": "https://schema.org/InStock"
       },
       "author": {
         "@type": "Person",
         "name": "Nick - Ngoc Pham",
         "url": "https://github.com/tuanngocptn"
       },
-      "softwareVersion": "1.0.0",
+      "publisher": {
+        "@type": "Person",
+        "name": "Nick - Ngoc Pham",
+        "url": "https://github.com/tuanngocptn"
+      },
+      "datePublished": "2024-01-01",
+      "dateModified": "2025-03-12",
+      "softwareVersion": "2.1.3",
       "url": "https://nport.link",
       "downloadUrl": "https://www.npmjs.com/package/nport",
+      "installUrl": "https://www.npmjs.com/package/nport",
       "logo": "https://nport.link/assets/imgs/nport-logo.png",
       "image": "https://nport.link/assets/webp/nport-site.webp",
+      "screenshot": "https://nport.link/assets/webp/nport-site.webp",
+      "license": "https://github.com/tuanngocptn/nport/blob/main/LICENSE",
+      "isAccessibleForFree": true,
       "featureList": [
         "Custom subdomain support",
         "Automatic HTTPS encryption",
         "WebSocket support",
         "No configuration needed",
-        "Cross-platform compatibility"
+        "Cross-platform compatibility",
+        "Powered by Cloudflare edge network"
+      ],
+      "softwareRequirements": "Node.js",
+      "codeRepository": "https://github.com/tuanngocptn/nport"
+    }
+    </script>
+
+    <!-- JSON-LD: HowTo -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "HowTo",
+      "name": "How to tunnel localhost to the internet with NPort",
+      "description": "Three simple steps to expose your local development server to the internet using NPort.",
+      "totalTime": "PT1M",
+      "step": [
+        {
+          "@type": "HowToStep",
+          "position": 1,
+          "name": "Install NPort",
+          "text": "Install NPort globally via npm: npm i -g nport",
+          "url": "https://nport.link/#how-it-works"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 2,
+          "name": "Run NPort",
+          "text": "Start your tunnel with a custom subdomain: nport 3000 -s myapp",
+          "url": "https://nport.link/#how-it-works"
+        },
+        {
+          "@type": "HowToStep",
+          "position": 3,
+          "name": "Share your URL",
+          "text": "Your local server is now publicly accessible at https://myapp.nport.link",
+          "url": "https://nport.link/#how-it-works"
+        }
       ]
     }
     </script>
 
+    <!-- JSON-LD: FAQPage -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is NPort?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "NPort is a free, open-source ngrok alternative that tunnels HTTP(s) connections, providing straightforward access to your localhost via public URLs. It is built on Cloudflare's global edge network."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Is NPort free to use?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes, NPort is completely free and open source. No sign-up, no account, and no credit card required."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How do I install NPort?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Install NPort globally with npm by running: npm i -g nport. Then start a tunnel with: nport 3000 -s your-subdomain."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does NPort support HTTPS?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes, every NPort tunnel is automatically secured with HTTPS encryption. No certificates to manage."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Does NPort support WebSockets?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes, NPort supports WebSocket connections in addition to standard HTTP and HTTPS traffic."
+          }
+        }
+      ]
+    }
+    </script>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Cookie&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" />
+    <link href="https://fonts.googleapis.com/css2?family=Cookie&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+
     <!-- Stylesheets -->
+    <link rel="preload" as="style" href="./assets/css/style.css" />
     <link rel="stylesheet" href="./assets/css/style.css" />
+
+    <!-- NPort functions (must load before body so onclick handlers work) -->
+    <script src="./assets/js/script.js"></script>
+
+    <!-- Dark mode: prevent flash of wrong theme -->
+    <script>
+      (function() {
+        var stored = localStorage.getItem('nport-theme');
+        if (stored === 'light') {
+          document.documentElement.classList.remove('dark');
+        } else if (stored === 'dark') {
+          document.documentElement.classList.add('dark');
+        } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
+    </script>
 
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-JJHG4DP1K9"></script>
@@ -103,103 +238,317 @@
       });
     </script>
   </head>
-  <body>
-    <a href="https://nport.link" class="logo">
-      <img src="./assets/webp/nport-logo-dark-min.webp" alt="NPort logo" height="30" width="30" />
-      <span>NPort</span>
-    </a>
-    <div class="content">
-      <!-- Main Text -->
-      <a href="https://nport.link"><h1>nport.link</h1></a>
-      <p class="description">
-        NPort is a powerful and lightweight <a href="https://ngrok.com" target="_blank">ngrok alternative</a> that
-        creates secure HTTP/HTTPS connections from localhost to public URLs.
-      </p>
-      <!-- Subtitle -->
-      <div class="social-links">
-        <a href="https://github.com/tuanngocptn/nport" target="_blank" class="button github">
-          <img src="./assets/webp/github.webp" alt="Github NPort" />
-          <span>GitHub</span>
-        </a>
-        <a href="https://www.npmjs.com/package/nport" target="_blank" class="button npm">
-          <img src="./assets/webp/npm.webp" alt="NPM NPort" />
-          <span>npm</span>
-        </a>
-        <a href="https://buymeacoffee.com/tuanngocptn" target="_blank" class="coffee-button">
-          <img src="./assets/webp/buy-me-a-coffee-min.webp" alt="Coffee cup icon" height="24" width="18" />
-          <span class="desktop-text">Buy me a coffee</span>
-          <span class="mobile-text">Coffee</span>
-        </a>
-      </div>
-      <h2><code>npm i -g nport</code></h2>
-      <p class="description">Perfect for developers who need to:</p>
-      <!-- Subtitle -->
-      <div class="features">
-        <div class="feature">
-          <h3>🚀 Share Local Development</h3>
-          <p>Instantly share your local development server with teammates or clients without complex server setup.</p>
-        </div>
-        <div class="feature">
-          <h3>🔒 Test Webhooks</h3>
-          <p>
-            Securely test webhook integrations from services like GitHub, Stripe, or PayPal directly on your local
-            machine.
-          </p>
-        </div>
-        <div class="feature">
-          <h3>📱 Mobile Testing</h3>
-          <p>Test your web applications on mobile devices using a public URL while developing on localhost.</p>
-        </div>
-        <div class="feature">
-          <h3>🛠️ API Development</h3>
-          <p>Develop and debug API integrations by exposing your local endpoints to external services.</p>
-        </div>
-        <div class="feature">
-          <h3>⚡ Key Features - ngrok alternative</h3>
-          <ul>
-            <li>Custom subdomain support (e.g., myapp.nport.link)</li>
-            <li>Automatic HTTPS encryption</li>
-            <li>WebSocket support</li>
-            <li>No configuration needed</li>
-            <li>Cross-platform compatibility</li>
-          </ul>
-        </div>
-        <div class="feature">
-          <h3>💻 Quick Start</h3>
-          <p>After installation, simply run:</p>
-          <p><code>nport 3000 -s myapp</code></p>
-          <p>This will create a tunnel from localhost:3000 to https://myapp.nport.link</p>
-        </div>
-      </div>
-      
-      <!-- Sponsor Section -->
-      <div class="sponsor-section">
-        <h3 class="sponsor-title">Powered by Cloudflare</h3>
-        <a href="https://www.cloudflare.com" target="_blank" class="sponsor-logo-link">
-          <img src="./assets/webp/cloudflare-logo-black.webp" alt="Cloudflare" class="sponsor-logo" />
-        </a>
-      </div>
+  <body class="bg-light-bg dark:bg-surface text-light-text dark:text-text-primary transition-colors duration-300">
 
-      <div class="privacy-notice"></div>
-    </div>
-    <footer class="footer">
-      <p>
-        Created by <a href="https://github.com/tuanngocptn" target="_blank">Nick - Ngoc Pham</a> 🇻🇳 | Powered by
-        <a href="https://www.cloudflare.com" target="_blank">Cloudflare</a> |
-        <a href="https://github.com/tuanngocptn/nport" target="_blank">nport</a> |
-        <a href="https://www.npmjs.com/package/nport" target="_blank">npm</a>
-      </p>
+    <!-- ========== NAVBAR ========== -->
+    <nav class="fixed top-0 left-0 right-0 z-50 md:top-4 md:left-4 md:right-4">
+      <div class="mx-auto max-w-6xl bg-white/80 dark:bg-surface-card/80 backdrop-blur-xl border border-light-border dark:border-border md:rounded-2xl shadow-lg dark:shadow-black/20">
+        <div class="flex items-center justify-between px-4 py-3 md:px-6">
+          <!-- Logo -->
+          <a href="https://nport.link" class="flex items-center gap-2.5 cursor-pointer group">
+            <img src="./assets/imgs/nport-logo-dark.png" alt="NPort logo" width="36" height="36" class="hidden dark:block" />
+            <img src="./assets/imgs/nport-logo-light.png" alt="NPort logo" width="36" height="36" class="block dark:hidden" />
+            <span class="text-xl font-bold tracking-tight font-mono group-hover:text-accent transition-colors duration-200">NPort</span>
+          </a>
+
+          <!-- Right side -->
+          <div class="flex items-center gap-2 md:gap-3">
+            <!-- Theme toggle -->
+            <button type="button" onclick="nportToggleTheme()" class="p-2 rounded-xl hover:bg-light-border dark:hover:bg-border transition-colors duration-200 cursor-pointer" aria-label="Toggle theme">
+              <!-- Sun icon (shown in dark mode) -->
+              <svg class="w-5 h-5 hidden dark:block" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+              <!-- Moon icon (shown in light mode) -->
+              <svg class="w-5 h-5 block dark:hidden" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            </button>
+
+            <!-- GitHub -->
+            <a href="https://github.com/tuanngocptn/nport" target="_blank" rel="noopener noreferrer" class="p-2 rounded-xl hover:bg-light-border dark:hover:bg-border transition-colors duration-200 cursor-pointer" aria-label="GitHub">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+            </a>
+
+            <!-- npm -->
+            <a href="https://www.npmjs.com/package/nport" target="_blank" rel="noopener noreferrer" class="p-2 rounded-xl hover:bg-light-border dark:hover:bg-border transition-colors duration-200 cursor-pointer" aria-label="npm">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M1.763 0C.786 0 0 .786 0 1.763v20.474C0 23.214.786 24 1.763 24h20.474c.977 0 1.763-.786 1.763-1.763V1.763C24 .786 23.214 0 22.237 0zM5.13 5.323l13.837.019-.009 13.836h-3.464l.01-10.382h-3.456L12.04 19.17H5.113z"/></svg>
+            </a>
+
+            <!-- Buy me a coffee -->
+            <a href="https://buymeacoffee.com/tuanngocptn" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 p-2 sm:px-4 sm:py-2 bg-[#FFDD00] hover:bg-[#FFCD00] text-[#000000] dark:text-[#000000] rounded-xl transition-colors duration-200 cursor-pointer" style="font-family:'Cookie',cursive;font-size:1.25rem;">
+              <img src="./assets/imgs/buy-me-a-coffee-min.png" alt="Buy me a coffee" width="18" height="24" />
+              <span class="hidden sm:inline">Buy me a coffee</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <main>
+    <!-- ========== HERO SECTION ========== -->
+    <section id="hero" class="relative min-h-screen flex items-center justify-center pt-24 pb-16 md:pt-32 md:pb-24 px-4">
+      <div class="max-w-4xl mx-auto text-center">
+        <!-- Badge -->
+        <div class="inline-flex items-center gap-2 px-4 py-1.5 mb-8 rounded-full border border-light-border dark:border-border bg-white/50 dark:bg-surface-card/50 backdrop-blur-sm text-sm text-light-muted dark:text-text-muted">
+          <span class="inline-block w-2 h-2 rounded-full bg-accent animate-pulse"></span>
+          Free &amp; Open Source
+        </div>
+
+        <!-- Heading -->
+        <h1 class="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold font-mono tracking-tighter mb-6">
+          <span class="text-light-text dark:text-text-primary">nport</span><span class="text-accent">.link</span>
+        </h1>
+
+        <!-- Subtitle -->
+        <p class="text-lg md:text-xl text-light-muted dark:text-text-muted max-w-2xl mx-auto mb-10 leading-relaxed">
+          A powerful and lightweight
+          <a href="https://ngrok.com" target="_blank" rel="noopener noreferrer" class="text-light-text dark:text-text-primary underline underline-offset-4 decoration-accent/50 hover:decoration-accent transition-colors duration-200 cursor-pointer">ngrok alternative</a>
+          that creates secure HTTP/HTTPS tunnels from localhost to public URLs.
+        </p>
+
+        <!-- Install command -->
+        <div class="flex justify-center mb-10">
+          <button onclick="nportCopy('npm i -g nport')" class="group flex items-center gap-3 px-6 py-4 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl font-mono text-base md:text-lg hover:border-accent/50 dark:hover:border-accent/50 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md dark:shadow-black/10">
+            <span class="text-light-muted dark:text-text-muted select-none">$</span>
+            <span class="text-light-text dark:text-text-primary">npm i -g nport</span>
+            <!-- Copy icon -->
+            <svg class="w-4 h-4 text-light-muted dark:text-text-muted group-hover:text-accent transition-colors duration-200" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        </div>
+
+        <!-- CTA Buttons -->
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <a href="https://github.com/tuanngocptn/nport" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2.5 px-7 py-3.5 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors duration-200 cursor-pointer shadow-lg shadow-accent/25">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+            Get Started
+          </a>
+          <a href="https://www.npmjs.com/package/nport" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2.5 px-7 py-3.5 border border-light-border dark:border-border hover:border-accent/50 dark:hover:border-accent/50 font-semibold rounded-xl transition-all duration-200 cursor-pointer hover:shadow-md dark:hover:shadow-black/10">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M1.763 0C.786 0 0 .786 0 1.763v20.474C0 23.214.786 24 1.763 24h20.474c.977 0 1.763-.786 1.763-1.763V1.763C24 .786 23.214 0 22.237 0zM5.13 5.323l13.837.019-.009 13.836h-3.464l.01-10.382h-3.456L12.04 19.17H5.113z"/></svg>
+            View on npm
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== HOW IT WORKS ========== -->
+    <section id="how-it-works" class="py-20 md:py-28 px-4">
+      <div class="max-w-5xl mx-auto">
+        <div class="text-center mb-16">
+          <h2 class="text-3xl md:text-4xl font-bold font-mono tracking-tight mb-4">How it works</h2>
+          <p class="text-light-muted dark:text-text-muted text-lg max-w-xl mx-auto">Three steps to expose your local server to the world</p>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-6 md:gap-8">
+          <!-- Step 1 -->
+          <div class="relative group">
+            <div class="absolute -top-3 -left-3 w-10 h-10 flex items-center justify-center bg-accent text-white font-bold font-mono rounded-xl text-sm shadow-lg shadow-accent/25">1</div>
+            <div class="p-6 pt-10 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl h-full transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20">
+              <h3 class="font-semibold text-lg mb-2">Install</h3>
+              <p class="text-light-muted dark:text-text-muted text-sm mb-4">One command to install globally via npm</p>
+              <code class="inline-flex items-center gap-2 px-3 py-2 bg-light-bg dark:bg-surface rounded-lg font-mono text-sm text-light-text dark:text-text-primary border border-light-border dark:border-border">
+                <span class="text-light-muted dark:text-text-muted select-none">$</span> npm i -g nport
+              </code>
+            </div>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="relative group">
+            <div class="absolute -top-3 -left-3 w-10 h-10 flex items-center justify-center bg-accent text-white font-bold font-mono rounded-xl text-sm shadow-lg shadow-accent/25">2</div>
+            <div class="p-6 pt-10 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl h-full transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20">
+              <h3 class="font-semibold text-lg mb-2">Run</h3>
+              <p class="text-light-muted dark:text-text-muted text-sm mb-4">Start your tunnel with a custom subdomain</p>
+              <code class="inline-flex items-center gap-2 px-3 py-2 bg-light-bg dark:bg-surface rounded-lg font-mono text-sm text-light-text dark:text-text-primary border border-light-border dark:border-border">
+                <span class="text-light-muted dark:text-text-muted select-none">$</span> nport 3000 -s myapp
+              </code>
+            </div>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="relative group">
+            <div class="absolute -top-3 -left-3 w-10 h-10 flex items-center justify-center bg-accent text-white font-bold font-mono rounded-xl text-sm shadow-lg shadow-accent/25">3</div>
+            <div class="p-6 pt-10 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl h-full transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20">
+              <h3 class="font-semibold text-lg mb-2">Share</h3>
+              <p class="text-light-muted dark:text-text-muted text-sm mb-4">Your local server is now publicly accessible</p>
+              <code class="inline-flex items-center gap-2 px-3 py-2 bg-light-bg dark:bg-surface rounded-lg font-mono text-sm text-accent border border-accent/20">
+                https://myapp.nport.link
+              </code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== FEATURES ========== -->
+    <section id="features" class="py-20 md:py-28 px-4 bg-white/50 dark:bg-surface-card/30">
+      <div class="max-w-6xl mx-auto">
+        <div class="text-center mb-16">
+          <h2 class="text-3xl md:text-4xl font-bold font-mono tracking-tight mb-4">Built for developers</h2>
+          <p class="text-light-muted dark:text-text-muted text-lg max-w-xl mx-auto">Everything you need to share your local dev environment</p>
+        </div>
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <!-- Feature 1 -->
+          <div class="group p-6 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20 cursor-default">
+            <div class="w-11 h-11 flex items-center justify-center bg-accent/10 dark:bg-accent/15 rounded-xl mb-4">
+              <svg class="w-5 h-5 text-accent" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            </div>
+            <h3 class="font-semibold text-lg mb-2">Share Local Development</h3>
+            <p class="text-light-muted dark:text-text-muted text-sm leading-relaxed">Instantly share your local development server with teammates or clients without complex server setup.</p>
+          </div>
+
+          <!-- Feature 2 -->
+          <div class="group p-6 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20 cursor-default">
+            <div class="w-11 h-11 flex items-center justify-center bg-accent/10 dark:bg-accent/15 rounded-xl mb-4">
+              <svg class="w-5 h-5 text-accent" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <h3 class="font-semibold text-lg mb-2">Test Webhooks</h3>
+            <p class="text-light-muted dark:text-text-muted text-sm leading-relaxed">Securely test webhook integrations from services like GitHub, Stripe, or PayPal directly on your local machine.</p>
+          </div>
+
+          <!-- Feature 3 -->
+          <div class="group p-6 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20 cursor-default">
+            <div class="w-11 h-11 flex items-center justify-center bg-accent/10 dark:bg-accent/15 rounded-xl mb-4">
+              <svg class="w-5 h-5 text-accent" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+            </div>
+            <h3 class="font-semibold text-lg mb-2">Mobile Testing</h3>
+            <p class="text-light-muted dark:text-text-muted text-sm leading-relaxed">Test your web applications on mobile devices using a public URL while developing on localhost.</p>
+          </div>
+
+          <!-- Feature 4 -->
+          <div class="group p-6 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20 cursor-default">
+            <div class="w-11 h-11 flex items-center justify-center bg-accent/10 dark:bg-accent/15 rounded-xl mb-4">
+              <svg class="w-5 h-5 text-accent" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+            </div>
+            <h3 class="font-semibold text-lg mb-2">API Development</h3>
+            <p class="text-light-muted dark:text-text-muted text-sm leading-relaxed">Develop and debug API integrations by exposing your local endpoints to external services.</p>
+          </div>
+
+          <!-- Feature 5 -->
+          <div class="group p-6 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20 cursor-default">
+            <div class="w-11 h-11 flex items-center justify-center bg-accent/10 dark:bg-accent/15 rounded-xl mb-4">
+              <svg class="w-5 h-5 text-accent" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <h3 class="font-semibold text-lg mb-2">Automatic HTTPS</h3>
+            <p class="text-light-muted dark:text-text-muted text-sm leading-relaxed">Every tunnel is automatically secured with HTTPS encryption. No certificates to manage.</p>
+          </div>
+
+          <!-- Feature 6 -->
+          <div class="group p-6 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl transition-all duration-200 hover:border-accent/30 dark:hover:border-accent/30 hover:shadow-lg dark:hover:shadow-black/20 cursor-default">
+            <div class="w-11 h-11 flex items-center justify-center bg-accent/10 dark:bg-accent/15 rounded-xl mb-4">
+              <svg class="w-5 h-5 text-accent" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            </div>
+            <h3 class="font-semibold text-lg mb-2">Zero Config</h3>
+            <p class="text-light-muted dark:text-text-muted text-sm leading-relaxed">No accounts, no configuration files. Install and start tunneling in seconds with WebSocket support.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== ARCHITECTURE ========== -->
+    <section id="architecture" class="py-20 md:py-28 px-4">
+      <div class="max-w-4xl mx-auto">
+        <div class="text-center mb-16">
+          <h2 class="text-3xl md:text-4xl font-bold font-mono tracking-tight mb-4">Powered by Cloudflare</h2>
+          <p class="text-light-muted dark:text-text-muted text-lg max-w-xl mx-auto">Built on Cloudflare's global edge network for blazing-fast, reliable tunnels</p>
+        </div>
+
+        <!-- Architecture diagram -->
+        <div class="p-6 md:p-10 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl">
+          <div class="flex flex-col md:flex-row items-center justify-between gap-8 md:gap-4">
+            <!-- Your Machine -->
+            <div class="flex-1 text-center p-6 bg-light-bg dark:bg-surface rounded-xl border border-light-border dark:border-border">
+              <div class="w-12 h-12 mx-auto mb-3 flex items-center justify-center bg-accent/10 dark:bg-accent/15 rounded-xl">
+                <svg class="w-6 h-6 text-accent" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              </div>
+              <h4 class="font-semibold font-mono text-sm mb-1">Your Machine</h4>
+              <p class="text-xs text-light-muted dark:text-text-muted">localhost:3000</p>
+            </div>
+
+            <!-- Arrow -->
+            <div class="flex items-center">
+              <svg class="w-8 h-8 text-accent rotate-90 md:rotate-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
+
+            <!-- Cloudflare -->
+            <div class="flex-1 text-center p-6 bg-light-bg dark:bg-surface rounded-xl border border-accent/20">
+              <a href="https://www.cloudflare.com" target="_blank" rel="noopener noreferrer" class="block cursor-pointer">
+                <div class="w-12 h-12 mx-auto mb-3 flex items-center justify-center bg-[#F6821F]/10 rounded-xl">
+                  <svg class="w-6 h-6 text-[#F6821F]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                </div>
+                <h4 class="font-semibold font-mono text-sm mb-1">Cloudflare Edge</h4>
+                <p class="text-xs text-light-muted dark:text-text-muted">Global CDN Network</p>
+              </a>
+            </div>
+
+            <!-- Arrow -->
+            <div class="flex items-center">
+              <svg class="w-8 h-8 text-accent rotate-90 md:rotate-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </div>
+
+            <!-- Public URL -->
+            <div class="flex-1 text-center p-6 bg-light-bg dark:bg-surface rounded-xl border border-light-border dark:border-border">
+              <div class="w-12 h-12 mx-auto mb-3 flex items-center justify-center bg-accent/10 dark:bg-accent/15 rounded-xl">
+                <svg class="w-6 h-6 text-accent" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              </div>
+              <h4 class="font-semibold font-mono text-sm mb-1">Public URL</h4>
+              <p class="text-xs text-accent">myapp.nport.link</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== CTA SECTION ========== -->
+    <section id="get-started" class="py-20 md:py-28 px-4">
+      <div class="max-w-3xl mx-auto text-center">
+        <h2 class="text-3xl md:text-4xl font-bold font-mono tracking-tight mb-4">Start tunneling in seconds</h2>
+        <p class="text-light-muted dark:text-text-muted text-lg mb-10 max-w-lg mx-auto">No sign-up required. Install NPort and expose your localhost to the world.</p>
+
+        <div class="inline-flex flex-col sm:flex-row items-center gap-4">
+          <button onclick="nportCopy('npm i -g nport')" class="group flex items-center gap-3 px-6 py-4 bg-white dark:bg-surface-card border border-light-border dark:border-border rounded-2xl font-mono text-base md:text-lg hover:border-accent/50 dark:hover:border-accent/50 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md dark:shadow-black/10">
+            <span class="text-light-muted dark:text-text-muted select-none">$</span>
+            <span class="text-light-text dark:text-text-primary">npm i -g nport</span>
+            <svg class="w-4 h-4 text-light-muted dark:text-text-muted group-hover:text-accent transition-colors duration-200" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+          <a href="https://buymeacoffee.com/tuanngocptn" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-6 py-4 bg-[#FFDD00] hover:bg-[#FFCD00] text-[#000000] dark:text-[#000000] rounded-2xl transition-colors duration-200 cursor-pointer shadow-sm hover:shadow-md" style="font-family:'Cookie',cursive;font-size:1.5rem;">
+            <img src="./assets/imgs/buy-me-a-coffee-min.png" alt="Buy me a coffee" width="20" height="28" />
+            Buy me a coffee
+          </a>
+        </div>
+      </div>
+    </section>
+
+    </main>
+
+    <!-- ========== FOOTER ========== -->
+    <footer class="border-t border-light-border dark:border-border">
+      <div class="max-w-6xl mx-auto px-4 py-8 md:py-10">
+        <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+          <!-- Left -->
+          <div class="flex items-center gap-2.5">
+            <img src="./assets/imgs/nport-logo-dark.png" alt="NPort logo" width="20" height="20" class="hidden dark:block" />
+            <img src="./assets/imgs/nport-logo-light.png" alt="NPort logo" width="20" height="20" class="block dark:hidden" />
+            <span class="text-sm text-light-muted dark:text-text-muted">
+              Created by <a href="https://github.com/tuanngocptn" target="_blank" rel="noopener noreferrer" class="text-light-text dark:text-text-primary hover:text-accent transition-colors duration-200 cursor-pointer">Nick - Ngoc Pham</a>
+            </span>
+          </div>
+          <!-- Right -->
+          <div class="flex items-center gap-6 text-sm text-light-muted dark:text-text-muted">
+            <a href="https://www.cloudflare.com" target="_blank" rel="noopener noreferrer" class="hover:text-light-text dark:hover:text-text-primary transition-colors duration-200 cursor-pointer">Cloudflare</a>
+            <a href="https://github.com/tuanngocptn/nport" target="_blank" rel="noopener noreferrer" class="hover:text-light-text dark:hover:text-text-primary transition-colors duration-200 cursor-pointer">GitHub</a>
+            <a href="https://www.npmjs.com/package/nport" target="_blank" rel="noopener noreferrer" class="hover:text-light-text dark:hover:text-text-primary transition-colors duration-200 cursor-pointer">npm</a>
+          </div>
+        </div>
+      </div>
     </footer>
-    <script src="./assets/js/script.js" defer></script>
+
+    <!-- Copy feedback toast -->
+    <div id="copy-toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 bg-surface-card text-text-primary border border-border rounded-xl shadow-xl opacity-0 pointer-events-none transition-all duration-300 -translate-y-2 text-sm font-medium z-50">
+      Copied to clipboard
+    </div>
+
+    <!-- Analytics -->
     <script type="module">
-      // Import the functions you need from the SDKs you need
       import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
       import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-analytics.js";
-      // TODO: Add SDKs for Firebase products that you want to use
-      // https://firebase.google.com/docs/web/setup#available-libraries
 
-      // Your web app's Firebase configuration
-      // For Firebase JS SDK v7.20.0 and later, measurementId is optional
       const firebaseConfig = {
         apiKey: "AIzaSyArRxHZJUt4o2RxiLqX1yDSkuUd6ZFy45I",
         authDomain: "nport-link.firebaseapp.com",
@@ -210,7 +559,6 @@
         measurementId: "G-8MYXZL6PGD"
       };
 
-      // Initialize Firebase
       const app = initializeApp(firebaseConfig);
       const analytics = getAnalytics(app);
     </script>

@@ -35,9 +35,12 @@ const minifyHTMLWithDependencies = async (inputHtmlPath, outputHtmlPath) => {
   try {
     let htmlContent = readFile(inputHtmlPath);
 
-    // Match local CSS and JS file references
-    const cssRegex = /<link.*?href="(.*?\.css)".*?>/g;
+    const cssRegex = /<link[^>]*?rel="stylesheet"[^>]*?href="(\.[^"]*?\.css)"[^>]*?>/g;
+    const cssPreloadRegex = /<link[^>]*?rel="preload"[^>]*?href="(\.[^"]*?\.css)"[^>]*?>/g;
     const jsRegex = /<script.*?src="(.*?\.js)".*?><\/script>/g;
+
+    // Remove local CSS preload hints (inlining makes them unnecessary)
+    htmlContent = htmlContent.replace(cssPreloadRegex, '');
 
     // Minify and inline local CSS files
     htmlContent = htmlContent.replace(cssRegex, (match, cssPath) => {
@@ -58,11 +61,11 @@ const minifyHTMLWithDependencies = async (inputHtmlPath, outputHtmlPath) => {
     const minifiedHTML = htmlMinifier(htmlContent, {
       collapseWhitespace: true,
       removeComments: true,
-      removeRedundantAttributes: true,
+      removeRedundantAttributes: false,
       useShortDoctype: true,
       removeEmptyAttributes: true,
-      minifyCSS: true,
-      minifyJS: true,
+      minifyCSS: false,
+      minifyJS: false,
     });
 
     // Write to the output file
