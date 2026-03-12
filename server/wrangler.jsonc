@@ -8,7 +8,8 @@
     "enabled": true
   },
   "vars": {
-    "TUNNEL_MAX_AGE_HOURS": "4"
+    "TUNNEL_MAX_AGE_HOURS": "4",
+    "MAX_CLEANUPS_PER_RUN": "10"
   },
   "triggers": {
     "crons": ["*/30 * * * *"]

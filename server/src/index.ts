@@ -12,7 +12,10 @@ interface Env {
   CF_API_TOKEN?: string;
   CF_EMAIL?: string;
   CF_API_KEY?: string;
+  /** Maximum age for healthy tunnels before cleanup (in hours). Defaults to 4 hours. */
   TUNNEL_MAX_AGE_HOURS?: string;
+  /** Maximum number of tunnels to clean up per cron run. Defaults to 10. */
+  MAX_CLEANUPS_PER_RUN?: string;
 }
 
 /**
@@ -97,6 +100,13 @@ const PROTECTED_SUBDOMAINS: string[] = ['api'];
 
 /** Default maximum age for healthy tunnels before cleanup (in hours) */
 const DEFAULT_TUNNEL_MAX_AGE_HOURS = 4;
+
+/**
+ * Maximum tunnels to clean up per cron run
+ * Cloudflare Workers have a subrequest limit (50 for free, 1000 for paid)
+ * Each tunnel cleanup uses ~4 subrequests + 4 for listing = ~10 tunnels safe for free plan
+ */
+const DEFAULT_MAX_CLEANUPS_PER_RUN = 10;
 
 /** Cloudflare API base URL */
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
@@ -533,6 +543,20 @@ function getTunnelMaxAgeMs(env: Env): number {
 }
 
 /**
+ * Gets the maximum number of tunnels to clean up per cron run
+ * @param env - Environment variables
+ * @returns Max cleanups per run
+ */
+function getMaxCleanupsPerRun(env: Env): number {
+  const value = env.MAX_CLEANUPS_PER_RUN
+    ? parseInt(env.MAX_CLEANUPS_PER_RUN, 10)
+    : DEFAULT_MAX_CLEANUPS_PER_RUN;
+
+  // Validate parsed value, fallback to default if invalid
+  return isNaN(value) || value <= 0 ? DEFAULT_MAX_CLEANUPS_PER_RUN : value;
+}
+
+/**
  * Checks if a tunnel has exceeded the maximum age for healthy tunnels
  * @param tunnel - The tunnel to check
  * @param maxAgeMs - Maximum age in milliseconds
@@ -557,7 +581,8 @@ function isTunnelExpired(tunnel: Tunnel, maxAgeMs: number): boolean {
 async function handleScheduledCleanup(env: Env): Promise<void> {
   const maxAgeMs = getTunnelMaxAgeMs(env);
   const maxAgeHours = maxAgeMs / (60 * 60 * 1000);
-  console.log(`[Cron] Starting cleanup job... (max tunnel age: ${maxAgeHours} hours)`);
+  const maxCleanupsPerRun = getMaxCleanupsPerRun(env);
+  console.log(`[Cron] Starting cleanup job... (max age: ${maxAgeHours}h, max cleanups: ${maxCleanupsPerRun})`);
 
   try {
     // Fetch tunnels by status
@@ -574,32 +599,46 @@ async function handleScheduledCleanup(env: Env): Promise<void> {
     const expiredHealthyTunnels = healthyTunnels.filter((tunnel) => isTunnelExpired(tunnel, maxAgeMs));
     console.log(`[Cron] Found ${expiredHealthyTunnels.length} expired healthy tunnels (older than ${maxAgeHours} hours)`);
 
-    const tunnelsToCleanup = [...deadTunnels, ...expiredHealthyTunnels];
+    // Filter tunnels that match cleanup criteria
+    const allTunnelsToCleanup = [...deadTunnels, ...expiredHealthyTunnels].filter((tunnel) =>
+      shouldCleanupTunnel(tunnel.name)
+    );
 
+    // Limit to max cleanups per run to avoid hitting subrequest limits
+    const tunnelsToCleanup = allTunnelsToCleanup.slice(0, maxCleanupsPerRun);
+
+    if (allTunnelsToCleanup.length > maxCleanupsPerRun) {
+      console.log(
+        `[Cron] Limiting cleanup to ${maxCleanupsPerRun} of ${allTunnelsToCleanup.length} tunnels (will continue next run)`
+      );
+    }
+
+    let cleanedCount = 0;
     for (const tunnel of tunnelsToCleanup) {
-      // Check if tunnel should be cleaned up (based on CLEANUP_PREFIXES config)
-      if (!shouldCleanupTunnel(tunnel.name)) {
-        console.log(`[Cron] Skipping: ${tunnel.name} (doesn't match cleanup criteria)`);
-        continue;
-      }
-
       const ageInfo = tunnel.created_at
         ? ` (age: ${Math.round((Date.now() - new Date(tunnel.created_at).getTime()) / 1000 / 60)} min)`
         : '';
       console.log(`[Cron] Cleaning up: ${tunnel.name} (${tunnel.id}) [${tunnel.status}]${ageInfo}`);
 
-      const fullDnsName = buildFullDnsName(tunnel.name, env.CF_DOMAIN);
+      try {
+        const fullDnsName = buildFullDnsName(tunnel.name, env.CF_DOMAIN);
 
-      // Delete DNS record
-      await deleteDnsRecord(fullDnsName, env);
+        // Delete DNS record
+        await deleteDnsRecord(fullDnsName, env);
 
-      // Delete tunnel
-      await deleteTunnel(tunnel.id, env);
+        // Delete tunnel
+        await deleteTunnel(tunnel.id, env);
 
-      console.log(`[Cron] ✓ Cleanup complete for ${tunnel.name}`);
+        console.log(`[Cron] ✓ Cleanup complete for ${tunnel.name}`);
+        cleanedCount++;
+      } catch (tunnelErr) {
+        // Log error but continue with other tunnels
+        const errorMessage = tunnelErr instanceof Error ? tunnelErr.message : String(tunnelErr);
+        console.error(`[Cron] Failed to cleanup ${tunnel.name}: ${errorMessage}`);
+      }
     }
 
-    console.log('[Cron] Cleanup job finished');
+    console.log(`[Cron] Cleanup job finished (cleaned ${cleanedCount}/${tunnelsToCleanup.length} tunnels)`);
   } catch (err) {
     console.error('[Cron Error]', err);
   }
@@ -655,4 +694,10 @@ export default {
 
 // Export types and utilities for testing
 export type { Tunnel, Env };
-export { getTunnelMaxAgeMs, isTunnelExpired, DEFAULT_TUNNEL_MAX_AGE_HOURS };
+export {
+  getTunnelMaxAgeMs,
+  isTunnelExpired,
+  getMaxCleanupsPerRun,
+  DEFAULT_TUNNEL_MAX_AGE_HOURS,
+  DEFAULT_MAX_CLEANUPS_PER_RUN,
+};

@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatically cleans up tunnel connections before attempting to delete
   - Prevents "Cannot delete tunnel because it has active connections" error
   - Gracefully handles cases where connections are already cleaned up
+- 🚦 **Subrequest Limit Protection**: Fixed "Too many subrequests" error during cleanup
+  - Added `MAX_CLEANUPS_PER_RUN` environment variable to limit tunnels cleaned per cron run
+  - Default limit: 10 tunnels per run (safe for free plan's 50 subrequest limit)
+  - Remaining tunnels are cleaned up in subsequent cron runs
+  - Added per-tunnel error handling to prevent one failure from stopping the entire batch
 
 ### Added
 - ⏰ **Configurable Tunnel Max Age**: Added automatic cleanup of healthy tunnels that exceed a configurable age
@@ -32,24 +37,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Respects protected subdomains and prefix filtering
 
 ### Technical Details
-- **New Environment Variable**: `TUNNEL_MAX_AGE_HOURS` (optional, defaults to 4)
-- **New Constant**: `DEFAULT_TUNNEL_MAX_AGE_HOURS = 4`
+- **New Environment Variables**:
+  - `TUNNEL_MAX_AGE_HOURS` (optional, defaults to 4)
+  - `MAX_CLEANUPS_PER_RUN` (optional, defaults to 10)
+- **New Constants**:
+  - `DEFAULT_TUNNEL_MAX_AGE_HOURS = 4`
+  - `DEFAULT_MAX_CLEANUPS_PER_RUN = 10`
 - **Updated Tunnel Interface**: Added `created_at` field from Cloudflare API
 - **New Functions**:
   - `getTunnelMaxAgeMs(env)`: Parses env var and returns max age in milliseconds
   - `isTunnelExpired(tunnel, maxAgeMs)`: Checks if tunnel exceeds max age
   - `cleanupTunnelConnections(tunnelId, env)`: Cleans up stale tunnel connections
+  - `getMaxCleanupsPerRun(env)`: Gets max tunnels to clean per cron run
 - **Exported for Testing**: `Tunnel`, `Env` types and utility functions
 
 ### Configuration
-Set the tunnel max age in `wrangler.jsonc`:
+Set the cleanup options in `wrangler.jsonc`:
 ```json
 "vars": {
-  "TUNNEL_MAX_AGE_HOURS": "4"
+  "TUNNEL_MAX_AGE_HOURS": "4",
+  "MAX_CLEANUPS_PER_RUN": "10"
 }
 ```
 
-Or via environment variable / Cloudflare dashboard.
+- `TUNNEL_MAX_AGE_HOURS`: Max tunnel lifetime before cleanup (default: 4 hours)
+- `MAX_CLEANUPS_PER_RUN`: Max tunnels to clean per cron run (default: 10, increase for paid plans)
 
 ## [1.1.0] - 2026-01-27
 
