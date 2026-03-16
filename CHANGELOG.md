@@ -5,6 +5,37 @@ All notable changes to NPort will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.4] - 2026-03-16
+
+### Fixed
+- 🐧 **Linux EACCES Spawn Error**: Fixed "spawn cloudflared EACCES" permission denied error on Linux
+  - Binary now always has execute permissions verified and auto-repaired before spawning
+  - `ensureCloudflared()` is called on every run, not just when the binary is missing
+  - `BinaryManager.validate()` now checks execute permissions (`X_OK`), not just file existence
+  - Auto-fixes permissions with `chmod 755` if the binary exists but isn't executable
+  - Shows clear manual fix command (`chmod +x <path>`) if auto-repair fails
+- 🔧 **Postinstall Binary Download**: Fixed binary not being downloaded during `npm install`
+  - Postinstall script now explicitly calls `ensureCloudflared()` instead of relying on module-level guard that didn't trigger during install
+  - Errors during postinstall are now logged as warnings instead of being silently swallowed
+  - Users are informed the binary will be downloaded on first run if postinstall fails
+
+### Improved
+- 🧹 **Orphaned Tunnel Cleanup**: Spawn failures now trigger automatic tunnel cleanup
+  - Previously, if cloudflared failed to start after tunnel creation, the tunnel was left orphaned on the backend
+  - Now calls `TunnelOrchestrator.cleanup()` on fatal spawn errors to delete the tunnel
+- 💡 **Linux/macOS Error Guidance**: Added EACCES-specific troubleshooting tips
+  - Detects permission denied errors on Unix systems
+  - Provides actionable steps: `chmod +x` command and reinstall instructions
+  - Matches the existing Windows-specific error guidance
+
+### Technical Details
+- **Defense-in-depth**: Permission issues are caught at 4 layers:
+  1. Postinstall: downloads binary and sets `chmod 755`
+  2. `ensureCloudflared()`: runs on every startup, re-applies permissions
+  3. `BinaryManager.validate()`: checks `X_OK` access, auto-fixes with chmod
+  4. `BinaryManager.handleError()`: shows troubleshooting tips + cleans up tunnel
+- **`BinaryManager.attachHandlers()`**: New `onFatalError` callback parameter for spawn error recovery
+
 ## [2.1.3] - 2026-01-29
 
 ### Fixed
@@ -370,6 +401,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Version Upgrade Guide
+
+### From 2.1.3 to 2.1.4
+
+```bash
+npm install -g nport@latest
+```
+
+**What's New:**
+
+1. **Linux Permission Fix**
+   - Fixed EACCES error when spawning cloudflared on Linux
+   - Binary permissions are now automatically verified and repaired on every run
+   - Postinstall script now reliably downloads the binary during `npm install`
+
+2. **Better Error Recovery**
+   - Orphaned tunnels are now cleaned up when cloudflared fails to start
+   - Clear troubleshooting messages for permission issues on Linux/macOS
+
+**For Linux Users:**
+If you're on an older version and hitting this issue, quick fix before upgrading:
+```bash
+chmod +x $(dirname $(which nport))/../lib/node_modules/nport/bin/cloudflared
+```
+
+**Breaking Changes:** None - fully backward compatible!
 
 ### From 2.1.2 to 2.1.3
 
