@@ -1,6 +1,5 @@
 import ora from 'ora';
 import chalk from 'chalk';
-import fs from 'fs';
 import type { TunnelConfig, ShutdownReason } from './types/index.js';
 import { CONFIG, PATHS, TUNNEL_TIMEOUT_MS } from './config.js';
 import { state } from './state.js';
@@ -32,16 +31,14 @@ export class TunnelOrchestrator {
     const updateInfo = await VersionManager.checkForUpdates();
     state.setUpdateInfo(updateInfo);
 
-    // Check if binary exists, download if missing
-    if (!fs.existsSync(PATHS.BIN_PATH)) {
-      console.log(chalk.yellow('\n📦 Cloudflared binary not found. Downloading...\n'));
-      try {
-        await ensureCloudflared();
-      } catch (error) {
-        analytics.trackTunnelError('binary_download_failed', (error as Error).message);
-        console.error(chalk.red(`\n❌ Failed to download cloudflared: ${(error as Error).message}`));
-        process.exit(1);
-      }
+    // Ensure binary exists, has correct permissions, and download if missing
+    try {
+      await ensureCloudflared();
+    } catch (error) {
+      analytics.trackTunnelError('binary_download_failed', (error as Error).message);
+      console.error(chalk.red(`\n❌ Failed to prepare cloudflared: ${(error as Error).message}`));
+      await new Promise(resolve => setTimeout(resolve, 100));
+      process.exit(1);
     }
 
     if (!BinaryManager.validate(PATHS.BIN_PATH)) {
@@ -68,7 +65,7 @@ export class TunnelOrchestrator {
         config.port
       );
       state.setProcess(childProcess);
-      BinaryManager.attachHandlers(childProcess, spinner);
+      BinaryManager.attachHandlers(childProcess, spinner, () => this.cleanup('error'));
 
       const timeoutId = setTimeout(() => {
         UI.displayTimeoutWarning();
