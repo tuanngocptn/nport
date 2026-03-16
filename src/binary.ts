@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import chalk from 'chalk';
 import fs from 'fs';
-import { LOG_PATTERNS, NETWORK_CONFIG } from './config.js';
+import { LOG_PATTERNS, NETWORK_CONFIG, PLATFORM } from './config.js';
 import { state } from './state.js';
 import { UI } from './ui.js';
 import { lang } from './lang.js';
@@ -16,19 +16,37 @@ export class BinaryManager {
    * Validates that the cloudflared binary exists.
    */
   static validate(binaryPath: string): boolean {
-    if (fs.existsSync(binaryPath)) {
-      return true;
+    if (!fs.existsSync(binaryPath)) {
+      console.error(
+        chalk.red(`\n❌ Error: Cloudflared binary not found at: ${binaryPath}`)
+      );
+      console.error(
+        chalk.yellow(
+          "👉 Please run 'npm install' again to download the binary.\n"
+        )
+      );
+      return false;
     }
 
-    console.error(
-      chalk.red(`\n❌ Error: Cloudflared binary not found at: ${binaryPath}`)
-    );
-    console.error(
-      chalk.yellow(
-        "👉 Please run 'npm install' again to download the binary.\n"
-      )
-    );
-    return false;
+    if (!PLATFORM.IS_WINDOWS) {
+      try {
+        fs.accessSync(binaryPath, fs.constants.X_OK);
+      } catch {
+        try {
+          fs.chmodSync(binaryPath, 0o755);
+        } catch (chmodErr) {
+          console.error(
+            chalk.red(`\n❌ Error: Cloudflared binary is not executable: ${binaryPath}`)
+          );
+          console.error(
+            chalk.yellow(`👉 Fix it manually: chmod +x ${binaryPath}\n`)
+          );
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 
   /**
@@ -57,9 +75,13 @@ export class BinaryManager {
   /**
    * Attaches event handlers to the cloudflared process.
    */
-  static attachHandlers(childProcess: ChildProcess, spinner: { fail: (msg: string) => void } | null = null): void {
+  static attachHandlers(
+    childProcess: ChildProcess,
+    spinner: { fail: (msg: string) => void } | null = null,
+    onFatalError?: () => Promise<void>,
+  ): void {
     childProcess.stderr?.on('data', (chunk: Buffer) => this.handleStderr(chunk));
-    childProcess.on('error', (err: Error) => this.handleError(err, spinner));
+    childProcess.on('error', (err: Error) => this.handleError(err, spinner, onFatalError));
     childProcess.on('close', (code: number | null) => this.handleClose(code));
   }
 
@@ -134,13 +156,16 @@ export class BinaryManager {
   /**
    * Handles spawn errors.
    */
-  private static handleError(err: Error, spinner: { fail: (msg: string) => void } | null): void {
+  private static handleError(
+    err: Error,
+    spinner: { fail: (msg: string) => void } | null,
+    onFatalError?: () => Promise<void>,
+  ): void {
     if (spinner) {
       spinner.fail('Failed to spawn cloudflared process.');
     }
     console.error(chalk.red(`Process Error: ${err.message}`));
     
-    // Provide Windows-specific guidance for common spawn errors
     if (process.platform === 'win32') {
       if (err.message.includes('UNKNOWN') || err.message.includes('ENOENT')) {
         console.error(chalk.yellow('\n💡 Windows troubleshooting tips:'));
@@ -148,6 +173,14 @@ export class BinaryManager {
         console.error(chalk.gray('   2. Try running the terminal as Administrator'));
         console.error(chalk.gray('   3. Reinstall nport: npm uninstall -g nport && npm install -g nport'));
       }
+    } else if (err.message.includes('EACCES')) {
+      console.error(chalk.yellow('\n💡 Permission denied troubleshooting:'));
+      console.error(chalk.gray('   1. Run: chmod +x <path-to-nport>/bin/cloudflared'));
+      console.error(chalk.gray('   2. Or reinstall: npm uninstall -g nport && npm install -g nport'));
+    }
+
+    if (onFatalError) {
+      onFatalError();
     }
   }
 
