@@ -97,8 +97,33 @@ function safeUnlink(filePath: string): void {
 }
 
 function setExecutablePermissions(filePath: string, mode: string = UNIX_EXECUTABLE_MODE): void {
-  if (!IS_WINDOWS) {
+  if (IS_WINDOWS) return;
+
+  // If the file is already executable, skip chmod to avoid EPERM when
+  // the binary was installed with sudo (owned by root) and is now being
+  // run as a non-root user.
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return; // already executable, no chmod needed
+  } catch {
+    // not executable, attempt to chmod
+  }
+
+  try {
     fs.chmodSync(filePath, mode);
+  } catch (err) {
+    // chmod failed (e.g., binary is root-owned after sudo install).
+    // Surface a helpful error rather than crashing.
+    const error = err as NodeJS.ErrnoException;
+    if (error.code === 'EPERM' || error.code === 'EACCES') {
+      console.warn(
+        `⚠️  Could not set executable permissions on ${filePath} (permission denied). ` +
+        `This usually happens when nport was installed with sudo. ` +
+        `The binary should still work. If it doesn't, try: chmod 755 ${filePath}`
+      );
+    } else {
+      throw err;
+    }
   }
 }
 
