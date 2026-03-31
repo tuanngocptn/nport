@@ -5,6 +5,33 @@ All notable changes to NPort will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.5] - 2026-03-31
+
+### Fixed
+- 🛡️ **EPERM Error After sudo Install**: Fixed "EPERM: operation not permitted" error when running `nport` after global install with `sudo npm i -g nport`
+  - When the binary is downloaded as root, it's owned by `root:root` and non-root users cannot `chmod` it on subsequent runs
+  - `setExecutablePermissions()` now checks if the file is already executable (`fs.accessSync X_OK`) before attempting `chmod`
+  - If chmod fails with `EPERM`/`EACCES` on a non-executable file, a user-friendly warning is shown instead of crashing
+  - Users who installed with `sudo` can now run `nport` normally without manual `chmod`
+
+### Technical Details
+- **`setExecutablePermissions()` logic**:
+  1. Try `fs.accessSync(path, X_OK)` — if it succeeds, the file is already executable; return immediately (no chmod)
+  2. Try `fs.chmodSync(path, '755')` — if it succeeds, done
+  3. If chmod fails with `EPERM`/`EACCES`, log a warning but don't crash; the binary was installed with sudo and should still be functional
+
+### Migration
+- No action needed — existing installs are unaffected
+- Users who hit the EPERM error on v2.1.4 can simply upgrade; the fix is applied on first run
+
+### Changed
+- **Defense-in-depth updated**: Permission checks are now 5 layers:
+  1. Postinstall: downloads binary and sets `chmod 755` (as installing user or root)
+  2. `ensureCloudflared()`: calls `setExecutablePermissions()` on every startup
+  3. `setExecutablePermissions()`: skips chmod if already executable; warns but doesn't crash on EPERM
+  4. `BinaryManager.validate()`: checks `X_OK` access, auto-fixes with chmod
+  5. `BinaryManager.handleError()`: shows troubleshooting tips + cleans up tunnel
+
 ## [2.1.4] - 2026-03-16
 
 ### Fixed
@@ -401,6 +428,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Version Upgrade Guide
+
+### From 2.1.4 to 2.1.5
+
+```bash
+npm install -g nport@latest
+```
+
+**What's Fixed:**
+
+1. **EPERM Error After sudo Install**
+   - If you installed `nport` with `sudo npm i -g nport` and saw `EPERM: operation not permitted` when running `nport`, that is now fixed
+   - Non-root users can now run `nport` normally after a sudo install
+
+**For Users on v2.1.4:**
+If you're hitting the EPERM error, just upgrade — no manual steps needed:
+```bash
+npm install -g nport@latest
+```
+
+**Breaking Changes:** None - fully backward compatible!
 
 ### From 2.1.3 to 2.1.4
 
