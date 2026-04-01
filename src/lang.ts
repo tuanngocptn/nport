@@ -58,6 +58,7 @@ const TRANSLATIONS: Record<LanguageCode, TranslationKeys> = {
     networkIssueFix3: '      • Disable VPN/Proxy if you\'re using one',
     networkIssueFix4: '      • The tunnel will automatically fallback to HTTP/2 if QUIC fails',
     networkIssueIgnore: '\n   ℹ️  This is usually not critical - your tunnel should continue working normally.\n',
+    binaryChmodFailed: '⚠️  Could not set executable permissions on {filePath} (permission denied).\n   This usually happens when nport was installed with sudo.\n   The binary should still work. If you hit issues, try either:\n      • Fix permissions: sudo chmod 755 {filePath}\n      • Or run nport with sudo: sudo nport [...args]',
   },
   
   vi: {
@@ -111,6 +112,7 @@ const TRANSLATIONS: Record<LanguageCode, TranslationKeys> = {
     networkIssueFix3: '      • Tắt VPN/Proxy nếu đang bật',
     networkIssueFix4: '      • Tunnel sẽ tự động chuyển sang HTTP/2 nếu QUIC fail',
     networkIssueIgnore: '\n   ℹ️  Lỗi này thường không nghiêm trọng - tunnel vẫn hoạt động bình thường.\n',
+    binaryChmodFailed: '⚠️  Không thể đặt quyền thực thi cho {filePath} (quyền bị từ chối).\n   Lỗi này thường xảy ra khi cài nport bằng sudo.\n   Binary vẫn hoạt động bình thường. Nếu gặp lỗi, thử một trong hai cách:\n      • Sửa quyền: sudo chmod 755 {filePath}\n      • Hoặc chạy nport với sudo: sudo nport [...args]',
   }
 };
 

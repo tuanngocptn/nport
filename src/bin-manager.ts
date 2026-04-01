@@ -4,6 +4,7 @@ import https from 'https';
 import os from 'os';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { lang } from './lang.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(path.dirname(__filename));
@@ -116,11 +117,7 @@ function setExecutablePermissions(filePath: string, mode: string = UNIX_EXECUTAB
     // Surface a helpful error rather than crashing.
     const error = err as NodeJS.ErrnoException;
     if (error.code === 'EPERM' || error.code === 'EACCES') {
-      console.warn(
-        `⚠️  Could not set executable permissions on ${filePath} (permission denied). ` +
-        `This usually happens when nport was installed with sudo. ` +
-        `The binary should still work. If it doesn't, try: chmod 755 ${filePath}`
-      );
+      console.warn(lang.t('binaryChmodFailed', { filePath }));
     } else {
       throw err;
     }

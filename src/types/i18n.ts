@@ -78,6 +78,9 @@ export interface TranslationKeys {
   networkIssueFix3: string;
   networkIssueFix4: string;
   networkIssueIgnore: string;
+
+  // Binary permission errors
+  binaryChmodFailed: string;
 }
 
 /**
