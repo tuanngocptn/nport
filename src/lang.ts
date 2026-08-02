@@ -39,10 +39,11 @@ const TRANSLATIONS: Record<LanguageCode, TranslationKeys> = {
     versionAvailable: '🚨 New version available: v{version}',
     versionUpdate: 'Update now: ',
     learnMore: 'Learn more: ',
-    languagePrompt: '\n🌍 Language Selection / Chọn ngôn ngữ\n',
-    languageQuestion: 'Choose your language (1-2): ',
+    languagePrompt: '\n🌍 Language Selection / Chọn ngôn ngữ / Selección de idioma\n',
+    languageQuestion: 'Choose your language (1-3): ',
     languageEnglish: '1. English',
     languageVietnamese: '2. Tiếng Việt (Vietnamese)',
+    languageSpanish: '3. Español (Spanish)',
     languageInvalid: 'Invalid choice. Using English by default.',
     languageSaved: '✔ Language preference saved!',
     networkIssueTitle: '\n⚠️  NETWORK CONNECTIVITY ISSUE DETECTED',
@@ -94,9 +95,10 @@ const TRANSLATIONS: Record<LanguageCode, TranslationKeys> = {
     versionUpdate: 'Update khẩn trương lẹ làng: ',
     learnMore: 'Khám phá thêm cho nóng: ',
     languagePrompt: '\n🌍 Chọn lựa ngôn ngữ ngay bên dưới nào!\n',
-    languageQuestion: 'Chớp lấy một lựa chọn nha (1-2): ',
+    languageQuestion: 'Chớp lấy một lựa chọn nha (1-3): ',
     languageEnglish: '1. English (Chuẩn quốc tế!)',
     languageVietnamese: '2. Tiếng Việt (Đỉnh của chóp)',
+    languageSpanish: '3. Español (Tây Ban Nha)',
     languageInvalid: 'Ơ hơ, chọn sai rồi! Mặc định Tiếng Việt luôn cho nóng.',
     languageSaved: '🎯 Xong rồi! Lưu ngôn ngữ thành công!',
     networkIssueTitle: '\n⚠️  PHÁT HIỆN VẤN ĐỀ MẠNG',
@@ -113,6 +115,61 @@ const TRANSLATIONS: Record<LanguageCode, TranslationKeys> = {
     networkIssueFix4: '      • Tunnel sẽ tự động chuyển sang HTTP/2 nếu QUIC fail',
     networkIssueIgnore: '\n   ℹ️  Lỗi này thường không nghiêm trọng - tunnel vẫn hoạt động bình thường.\n',
     binaryChmodFailed: '⚠️  Không thể đặt quyền thực thi cho {filePath} (quyền bị từ chối).\n   Lỗi này thường xảy ra khi cài nport bằng sudo.\n   Binary vẫn hoạt động bình thường. Nếu gặp lỗi, thử một trong hai cách:\n      • Sửa quyền: sudo chmod 755 {filePath}\n      • Hoặc chạy nport với sudo: sudo nport [...args]',
+  },
+
+  es: {
+    header: 'N P O R T ⚡️ Gratis y código abierto desde Vietnam ❤️',
+    creatingTunnel: 'Creando túnel para el puerto {port}...',
+    checkingUpdates: 'Buscando actualizaciones...',
+    tunnelLive: '🚀 ¡ESTAMOS EN VIVO!',
+    connection1: '   ✔ [1/2] Conexión establecida...',
+    connection2: '   ✔ [2/2] Compresión activada...',
+    timeRemaining: '⏱️  Tiempo:     {hours}h restantes',
+    footerTitle: '🔥 ¿MANTENER LA VIBRA VIVA?',
+    footerSubtitle: '(Hecho con ❤️ en Vietnam)',
+    dropStar: '⭐️  Déjanos una Estrella:   ',
+    sendCoffee: '☕️  Invítanos un Café:    ',
+    newVersion: '🚨 ¡NUEVA VERSIÓN (v{version}) detectada!',
+    updateCommand: '> npm install -g nport@latest',
+    tunnelShutdown: '🛑 TÚNEL APAGADO.',
+    cleaningUp: 'Limpiando...',
+    cleanupDone: 'Listo.',
+    cleanupFailed: 'Falló.',
+    subdomainReleased: 'Subdominio...   Liberado. 🗑️',
+    serverBusy: '(El servidor podría estar caído o ocupado)',
+    goodbyeTitle: '👋 ANTES DE IRTE...',
+    goodbyeMessage: '¡Gracias por usar NPort!',
+    website: '🌐 Sitio web:     ',
+    author: '👤 Autor:      ',
+    changeLanguage: '🌍 Idioma:    ',
+    changeLanguageHint: 'nport --language',
+    versionTitle: 'NPort v{version}',
+    versionSubtitle: 'Alternativa gratuita y de código abierto a ngrok',
+    versionLatest: '✔ ¡Estás usando la última versión!',
+    versionAvailable: '🚨 Nueva versión disponible: v{version}',
+    versionUpdate: 'Actualiza ahora: ',
+    learnMore: 'Más información: ',
+    languagePrompt: '\n🌍 Selección de idioma / Language Selection / Chọn ngôn ngữ\n',
+    languageQuestion: 'Elige tu idioma (1-3): ',
+    languageEnglish: '1. English (Inglés)',
+    languageVietnamese: '2. Tiếng Việt (Vietnamita)',
+    languageSpanish: '3. Español',
+    languageInvalid: 'Opción inválida. Usando inglés por defecto.',
+    languageSaved: '✔ ¡Preferencia de idioma guardada!',
+    networkIssueTitle: '\n⚠️  PROBLEMA DE CONECTIVIDAD DE RED DETECTADO',
+    networkIssueDesc: '   Cloudflared está teniendo problemas para mantener una conexión estable con los servidores edge de Cloudflare.',
+    networkIssueTunnel: '   📡 Tu túnel sigue funcionando, pero la calidad de la conexión puede verse afectada.',
+    networkIssueReasons: '\n   💡 Posibles razones:',
+    networkIssueReason1: '      • Conexión a internet inestable o alta pérdida de paquetes',
+    networkIssueReason2: '      • Firewall/Router bloqueando tráfico UDP (protocolo QUIC)',
+    networkIssueReason3: '      • Limitación del ISP o congestión de red',
+    networkIssueFix: '\n   🔧 Qué puedes intentar:',
+    networkIssueFix1: '      • Verifica la estabilidad de tu conexión a internet',
+    networkIssueFix2: '      • Prueba conectarte desde otra red',
+    networkIssueFix3: '      • Desactiva la VPN/Proxy si estás usando una',
+    networkIssueFix4: '      • El túnel cambiará automáticamente a HTTP/2 si QUIC falla',
+    networkIssueIgnore: '\n   ℹ️  Esto generalmente no es crítico: tu túnel debería seguir funcionando con normalidad.\n',
+    binaryChmodFailed: '⚠️  No se pudieron establecer permisos de ejecución en {filePath} (permiso denegado).\n   Esto suele ocurrir cuando nport se instaló con sudo.\n   El binario debería seguir funcionando. Si tienes problemas, prueba una de estas opciones:\n      • Corregir permisos: sudo chmod 755 {filePath}\n      • O ejecutar nport con sudo: sudo nport [...args]',
   }
 };
 
@@ -188,7 +245,8 @@ class LanguageManager {
 
       console.log(this.t('languagePrompt'));
       console.log(`   ${this.t('languageEnglish')}`);
-      console.log(`   ${this.t('languageVietnamese')}\n`);
+      console.log(`   ${this.t('languageVietnamese')}`);
+      console.log(`   ${this.t('languageSpanish')}\n`);
 
       rl.question(`${this.t('languageQuestion')}`, (answer) => {
         rl.close();
@@ -200,6 +258,8 @@ class LanguageManager {
           selectedLang = 'en';
         } else if (choice === '2') {
           selectedLang = 'vi';
+        } else if (choice === '3') {
+          selectedLang = 'es';
         } else {
           console.log(`\n${this.t('languageInvalid')}\n`);
         }

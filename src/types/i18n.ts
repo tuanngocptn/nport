@@ -5,7 +5,7 @@
 /**
  * Supported language codes
  */
-export type LanguageCode = 'en' | 'vi';
+export type LanguageCode = 'en' | 'vi' | 'es';
 
 /**
  * Translation keys used in the application

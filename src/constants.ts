@@ -79,7 +79,7 @@ export const LOG_PATTERNS = {
 /**
  * Available language codes
  */
-export const AVAILABLE_LANGUAGES = ['en', 'vi'] as const;
+export const AVAILABLE_LANGUAGES = ['en', 'vi', 'es'] as const;
 
 /**
  * GitHub repository URL
