@@ -273,8 +273,12 @@ async function main(): Promise<void> {
   }
 }
 
-// Run if executed directly
-const currentFilePath = fileURLToPath(import.meta.url);
-if (process.argv[1] === currentFilePath || process.argv[1]?.endsWith('bin-manager.js')) {
+// Run only when this file is executed directly (not when bundled into index.js)
+const isDirectExecution =
+  process.argv[1] !== undefined &&
+  (process.argv[1].endsWith('bin-manager.js') ||
+   process.argv[1].endsWith('bin-manager.ts'));
+
+if (isDirectExecution) {
   main();
 }
