@@ -61,6 +61,7 @@ export interface TranslationKeys {
   languageQuestion: string;
   languageEnglish: string;
   languageVietnamese: string;
+  languageSpanish: string;
   languageInvalid: string;
   languageSaved: string;
   

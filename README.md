@@ -30,7 +30,7 @@ Perfect for:
 - 📡 **WebSocket Support**: Full WebSocket and Server-Sent Events support
 - 🎯 **No Configuration**: Works out of the box
 - 💻 **Cross-Platform**: Windows, macOS, and Linux support
-- 🗣️ **Multilingual**: English and Vietnamese UI support
+- 🗣️ **Multilingual**: English, Vietnamese and Spanish UI support
 - 🆓 **100% Free**: No accounts, no limits, no paywalls
 - 🔓 **Open Source**: MIT licensed
 
@@ -172,7 +172,7 @@ nport <port> [options]
 | `--subdomain` | `-s` | Custom subdomain | `nport 3000 -s myapp` |
 | `--backend` | `-b` | Custom backend URL (temporary) | `nport 3000 -b https://your-backend.com` |
 | `--set-backend` | - | Save backend URL permanently | `nport --set-backend https://your-backend.com` |
-| `--language` | `-l` | Set language (en/vi) or prompt | `nport 3000 -l vi` |
+| `--language` | `-l` | Set language (en/vi/es) or prompt | `nport 3000 -l es` |
 | `--version` | `-v` | Show version information | `nport -v` |
 
 ### Language Options
@@ -183,6 +183,7 @@ NPort supports multiple languages with automatic detection on first run.
 # Set language directly
 nport 3000 --language en    # English
 nport 3000 -l vi            # Vietnamese
+nport 3000 -l es            # Español
 
 # Open language selection menu
 nport --language            # Interactive prompt
@@ -315,7 +316,7 @@ nport/
 | Time limits | ❌ None (4h auto-cleanup) | ⚠️ Free tier limited |
 | Open source | ✅ MIT | ❌ Proprietary |
 | Global network | ✅ Cloudflare | ✅ ngrok Edge |
-| Multilingual | ✅ EN/VI | ❌ English only |
+| Multilingual | ✅ EN/VI/ES | ❌ English only |
 
 ## 🧹 Cleanup
 
@@ -375,6 +376,7 @@ Then select your preferred language from the menu.
 
 - 🇺🇸 **English** (`en`) - Default
 - 🇻🇳 **Vietnamese** (`vi`) - Tiếng Việt
+- 🇪🇸 **Spanish** (`es`) - Español
 
 Want to add your language? Contributions are welcome! Check out the [Contributing Guide](docs/CONTRIBUTING.md).
 
