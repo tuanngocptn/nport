@@ -374,3 +374,26 @@ Separately, the testing policy existed only as prose. Nothing made it happen.
 - **Test authoring is delegated to the `test-writer` subagent, pinned to Sonnet.** Tests are well-specified work against an existing spec, which is where a smaller model is a good trade. The cost is that the agent does not inherit the calling conversation's context, so the brief has to carry the change, the tier, and any history of what broke before — a vague delegation produces tests that assert the code does what it does.
 
 **Rejected.** *Cypress* — heavier, and its visual comparison needs a paid service or a plugin. *Vitest browser mode* — good for component tests, not for asserting a deployed route end to end. *A `PostToolUse` hook on Write|Edit* — fires mid-edit, before the test could plausibly have been written, so it would train everyone to ignore it. *A lefthook pre-commit check instead* — commits are not the unit of work an agent produces; a turn is.
+
+## ADR-0024 — Confine `capnp-rpc`'s non-`Send` region behind a thread boundary in `crates/core`
+
+**Date.** 2026-08-03. **Status.** Accepted, pending implementation in Phase 2b.
+
+**Context.** `capnp-rpc` holds `Rc` internally, so `RpcSystem` and every future derived from it are `!Send`. `crates/protocol`'s `register_connection` awaits one, which makes *its* future `!Send`, which makes any future awaiting *that* `!Send`. `tokio::spawn` requires `Send` and rejects the lot.
+
+`rpc.rs` predicted this but scoped it too narrowly: it framed the problem as one about keeping the control stream open for `unregisterConnection` (§12), implying that a client which drops the control stream after registering avoids it. It does not. Registration alone is enough.
+
+Phase 1's `examples/pool.rs` hit this the moment it tried to `tokio::spawn` a per-connection supervisor, and worked around it by putting all four supervisors on a single `LocalSet`. That is acceptable for a spike — the supervisors only register and accept streams, and each exchange is `tokio::spawn`ed onto the multi-threaded runtime — but it is the wrong shape to ship.
+
+**Decision.** `crates/core` confines the non-`Send` region rather than propagating it. The registration RPC (and later the long-lived control stream) runs on a dedicated current-thread runtime, or a `LocalSet` on its own thread, communicating with the rest of `core` over channels. `ConnectionDetails` is `Send`, so what crosses the boundary is plain data.
+
+`TunnelManager` then spawns per-connection tasks with ordinary `tokio::spawn`, and neither `crates/cli` nor `apps/desktop` ever learns that a `!Send` type exists in the dependency tree.
+
+**Consequences.**
+
+- One extra thread per process (not per connection) plus a channel hop on the registration path. Registration happens once per connection per reconnect and costs ~300 ms of network time, so the hop is unmeasurable.
+- The control stream can stay open for the connection's whole life, which §12's graceful shutdown requires and which a multi-threaded runtime cannot host at all. The decision that makes the pool work is the same one that makes clean shutdown possible.
+- `crates/protocol`'s public API does not change. The confinement is `core`'s, because the layering puts lifecycle policy there (`crates/CLAUDE.md`).
+- If it ever becomes a problem, the escape hatch is the one `docs/PROTOCOL.md` §16 already records for risk P1: the registration surface is one bootstrap plus three methods, so hand-encoding the RPC frames removes `capnp-rpc` entirely. Not worth doing pre-emptively.
+
+**Rejected.** *Everything on a `LocalSet`* — pushes a library's implementation detail into every consumer, and serialises unrelated per-connection work onto one thread for the sake of one RPC. *`unsafe impl Send`* — forbidden by `#![forbid(unsafe_code)]`, and it would be a lie: the `Rc`s are genuinely shared. *Forking `capnp-rpc` to use `Arc`* — a maintenance burden for a dependency whose interop is the thing we most want to keep boring.

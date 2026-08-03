@@ -11,7 +11,9 @@
 //! **There are no hardcoded fallback edge IPs anywhere in the upstream source, and there
 //! must be none here.** If discovery fails, the tunnel fails.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 
 use hickory_resolver::proto::rr::RData;
 use hickory_resolver::{Resolver, TokioResolver};
@@ -208,6 +210,166 @@ pub async fn discover_srv(endpoint: Endpoint) -> Result<Vec<Region>, EdgeError> 
     check(regions)
 }
 
+/// How long a failed address stays demoted before the pool will hand it out again.
+///
+/// cloudflared: `edgediscovery/allregions/region.go` → `timeoutDuration`.
+pub const DEMOTION: Duration = Duration::from_secs(10 * 60);
+
+/// Hands out edge addresses to connection indices, balanced across regions.
+///
+/// **Not `index % regions`.** Upstream keeps a stateful pool and asks it for an unused
+/// address (`allregions/regions.go` → `GetUnusedAddr`), which is what makes the balance hold
+/// after a reconnect has moved one connection to the other region. Indexing modulo the
+/// region count re-derives an assignment from scratch every time and drifts as soon as one
+/// connection rotates.
+///
+/// Three invariants, in the order they matter:
+///
+/// 1. **No address serves two connection indices at once.** Two connections to the same edge
+///    address is what `EDUPCONN` means, and the edge refuses the second.
+/// 2. **A rotation lands on a different address**, preferring the other region — the failure
+///    that triggered it is usually regional or address-specific, so retrying the neighbour of
+///    a dead address is the least useful thing to do.
+/// 3. **A failed address is demoted for [`DEMOTION`]**, not blacklisted. With 40 addresses
+///    and 4 connections there is always somewhere else to go; if there somehow is not, an
+///    expired-or-not demoted address beats failing the tunnel.
+///
+/// Held state is per connection index, so a caller must [`Self::release`] on teardown or the
+/// address leaks for the pool's lifetime.
+#[derive(Debug)]
+pub struct AddressPool {
+    regions: Vec<PoolRegion>,
+    /// Which address each connection index currently holds, and in which region.
+    held: HashMap<u8, (usize, SocketAddr)>,
+}
+
+#[derive(Debug)]
+struct PoolRegion {
+    name: String,
+    addresses: Vec<SocketAddr>,
+    in_use: Vec<SocketAddr>,
+    demoted: HashMap<SocketAddr, Instant>,
+}
+
+impl AddressPool {
+    /// Builds a pool from discovery output, applying the same ≥2-region rule as discovery.
+    ///
+    /// Addresses are ordered IPv4-first within each region. Upstream splits a region into
+    /// primary and secondary sets by address family for the same reason NPort cares: the
+    /// initial MTU constant in §5 was chosen for an IPv4 dial, and an IPv6-first handout
+    /// silently exercises the less-tested path.
+    pub fn new(regions: Vec<Region>) -> Result<Self, EdgeError> {
+        let regions = check(regions)?;
+        Ok(Self {
+            regions: regions
+                .into_iter()
+                .map(|region| {
+                    let mut addresses = region.addresses;
+                    addresses.sort_by_key(|address| !address.is_ipv4());
+                    PoolRegion {
+                        name: region.name,
+                        addresses,
+                        in_use: Vec::new(),
+                        demoted: HashMap::new(),
+                    }
+                })
+                .collect(),
+            held: HashMap::new(),
+        })
+    }
+
+    /// How many regions the pool is balancing across.
+    #[must_use]
+    pub fn regions(&self) -> usize {
+        self.regions.len()
+    }
+
+    /// The region name an address belongs to, for logging.
+    #[must_use]
+    pub fn region_of(&self, address: SocketAddr) -> Option<&str> {
+        self.regions
+            .iter()
+            .find(|region| region.addresses.contains(&address))
+            .map(|region| region.name.as_str())
+    }
+
+    /// Claims an address for a connection index, or returns the one it already holds.
+    pub fn claim(&mut self, conn_index: u8) -> Result<SocketAddr, EdgeError> {
+        if let Some((_, address)) = self.held.get(&conn_index) {
+            return Ok(*address);
+        }
+        self.take(conn_index, None)
+    }
+
+    /// Releases the index's address, demotes it, and claims a different one.
+    ///
+    /// Call this after a dial, registration, or connection failure — not after a clean
+    /// shutdown, which should [`Self::release`] instead so the address stays undemoted.
+    pub fn rotate(&mut self, conn_index: u8) -> Result<SocketAddr, EdgeError> {
+        let failed = self.held.remove(&conn_index).map(|(region, address)| {
+            self.regions[region].in_use.retain(|held| *held != address);
+            self.regions[region].demoted.insert(address, Instant::now());
+            address
+        });
+        self.take(conn_index, failed)
+    }
+
+    /// Gives the index's address back without demoting it.
+    pub fn release(&mut self, conn_index: u8) {
+        if let Some((region, address)) = self.held.remove(&conn_index) {
+            self.regions[region].in_use.retain(|held| *held != address);
+        }
+    }
+
+    fn take(&mut self, conn_index: u8, avoid: Option<SocketAddr>) -> Result<SocketAddr, EdgeError> {
+        let avoid_region = avoid.and_then(|address| {
+            self.regions
+                .iter()
+                .position(|region| region.addresses.contains(&address))
+        });
+
+        // Fewest connections first, and the region we just failed out of last. The tuple
+        // ordering is the whole balancing policy: everything else is bookkeeping.
+        let mut order: Vec<usize> = (0..self.regions.len()).collect();
+        order.sort_by_key(|index| {
+            (
+                Some(*index) == avoid_region,
+                self.regions[*index].in_use.len(),
+            )
+        });
+
+        // Two passes: honour demotions first, then ignore them rather than fail. A pool that
+        // refuses to hand out any address has turned a transient edge problem into a dead
+        // tunnel, which is strictly worse than reusing an address that failed 9 minutes ago.
+        for honour_demotions in [true, false] {
+            for region_index in &order {
+                let now = Instant::now();
+                let region = &self.regions[*region_index];
+                let candidate = region.addresses.iter().find(|address| {
+                    if Some(**address) == avoid || region.in_use.contains(address) {
+                        return false;
+                    }
+                    if honour_demotions {
+                        return region
+                            .demoted
+                            .get(address)
+                            .is_none_or(|since| now.duration_since(*since) >= DEMOTION);
+                    }
+                    true
+                });
+                if let Some(address) = candidate.copied() {
+                    let region = &mut self.regions[*region_index];
+                    region.in_use.push(address);
+                    region.demoted.remove(&address);
+                    self.held.insert(conn_index, (*region_index, address));
+                    return Ok(address);
+                }
+            }
+        }
+        Err(EdgeError::NoAddress)
+    }
+}
+
 fn check(regions: Vec<Region>) -> Result<Vec<Region>, EdgeError> {
     if regions.is_empty() {
         return Err(EdgeError::NoAddress);
@@ -287,6 +449,161 @@ mod tests {
             })
             .collect();
         assert!(check(two).is_ok());
+    }
+
+    /// Two regions, `per` addresses each, IPv6 listed first so the ordering rule is
+    /// actually exercised rather than accidentally satisfied.
+    fn pool(per: u8) -> AddressPool {
+        let regions = (1..=2u8)
+            .map(|region| Region {
+                name: format!("region{region}.v2.argotunnel.com."),
+                addresses: (0..per)
+                    .flat_map(|index| {
+                        [
+                            SocketAddr::from((
+                                [
+                                    0x2606,
+                                    0x4700,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    u16::from(region),
+                                    u16::from(index),
+                                ],
+                                EDGE_PORT,
+                            )),
+                            SocketAddr::from(([198, 51, 100, region * 10 + index], EDGE_PORT)),
+                        ]
+                    })
+                    .collect(),
+            })
+            .collect();
+        AddressPool::new(regions).expect("two regions is enough")
+    }
+
+    #[test]
+    fn spreads_four_connections_evenly_across_both_regions() {
+        // The point of the pool: 4 connections, 2 regions, 2 each. An `index % regions`
+        // handout gets this case right and then drifts the moment one connection rotates,
+        // which is why the next test exists.
+        let mut pool = pool(4);
+        let claims: Vec<String> = (0..4)
+            .map(|index| {
+                let address = pool.claim(index).expect("an address is free");
+                pool.region_of(address).expect("a known region").to_owned()
+            })
+            .collect();
+        assert_eq!(
+            claims
+                .iter()
+                .filter(|name| name.contains("region1"))
+                .count(),
+            2
+        );
+        assert_eq!(
+            claims
+                .iter()
+                .filter(|name| name.contains("region2"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn a_rotation_moves_to_the_other_region() {
+        let mut pool = pool(4);
+        let first = pool.claim(0).expect("free");
+        let before = pool.region_of(first).expect("known").to_owned();
+        let second = pool.rotate(0).expect("free");
+        let after = pool.region_of(second).expect("known").to_owned();
+        // The failure that triggered a rotation is usually regional, so the neighbour of a
+        // dead address is the least useful next choice.
+        assert_ne!(before, after, "rotation stayed in {before}");
+    }
+
+    #[test]
+    fn a_rotation_never_returns_the_address_that_just_failed() {
+        // One address per region, so the only options are the failed one and the other
+        // region's. Getting the failed address back here would mean a reconnect loop that
+        // hammers a dead edge forever.
+        let mut pool = pool(1);
+        let mut seen = vec![pool.claim(0).expect("free")];
+        for _ in 0..6 {
+            let next = pool.rotate(0).expect("something is always free");
+            assert!(
+                !seen.contains(&next) || seen.len() > 2,
+                "handed back {next} which had already failed"
+            );
+            seen.push(next);
+        }
+    }
+
+    #[test]
+    fn never_hands_one_address_to_two_connections() {
+        // Two connections on one address is precisely what EDUPCONN reports, and the edge
+        // refuses the second — so the pool has to prevent it rather than react to it.
+        let mut pool = pool(2);
+        let mut taken = Vec::new();
+        for index in 0..8 {
+            let address = pool.claim(index).expect("8 addresses exist");
+            assert!(!taken.contains(&address), "{address} handed out twice");
+            taken.push(address);
+        }
+    }
+
+    #[test]
+    fn releasing_returns_an_address_to_circulation() {
+        let mut pool = pool(1);
+        let held: Vec<SocketAddr> = (0..4).map(|i| pool.claim(i).expect("free")).collect();
+        assert!(pool.claim(4).is_err(), "the pool should be exhausted");
+        pool.release(0);
+        let reused = pool.claim(4).expect("the released address is free again");
+        assert_eq!(reused, held[0]);
+    }
+
+    #[test]
+    fn hands_out_ipv4_before_ipv6_within_a_region() {
+        // §5's initial-MTU constant was chosen for an IPv4 dial. An IPv6-first handout
+        // silently exercises the less-tested path on every fresh connection.
+        let mut pool = pool(2);
+        assert!(pool.claim(0).expect("free").is_ipv4());
+        assert!(pool.claim(1).expect("free").is_ipv4());
+    }
+
+    #[test]
+    fn exhaustion_prefers_a_stale_demotion_over_failing() {
+        // A pool that refuses every address has turned a transient edge fault into a dead
+        // tunnel. One address per region, one connection, rotating past both: the second
+        // rotation has nothing undemoted left and must still answer.
+        let mut pool = pool(1);
+        pool.claim(0).expect("free");
+        pool.rotate(0).expect("the other region");
+        let third = pool
+            .rotate(0)
+            .expect("must reuse a demoted address rather than fail");
+        assert!(pool.region_of(third).is_some());
+    }
+
+    #[test]
+    fn claiming_twice_is_idempotent_for_one_index() {
+        // A supervisor that retries registration on the same address must not consume a
+        // second one each time round the loop.
+        let mut pool = pool(2);
+        let first = pool.claim(1).expect("free");
+        assert_eq!(pool.claim(1).expect("already held"), first);
+    }
+
+    #[test]
+    fn a_pool_needs_two_regions_like_discovery_does() {
+        let one = vec![Region {
+            name: "region1.v2.argotunnel.com.".to_owned(),
+            addresses: vec![SocketAddr::from(([198, 51, 100, 1], EDGE_PORT))],
+        }];
+        assert!(matches!(
+            AddressPool::new(one),
+            Err(EdgeError::TooFewRegions { found: 1 })
+        ));
     }
 
     /// Live DNS. `#[ignore]` so `cargo test` stays hermetic and offline

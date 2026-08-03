@@ -266,19 +266,46 @@ pub struct EdgeConnection {
     pub peer: SocketAddr,
 }
 
-/// Dials one edge address.
+/// Dials one edge address on a fresh socket.
 ///
-/// The local socket family matches the peer's, and the source port is ephemeral. The
-/// production pool reuses a fixed source port per connection index across reconnects
-/// (`docs/PROTOCOL.md` §4, `portForConnIndex`) — that belongs with the pool, not here.
+/// The local socket family matches the peer's, and the source port is ephemeral. For a pool,
+/// use [`connect_on`] with one long-lived [`Endpoint`] per connection index instead — see its
+/// documentation for why the source port matters.
 pub async fn connect(
     peer: SocketAddr,
     key_exchange: KeyExchange,
 ) -> Result<EdgeConnection, QuicError> {
     let endpoint = bind_endpoint(peer, key_exchange)?;
+    let connection = connect_on(&endpoint, peer, key_exchange).await?;
+    Ok(EdgeConnection {
+        connection,
+        endpoint,
+        peer,
+    })
+}
 
+/// Dials one edge address on a socket the caller owns.
+///
+/// **This is how the source port gets reused across reconnects.** Upstream binds a fixed
+/// local port per connection index (`connection/quic.go` → `portForConnIndex`) because
+/// reconnecting from the same source port lets NAT and the edge's own state recognise the
+/// returning connection; a fresh ephemeral port on every retry is materially worse behind
+/// carrier-grade NAT. `quinn` will not do this for you — holding the [`Endpoint`] for the
+/// index's whole life is what achieves it.
+///
+/// The endpoint's socket family is fixed at bind time, so a rotation that crosses address
+/// families needs a rebind. Callers that prefer IPv4 (as [`crate::edge::AddressPool`] does)
+/// will rarely hit that.
+pub async fn connect_on(
+    endpoint: &Endpoint,
+    peer: SocketAddr,
+    key_exchange: KeyExchange,
+) -> Result<quinn::Connection, QuicError> {
+    // A per-dial config, not the endpoint default: the initial MTU depends on the peer's
+    // address family (§5), so reusing one config across a family change would send packets
+    // sized for the wrong path.
     let connecting = endpoint
-        .connect(peer, SNI)
+        .connect_with(client_config(peer, key_exchange)?, peer, SNI)
         .map_err(|e| QuicError::Connect {
             addr: peer,
             source: Box::new(e),
@@ -302,11 +329,7 @@ pub async fn connect(
         return Err(QuicError::AlpnRejected);
     }
 
-    Ok(EdgeConnection {
-        connection,
-        endpoint,
-        peer,
-    })
+    Ok(connection)
 }
 
 #[cfg(test)]

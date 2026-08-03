@@ -161,7 +161,14 @@ Three things worth having on record:
 - Requires **≥2 SRV results** — upstream errors out below that, treating them as two regions.
 - Address handout is a **stateful pool balanced across the two regions**, randomising which region goes first when both have equal availability. It is *not* `index % regions`. Within a region, addresses split into primary/secondary sets by IP family, with a 10-minute demotion timeout (`region.go` → `timeoutDuration`).
 - Retry backoff base `tunnelRetryDuration = 10s`; `--retries` default 5.
-- **The local UDP source port is reused per connection index across reconnects** (`connection/quic.go` → `portForConnIndex`). This materially improves reconnection behaviour behind NAT; `quinn` will not do it for you.
+- **The local UDP source port is reused per connection index across reconnects** (`connection/quic.go` → `portForConnIndex`). This materially improves reconnection behaviour behind NAT; `quinn` will not do it for you. Holding one `quinn::Endpoint` per connection index for the index's whole life achieves it — see `quic::connect_on`, which takes a caller-owned endpoint for exactly this reason. A rebind is only needed when a rotation crosses address families.
+
+**Verified live 2026-08-03.** Four connections came up 2/2 across `region1` and `region2`, landing in four distinct colos (`hkg01`, `hkg09`, `hkg11`, `hkg13`) — the balance is real, not nominal. `crates/protocol`'s `AddressPool` implements the handout; two details of it are worth stating because they are not obvious from upstream:
+
+- **A rotation must exclude the address that just failed *and* prefer the other region.** Releasing the failed address and re-running the balancing rule hands it straight back, because releasing it made that region the least-loaded one. That produces a reconnect loop against a dead edge that looks like a network problem.
+- **Demotion is a preference, not a ban.** A pool that refuses every address because all of them failed recently has turned a transient edge fault into a dead tunnel. Prefer undemoted addresses; fall back to demoted ones rather than failing.
+
+One divergence from upstream, deliberate and noted so it is not mistaken for a bug: upstream randomises which region is offered first when both have equal availability. `AddressPool` is deterministic. With four connections and two regions the balance is identical either way; randomisation matters at cloudflared's scale, not NPort's, and it would mean carrying an RNG through the pool. Revisit if the pool ever grows.
 
 ## 5. Transport A — QUIC
 

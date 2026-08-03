@@ -121,16 +121,21 @@ They create real tunnels under `smoke-*` and **must clean up in a `Drop` guard**
 
 ### Manual live drivers — Phase 1 only
 
-Two throwaway harnesses under `crates/protocol/tests/live/` and `examples/`, driven by hand because they need a tunnel and a person watching. Neither is a test: `cargo test` never runs them, and both disappear when `crates/core` takes over the connection lifecycle.
+Throwaway harnesses under `crates/protocol/tests/live/` and `examples/`, driven by hand because they need a tunnel and a person watching. None is a test: `cargo test` never runs them, and they all disappear when `crates/core` takes over the connection lifecycle.
 
 ```bash
 ./crates/protocol/tests/live/tunnel.sh builtin ws-spike 180   # provision, serve, delete on exit
 cargo run -p nport-protocol --example ws_client -- wss://ws-spike.nport.link/
+./crates/protocol/tests/live/pool.sh builtin pool-spike       # 4 connections, 30 min — criterion 4
 ```
 
 `tunnel.sh` provisions through the live v2 API, runs the spike, and deletes the tunnel from a `trap` so Ctrl+C still cleans up. Pass a port instead of `builtin` to expose a real local server; `builtin` uses the spike's own origin, which serves a fixed body over HTTP and echoes over WebSocket.
 
 `ws_client` is what closes G1 criterion 3: it alternates text and binary messages, asserts each comes back byte-identical, and finishes with one 64 KiB frame — small frames can round-trip perfectly through a pipe that truncates at a read-buffer boundary. `NPORT_WS_RESOLVE=<edge-ip>` bypasses a resolver that negative-cached the record's NXDOMAIN, which macOS does aggressively for a name created seconds ago.
+
+`pool.sh` closes criterion 4, and **its exit code is the verdict** — the `pool` example prints a four-line checklist and fails if any part did not hold, so nobody has to interpret a wall of log. `NPORT_POOL_KILL_EVERY` forces a disconnect on a rotating connection index; that is a *local* close, so it exercises detection, rotation, and re-registration but not the QUIC idle-timeout path, which needs the network to genuinely disappear. Toggle Wi-Fi for that, and say which one you ran when you report a result.
+
+Run a traffic loop alongside it. Four connections staying registered is the criterion, but a connection can be registered and unroutable; a stream of `200`s across the forced disconnects is what proves it wasn't.
 
 **The token reaches these only through the environment.** Never argv — `ps` shows argv to every local user, which is the v2 defect this rewrite exists to remove.
 

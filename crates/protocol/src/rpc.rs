@@ -129,14 +129,26 @@ pub fn arch() -> String {
 
 /// Registers one connection index with the edge.
 ///
-/// # Concurrency
+/// # Concurrency — read this before building anything on top
 ///
-/// `capnp-rpc` is **not `Send`** — it uses `Rc` internally. This function therefore drives
-/// the `RpcSystem` inline, concurrently with the single call, rather than spawning it. That
-/// is fine for registration, but `crates/core` will need the control stream to stay open
-/// for the connection's whole life so it can call `unregisterConnection` at shutdown (§12),
-/// and a long-lived `RpcSystem` has to live on a `LocalSet` or a per-connection
-/// single-threaded runtime. Worth designing for before the pool lands.
+/// `capnp-rpc` is **not `Send`**; it uses `Rc` internally. This function drives the
+/// `RpcSystem` inline, concurrently with the single call, rather than spawning it.
+///
+/// **The returned future is therefore not `Send`, and neither is any future that awaits it.**
+/// `tokio::spawn` rejects them outright. That is not a limitation of the long-lived control
+/// stream — it applies to registration itself, so dropping the control stream afterwards
+/// buys nothing. The Phase 1 pool example hit this immediately and had to put all four
+/// connection supervisors on one `LocalSet`.
+///
+/// `crates/core` should not inherit that shape, because it forces every per-connection task
+/// onto a single thread for the sake of one RPC at the start of each connection's life.
+/// Confine the non-`Send` region instead: run the `RpcSystem` on a dedicated current-thread
+/// runtime (or a `LocalSet` on its own thread) and hand back the [`ConnectionDetails`], which
+/// is `Send`. Callers then spawn per-connection tasks normally.
+///
+/// The same applies with more force to §12's graceful shutdown, which needs the control
+/// stream open for the connection's whole life so `unregisterConnection` can be called — a
+/// long-lived `RpcSystem` cannot live on a multi-threaded runtime at all.
 pub async fn register_connection(
     connection: &quinn::Connection,
     token: &TunnelToken,
