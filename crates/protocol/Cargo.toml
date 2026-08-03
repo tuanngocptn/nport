@@ -17,6 +17,7 @@ workspace = true
 [dependencies]
 base64 = { workspace = true }
 capnp = { workspace = true }
+capnp-futures = { workspace = true }
 capnp-rpc = { workspace = true }
 futures = { workspace = true }
 hickory-resolver = { workspace = true }

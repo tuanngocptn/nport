@@ -16,8 +16,8 @@ Specification for `crates/protocol`. NPort speaks this protocol directly instead
 | **Pinned commit** | `3a2b45c2a511fcdd81b68c190938e4ffadbea5dc` (2026-07-22) |
 | Corresponding release | `2026.7.3` |
 | Upstream licence | Apache-2.0 — permits reimplementation and copying the `.capnp` schema, with attribution and NOTICE |
-| Last verified against the live edge | **2026-08-03.** Discovery (§4), QUIC handshake with ALPN `argotunnel` (§5), and a **successful `registerConnection`** returning colo `hkg09` (§8). Proxying not yet attempted |
-| Implementation status | Phase 1 in progress: token parsing, edge discovery, QUIC handshake, and registration RPC done. Per-stream framing (§7, §11) next |
+| Last verified against the live edge | **2026-08-03.** Discovery (§4), QUIC handshake (§5), `registerConnection` (§8), and a **full HTTP GET proxied end-to-end** — `curl` returned the origin's body byte-identically with headers preserved (§11) |
+| Implementation status | Phase 1 in progress: token parsing, edge discovery, QUIC handshake, registration RPC, and HTTP framing done. WebSocket and the connection pool next |
 
 Every constant below cites the Go file and symbol it was read from. **When you need a value that is not in this document, read it from the pinned commit and add it here with a citation — never guess, and never copy a number from a blog post.** Re-pin deliberately: bump the SHA, re-read the cited symbols, update this file, and record the bump in `docs/DECISIONS.md`.
 
@@ -517,6 +517,17 @@ Reconnection classification (`supervisor/tunnel.go`):
 | `EDUPCONN` | rotate to a different edge address |
 | dial error | rotate; after `--max-edge-addr-retries` (default 8) fall back to HTTP/2 |
 | cause contains `Unauthorized` | retry — the tunnel may still be propagating |
+
+### Readiness lags registration — observed 2026-08-03
+
+**A successful `registerConnection` does not mean the edge is routing to you yet.** Requests arriving in the first few seconds after it returns get Cloudflare's `530` with `error code: 1033` ("Argo Tunnel error"), then start succeeding with no further action from the client. Observed repeatedly: registration returns in ~300–600 ms, the first request 530s, and a retry a second later returns 200.
+
+Two consequences:
+
+- **`crates/core` must not report the URL as ready the moment registration returns.** Doing so hands the user a link that 530s on their first click, which reads as NPort being broken. Either poll until a request succeeds or state that propagation takes a moment.
+- **`1033` is not our bug and not a reason to retry registration.** The connection is registered; the edge is still catching up. Distinguish it from a genuine registration failure.
+
+Separately, `apps/api` should not imply the URL is live in its create response either: the DNS record took **6–18 s** to resolve in testing, and the record is proxied, so `dig CNAME` returns nothing while A records answer.
 
 Graceful shutdown (`connection/control.go`, `connection/quic_connection.go`):
 

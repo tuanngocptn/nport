@@ -9,6 +9,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod connect;
 pub mod edge;
 pub mod quic;
 pub mod rpc;

@@ -162,18 +162,177 @@ async fn main() {
     let client_id = uuid::Uuid::new_v4();
     let version = concat!("nport/", env!("CARGO_PKG_VERSION"));
 
-    if let Some(details) = step!(
+    let Some(details) = step!(
         "registerConnection (control stream, no preamble)",
         rpc::register_connection(&established.connection, &token, 0, client_id, version)
-    ) {
-        println!("    colo:                     {}", details.location_name);
-        println!("    connection uuid:          {} bytes", details.uuid.len());
-        println!(
-            "    remotely managed:         {} (expected true — config_src cloudflare)",
-            details.tunnel_is_remotely_managed
-        );
-        println!("\n✓ step 4 done. The tunnel should now show a healthy connection.");
+    ) else {
+        return;
+    };
+    println!("    colo:                     {}", details.location_name);
+    println!("    connection uuid:          {} bytes", details.uuid.len());
+    println!(
+        "    remotely managed:         {} (expected true — config_src cloudflare)",
+        details.tunnel_is_remotely_managed
+    );
+
+    // ── Step 5: ConnectRequest framing, one HTTP GET end-to-end ──────────────────
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) => {
+            println!("✗ could not bind a local origin: {error}");
+            return;
+        }
+    };
+    let origin = listener
+        .local_addr()
+        .expect("bound listener has an address");
+    tokio::spawn(serve_origin(listener));
+    println!(
+        "\nlocal origin on {origin}, body {} bytes",
+        ORIGIN_BODY.len()
+    );
+
+    let serve_secs: u64 = std::env::var("NPORT_SPIKE_SERVE_SECS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(25);
+    println!("serving exchanges for {serve_secs}s — curl the tunnel now\n");
+
+    let deadline = tokio::time::sleep(Duration::from_secs(serve_secs));
+    tokio::pin!(deadline);
+    let mut exchanges = 0usize;
+    loop {
+        tokio::select! {
+            () = &mut deadline => break,
+            accepted = established.connection.accept_bi() => match accepted {
+                Ok((send, recv)) => {
+                    exchanges += 1;
+                    tokio::spawn(async move {
+                        if let Err(error) = handle_exchange(send, recv, origin).await {
+                            println!("  ✗ exchange failed: {error}");
+                        }
+                    });
+                }
+                Err(error) => {
+                    println!("edge closed the connection: {error}");
+                    break;
+                }
+            },
+        }
     }
 
+    println!("\n{exchanges} exchange(s) handled.");
     established.connection.close(0u32.into(), b"spike");
+    // Let the CONNECTION_CLOSE frame actually leave before the process exits.
+    established.endpoint.wait_idle().await;
+}
+
+/// The body the origin serves. The spike asserts the tunnel delivers it byte-identically.
+const ORIGIN_BODY: &str = "nport spike origin — byte-identity check\n";
+
+/// A deliberately minimal HTTP/1.1 origin. Not a general server: it answers anything with
+/// a fixed body, which is exactly what a byte-identity check needs.
+async fn serve_origin(listener: tokio::net::TcpListener) {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    loop {
+        let Ok((mut socket, _)) = listener.accept().await else {
+            return;
+        };
+        tokio::spawn(async move {
+            let mut scratch = [0u8; 8192];
+            let _ = socket.read(&mut scratch).await;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\n\
+                 content-length: {}\r\nx-nport-spike: origin\r\nconnection: close\r\n\r\n{}",
+                ORIGIN_BODY.len(),
+                ORIGIN_BODY
+            );
+            let _ = socket.write_all(response.as_bytes()).await;
+            let _ = socket.shutdown().await;
+        });
+    }
+}
+
+/// One edge-initiated exchange: read the framed request, proxy it to the origin, write the
+/// framed response.
+async fn handle_exchange(
+    mut send: quinn::SendStream,
+    mut recv: quinn::RecvStream,
+    origin: std::net::SocketAddr,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use nport_protocol::connect::{self, ConnectionType, StreamKind};
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let kind = connect::read_stream_kind(&mut recv).await?;
+    if kind != StreamKind::Data {
+        println!("  ! {kind:?} stream — not implemented (ADR-0020)");
+        return Ok(());
+    }
+    connect::read_version(&mut recv).await?;
+    let request = connect::read_connect_request(&mut recv).await?;
+
+    println!(
+        "  → {} {} (type {:?}, {} headers)",
+        request.method().unwrap_or("?"),
+        request.dest,
+        request.kind,
+        request.headers().count()
+    );
+
+    if request.kind != ConnectionType::Http {
+        connect::write_error_response(&mut send, "only http is implemented in the spike").await?;
+        send.finish()?;
+        return Ok(());
+    }
+
+    // Minimal origin-form HTTP/1.1 request. `connection: close` means read-to-end delimits
+    // the response, so the spike needs no chunked decoder.
+    let mut upstream = tokio::net::TcpStream::connect(origin).await?;
+    let origin_request = format!(
+        "{} {} HTTP/1.1\r\nhost: {}\r\nconnection: close\r\n\r\n",
+        request.method().unwrap_or("GET"),
+        request.path_and_query(),
+        request.host().unwrap_or("localhost")
+    );
+    upstream.write_all(origin_request.as_bytes()).await?;
+    let mut raw = Vec::new();
+    upstream.read_to_end(&mut raw).await?;
+
+    let split = raw
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or("origin response had no header terminator")?;
+    let head = String::from_utf8_lossy(&raw[..split]).to_string();
+    let body = &raw[split + 4..];
+
+    let mut lines = head.split("\r\n");
+    let status: u16 = lines
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|code| code.parse().ok())
+        .ok_or("origin response had no status code")?;
+
+    // Hop-by-hop headers must not be forwarded; everything else travels as metadata.
+    let headers: Vec<(String, String)> = lines
+        .filter_map(|line| line.split_once(": "))
+        .filter(|(name, _)| {
+            !matches!(
+                name.to_ascii_lowercase().as_str(),
+                "connection" | "transfer-encoding" | "keep-alive"
+            )
+        })
+        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+        .collect();
+
+    connect::write_connect_response(&mut send, status, &headers).await?;
+    send.write_all(body).await?;
+    // End of body is stream FIN (§11).
+    send.finish()?;
+
+    println!(
+        "  ← {status}, {} bytes, {} headers",
+        body.len(),
+        headers.len()
+    );
+    Ok(())
 }
