@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'd=$(git rev-parse --show-toplevel 2>/dev/null || pwd); exec \"$d/.claude/hooks/require-tests.sh\"'",
+            "timeout": 20,
+            "statusMessage": "Checking tests for changed source"
+          }
+        ]
+      }
+    ]
+  }
+}

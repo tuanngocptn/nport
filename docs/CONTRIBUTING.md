@@ -2,7 +2,7 @@
 
 Thanks for helping. NPort is MIT-licensed and maintained by [Nick Pham](https://github.com/tuanngocptn).
 
-**The project is mid-rewrite.** `v3-new-architech` currently holds documentation and a directory skeleton; nothing builds yet. v2 is on `main` and still shipping. Check `docs/ROADMAP.md` for what phase we are in before starting work — and if you want to contribute code right now, say so in an issue first, because the protocol spike (Phase 1) gates almost everything else.
+**The project is mid-rewrite.** `v3-new-architech` holds the documentation set, both workspaces, and a partly-built `crates/protocol`; nothing tunnels yet. v2 is on `main` and still shipping. Check `docs/ROADMAP.md` for what phase we are in before starting work — and if you want to contribute code right now, say so in an issue first, because the protocol spike (Phase 1) gates almost everything else.
 
 ## Prerequisites
 
@@ -48,6 +48,8 @@ pnpm codegen && cargo xtask codegen   # must leave the tree clean
 ```
 
 `lefthook` runs formatting and the fast checks on commit. Do not bypass it with `--no-verify` unless you are fixing the hook.
+
+In Claude Code sessions, a `Stop` hook (`.claude/hooks/require-tests.sh`) additionally refuses to end a turn that changed source in an area without touching that area's tests, and test authoring is delegated to a Sonnet-pinned subagent (ADR-0023). It does not affect ordinary `git` use.
 
 ## Where to work
 

@@ -30,6 +30,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0020 | Datagrams out of scope for 3.0 | Accepted |
 | 0021 | shadcn/ui + TanStack Virtual for the desktop frontend | Accepted |
 | 0022 | Phase 0 toolchain: exact pins, lefthook, root-level Biome | Accepted |
+| 0023 | Frontend e2e with visual regression; tests enforced by a Stop hook | Accepted |
 
 ---
 
@@ -347,3 +348,29 @@ Plus six calls worth writing down:
 **Consequences.** Every crate carries `publish = false` until Phase 3, so an empty stub cannot reach crates.io by accident. The rustls crypto provider is deliberately *not* pinned — offering `X25519MLKEM768` needs aws-lc-rs but the two musl release targets are where that linkage breaks, so Phase 1 decides it with evidence (`docs/PROTOCOL.md` §5, risk P3). TypeScript 7 is the current release and nothing consumes it yet; if Next.js or OpenNext disagree in Phase 2c, that is a catalog edit, not a decision to revisit.
 
 **Rejected.** *Version ranges* — a caret range means CI and a contributor's machine can run different linters, and "works on mine" is the failure this repo can least afford. *husky* — a Node process per hook, and its config is shell scripts in a directory rather than one file. *Per-package Biome configs* — nothing to configure differently, and four more files to keep in sync.
+
+---
+
+## ADR-0023 — Frontend e2e with visual regression; tests enforced by a Stop hook
+
+**Date** 2026-08-03 · **Status** Accepted · **Supersedes** part of `docs/TESTING.md` § Deliberately untested
+
+**Context.** `docs/TESTING.md` covers the API, the connector, and shared validators well, but `apps/web` had no test tier at all — its only entry under "Deliberately untested" read *"Marketing page visual appearance. No screenshot tests; the churn cost exceeds the value."* That reasoning was about **appearance**, and it quietly left **behaviour** uncovered too: whether `/docs/[slug]` resolves, whether `/errors/[code]` renders for a real code, whether the dark-mode toggle works, whether the four JSON-LD blocks are actually emitted. Those are load-bearing for a site whose entire job is discovery and self-service support.
+
+Separately, the testing policy existed only as prose. Nothing made it happen.
+
+**Decision.** Two parts.
+
+1. **`apps/web` gets Playwright e2e, including visual regression.** Behavioural assertions plus `toHaveScreenshot()`. One tool covers both, and Playwright pins its own browser builds, which is what makes a visual baseline stable enough to be worth having.
+
+2. **A `Stop` hook enforces the policy.** `.claude/hooks/require-tests.sh` blocks a turn that changed source in an area without touching that area's tests. Per-area granularity, not per-file. It blocks **once** per unique set of untested areas per session, so a legitimate exception costs one message instead of an unbreakable loop. The area→tier mapping lives in `.claude/skills/testing-policy/SKILL.md`.
+
+**Consequences.**
+
+- The churn objection was real and is answered by constraint, not by optimism: visual snapshots run on **one** OS in CI, because font rasterisation differs across platforms and a baseline that drifts per-runner is the exact failure the original decision feared. Dynamic regions get masked rather than tolerated.
+- `apps/desktop` is **not** in scope. Playwright cannot drive a Tauri WebView; that needs `tauri-driver` with WebdriverIO, and the app is Phase 4. `docs/TESTING.md`'s "Tauri WebView rendering is manual per platform" stands until then.
+- Enforcement is a proxy — it checks that a test artifact changed, not that coverage improved. Stated plainly in the skill, because a proxy people game is worse than no proxy.
+- Playwright is a new dependency for `apps/web`, landing with Phase 2c. It is not installed yet; the hook's requirement for `apps/web` is inert until that app exists.
+- **Test authoring is delegated to the `test-writer` subagent, pinned to Sonnet.** Tests are well-specified work against an existing spec, which is where a smaller model is a good trade. The cost is that the agent does not inherit the calling conversation's context, so the brief has to carry the change, the tier, and any history of what broke before — a vague delegation produces tests that assert the code does what it does.
+
+**Rejected.** *Cypress* — heavier, and its visual comparison needs a paid service or a plugin. *Vitest browser mode* — good for component tests, not for asserting a deployed route end to end. *A `PostToolUse` hook on Write|Edit* — fires mid-edit, before the test could plausibly have been written, so it would train everyone to ignore it. *A lefthook pre-commit check instead* — commits are not the unit of work an agent produces; a turn is.
