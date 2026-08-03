@@ -1,0 +1,28 @@
+{
+  "name": "@nport/contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./errors": "./src/errors.ts",
+    "./subdomain": "./src/subdomain.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "codegen": "tsx scripts/codegen.ts"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "@nport/tsconfig": "workspace:*",
+    "tsx": "catalog:",
+    "@types/node": "catalog:"
+  },
+  "description": "Authority for the NPort control-plane API: zod schemas, routes, and the error registry.",
+  "license": "MIT"
+}

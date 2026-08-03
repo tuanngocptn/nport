@@ -1,0 +1,202 @@
+{
+  "$comment": "Shared normalization and validation cases. Exercised by packages/contract/src/subdomain.test.ts AND by crates/contract's Rust mirror, so the two implementations cannot disagree. Add a case here first, then make both sides pass. docs/ARCHITECTURE.md §7.",
+  "normalize": [
+    {
+      "input": "myapp",
+      "output": "myapp",
+      "why": "already canonical"
+    },
+    {
+      "input": "  myapp  ",
+      "output": "myapp",
+      "why": "surrounding whitespace"
+    },
+    {
+      "input": "MyApp",
+      "output": "myapp",
+      "why": "case"
+    },
+    {
+      "input": "MYAPP",
+      "output": "myapp",
+      "why": "all caps"
+    },
+    {
+      "input": "myapp.nport.link",
+      "output": "myapp",
+      "why": "people paste the whole hostname out of their terminal"
+    },
+    {
+      "input": "MyApp.NPort.Link",
+      "output": "myapp",
+      "why": "suffix stripping must run after lowercasing, or the comparison misses"
+    },
+    {
+      "input": "myapp.nport.link.",
+      "output": "myapp",
+      "why": "a trailing dot is a legal FQDN and meaningless here"
+    },
+    {
+      "input": "ｍｙａｐｐ",
+      "output": "myapp",
+      "why": "NFKC folds full-width forms; without it this is a visually identical second claim"
+    },
+    {
+      "input": "myapp.nport.link.nport.link",
+      "output": "myapp",
+      "why": "repeated suffix, from pasting twice"
+    }
+  ],
+  "valid": [
+    {
+      "input": "myapp",
+      "why": "the ordinary case"
+    },
+    {
+      "input": "abc",
+      "why": "exactly the minimum length"
+    },
+    {
+      "input": "a1b",
+      "why": "digits are allowed"
+    },
+    {
+      "input": "my-app",
+      "why": "an interior hyphen"
+    },
+    {
+      "input": "my-long-app-name-2",
+      "why": "several hyphens and a trailing digit"
+    },
+    {
+      "input": "123",
+      "why": "all digits is a legal DNS label"
+    },
+    {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "why": "exactly 63 characters, the DNS label limit"
+    }
+  ],
+  "invalid": [
+    {
+      "input": "",
+      "reason": "empty",
+      "why": "nothing supplied"
+    },
+    {
+      "input": "   ",
+      "reason": "empty",
+      "why": "whitespace normalizes to nothing"
+    },
+    {
+      "input": "ab",
+      "reason": "too-short",
+      "why": "one under the minimum"
+    },
+    {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "reason": "too-long",
+      "why": "64 characters, one over the DNS label limit"
+    },
+    {
+      "input": "-myapp",
+      "reason": "leading-or-trailing-hyphen",
+      "why": "not a legal DNS label, and reported specifically rather than as a charset error"
+    },
+    {
+      "input": "myapp-",
+      "reason": "leading-or-trailing-hyphen",
+      "why": "trailing hyphen"
+    },
+    {
+      "input": "my_app",
+      "reason": "invalid-characters",
+      "why": "underscore is legal in some DNS contexts but not in a browser-visible hostname"
+    },
+    {
+      "input": "a.b.c",
+      "reason": "invalid-characters",
+      "why": "v2 accepted this and interpolated it straight into a hostname"
+    },
+    {
+      "input": "*",
+      "reason": "too-short",
+      "why": "v2 accepted a wildcard; caught by length here, which is enough"
+    },
+    {
+      "input": "my&app",
+      "reason": "invalid-characters",
+      "why": "v2 interpolated this unencoded into a Cloudflare API query string"
+    },
+    {
+      "input": "my#app",
+      "reason": "invalid-characters",
+      "why": "same class of injection as the ampersand"
+    },
+    {
+      "input": "my app",
+      "reason": "invalid-characters",
+      "why": "interior space"
+    },
+    {
+      "input": "my/app",
+      "reason": "invalid-characters",
+      "why": "a path separator would break the URL"
+    },
+    {
+      "input": "xn--80ak6aa92e",
+      "reason": "double-hyphen-prefix",
+      "why": "an IDN A-label; caught by the positions-3-4 rule, which also covers ab--cd"
+    },
+    {
+      "input": "ab--cd",
+      "reason": "double-hyphen-prefix",
+      "why": "positions 3–4 are the RFC 5890 tagged-label space"
+    },
+    {
+      "input": "api",
+      "reason": "reserved",
+      "why": "the one name v2 did reserve"
+    },
+    {
+      "input": "www",
+      "reason": "reserved",
+      "why": "v2 left this claimable"
+    },
+    {
+      "input": "_dmarc",
+      "reason": "invalid-characters",
+      "why": "underscore can never pass the pattern, so this is the honest reason — but the name stays in RESERVED_PREFIXES so the sweeper does not delete the real DNS record"
+    },
+    {
+      "input": "_acme-challenge",
+      "reason": "invalid-characters",
+      "why": "underscore can never pass the pattern, so this is the honest reason — but the name stays in RESERVED_PREFIXES so the sweeper does not delete the real DNS record"
+    },
+    {
+      "input": "login",
+      "reason": "reserved",
+      "why": "phishing surface"
+    },
+    {
+      "input": "paypal",
+      "reason": "reserved",
+      "why": "brand impersonation"
+    },
+    {
+      "input": "API",
+      "reason": "reserved",
+      "why": "reserved names are checked after normalization, not before"
+    },
+    {
+      "input": "smoke-linux-123",
+      "reason": "reserved-prefix",
+      "why": "belongs to nightly CI"
+    },
+    {
+      "input": "nport-abc12345",
+      "reason": "reserved-prefix",
+      "why": "the generated-name space; a user claim could collide with one we hand out"
+    }
+  ]
+}

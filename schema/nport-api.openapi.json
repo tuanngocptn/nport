@@ -1,0 +1,833 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NPort control-plane API",
+    "version": "1.0.0",
+    "description": "Provisions and reaps tunnels. Not on the tunnel data path. No accounts, no API keys, and no CORS headers — see docs/API.md.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.nport.link",
+      "description": "Production"
+    }
+  ],
+  "paths": {
+    "/v1/challenge": {
+      "get": {
+        "summary": "Issue a proof-of-work challenge.",
+        "operationId": "getChallenge",
+        "responses": {
+          "200": {
+            "description": "Issue a proof-of-work challenge.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "challenge": {
+                      "type": "string",
+                      "description": "Opaque, HMAC-signed, self-validating. Nothing is stored server-side."
+                    },
+                    "difficulty": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 32,
+                      "description": "Required leading zero bits. Raised under load."
+                    },
+                    "expiresAt": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "description": "After this, solving it is pointless."
+                    }
+                  },
+                  "required": [
+                    "challenge",
+                    "difficulty",
+                    "expiresAt"
+                  ],
+                  "description": "A stateless proof-of-work challenge."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`INVALID_REQUEST`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`CLIENT_TOO_OLD`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`INTERNAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-idempotent": true,
+        "x-requires-owner-token": false
+      }
+    },
+    "/v1/tunnels": {
+      "post": {
+        "summary": "Claim a subdomain and provision a tunnel.",
+        "operationId": "postTunnels",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "subdomain": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 95,
+                    "description": "Desired subdomain. Normalized server-side; omit to have one generated."
+                  },
+                  "challenge": {
+                    "type": "string",
+                    "description": "The `challenge` value from `GET /v1/challenge`."
+                  },
+                  "nonce": {
+                    "type": "string",
+                    "description": "A solution satisfying the challenge's difficulty."
+                  },
+                  "client": {
+                    "type": "string",
+                    "enum": [
+                      "cli",
+                      "desktop"
+                    ],
+                    "description": "Which client is calling."
+                  }
+                },
+                "required": [
+                  "challenge",
+                  "nonce",
+                  "client"
+                ],
+                "description": "Claim a subdomain and provision a tunnel."
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Claim a subdomain and provision a tunnel.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "subdomain": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 63,
+                      "description": "The normalized subdomain that was claimed."
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "The public HTTPS URL. Ready within a few seconds, not instantly."
+                    },
+                    "tunnelId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "description": "Cloudflare's tunnel UUID."
+                    },
+                    "tunnelToken": {
+                      "type": "string",
+                      "description": "Connector credential. Returned ONCE. Never logged, never in argv."
+                    },
+                    "ownerToken": {
+                      "type": "string",
+                      "description": "256-bit bearer proof for this lease. Returned ONCE; only its SHA-256 is stored."
+                    },
+                    "expiresAt": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "description": "Server-authoritative. The client only displays it."
+                    }
+                  },
+                  "required": [
+                    "subdomain",
+                    "url",
+                    "tunnelId",
+                    "tunnelToken",
+                    "ownerToken",
+                    "expiresAt"
+                  ],
+                  "description": "A provisioned tunnel. Both tokens are shown exactly once."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`INVALID_REQUEST` · `INVALID_SUBDOMAIN` · `POW_INVALID` · `CHALLENGE_EXPIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`SUBDOMAIN_RESERVED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`SUBDOMAIN_IN_USE` · `DNS_CONFLICT`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`CLIENT_TOO_OLD`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "`POW_REQUIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED` · `CONCURRENCY_LIMIT` · `CREATE_QUOTA_EXCEEDED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`INTERNAL` · `PROVISION_FAILED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`UPSTREAM_CLOUDFLARE_ERROR`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`CAPACITY_EXHAUSTED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-idempotent": false,
+        "x-requires-owner-token": false
+      }
+    },
+    "/v1/tunnels/{subdomain}/heartbeat": {
+      "post": {
+        "summary": "Renew a lease.",
+        "operationId": "postTunnelsSubdomainHeartbeat",
+        "parameters": [
+          {
+            "name": "subdomain",
+            "in": "path",
+            "required": true,
+            "description": "Normalized server-side before use.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "ownerToken": {
+                    "type": "string",
+                    "description": "Proves this caller created the lease."
+                  }
+                },
+                "required": [
+                  "ownerToken"
+                ],
+                "description": "Renew a lease."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Renew a lease.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "expiresAt": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "description": "Authoritative. Clients correct their countdown from this rather than counting locally."
+                    }
+                  },
+                  "required": [
+                    "expiresAt"
+                  ],
+                  "description": "The lease's current expiry."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`INVALID_REQUEST`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`INVALID_OWNER_TOKEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`TUNNEL_NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "`LEASE_EXPIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`CLIENT_TOO_OLD`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`INTERNAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-idempotent": true,
+        "x-requires-owner-token": true
+      }
+    },
+    "/v1/tunnels/{subdomain}": {
+      "delete": {
+        "summary": "Release a lease and tear the tunnel down.",
+        "operationId": "deleteTunnelsSubdomain",
+        "parameters": [
+          {
+            "name": "subdomain",
+            "in": "path",
+            "required": true,
+            "description": "Normalized server-side before use.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "ownerToken": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "ownerToken"
+                ],
+                "description": "Release a lease and tear the tunnel down. Idempotent."
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Release a lease and tear the tunnel down. No body."
+          },
+          "400": {
+            "description": "`INVALID_REQUEST`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`INVALID_OWNER_TOKEN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`DNS_CONFLICT`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`CLIENT_TOO_OLD`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`INTERNAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`UPSTREAM_CLOUDFLARE_ERROR`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-idempotent": true,
+        "x-requires-owner-token": true
+      },
+      "get": {
+        "summary": "Public status for a subdomain. No secrets.",
+        "operationId": "getTunnelsSubdomain",
+        "parameters": [
+          {
+            "name": "subdomain",
+            "in": "path",
+            "required": true,
+            "description": "Normalized server-side before use.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Public status for a subdomain. No secrets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "subdomain": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 63,
+                      "description": "The normalized subdomain that was claimed."
+                    },
+                    "active": {
+                      "type": "boolean"
+                    },
+                    "expiresAt": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "description": "Milliseconds since the Unix epoch, UTC."
+                    }
+                  },
+                  "required": [
+                    "subdomain",
+                    "active"
+                  ],
+                  "description": "Public status. Deliberately carries nothing an attacker could use."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`INVALID_REQUEST` · `INVALID_SUBDOMAIN`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`TUNNEL_NOT_FOUND`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`CLIENT_TOO_OLD`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`INTERNAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-idempotent": true,
+        "x-requires-owner-token": false
+      }
+    },
+    "/v1/meta": {
+      "get": {
+        "summary": "Limits, minimum client version, and tunnel duration.",
+        "operationId": "getMeta",
+        "responses": {
+          "200": {
+            "description": "Limits, minimum client version, and tunnel duration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "minClientVersion": {
+                      "type": "string",
+                      "description": "Below this, requests get 426 CLIENT_TOO_OLD."
+                    },
+                    "tunnelDurationMs": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "heartbeatIntervalMs": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "powDifficulty": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 32
+                    },
+                    "maxConcurrentPerSource": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "maxCreatesPerHourPerSource": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "minClientVersion",
+                    "tunnelDurationMs",
+                    "heartbeatIntervalMs",
+                    "powDifficulty",
+                    "maxConcurrentPerSource",
+                    "maxCreatesPerHourPerSource"
+                  ],
+                  "description": "Limits, discovered rather than hardcoded, so they can be tuned without a client release."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`INVALID_REQUEST`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`CLIENT_TOO_OLD`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`INTERNAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-idempotent": true,
+        "x-requires-owner-token": false
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "INVALID_REQUEST",
+                  "INVALID_SUBDOMAIN",
+                  "POW_INVALID",
+                  "CHALLENGE_EXPIRED",
+                  "SUBDOMAIN_RESERVED",
+                  "INVALID_OWNER_TOKEN",
+                  "TUNNEL_NOT_FOUND",
+                  "SUBDOMAIN_IN_USE",
+                  "DNS_CONFLICT",
+                  "LEASE_EXPIRED",
+                  "CLIENT_TOO_OLD",
+                  "POW_REQUIRED",
+                  "RATE_LIMITED",
+                  "CONCURRENCY_LIMIT",
+                  "CREATE_QUOTA_EXCEEDED",
+                  "PROVISION_FAILED",
+                  "INTERNAL",
+                  "UPSTREAM_CLOUDFLARE_ERROR",
+                  "CAPACITY_EXHAUSTED",
+                  "LOCAL_PORT_CLOSED",
+                  "LOCAL_PORT_INVALID",
+                  "CONFIG_UNREADABLE",
+                  "CONFIG_UNWRITABLE",
+                  "EDGE_DISCOVERY_FAILED",
+                  "EDGE_CONNECT_FAILED",
+                  "EDGE_REGISTRATION_REFUSED",
+                  "EDGE_PROTOCOL_ERROR",
+                  "TUNNEL_LOST",
+                  "LOCAL_REQUEST_FAILED",
+                  "SHUTDOWN_TIMEOUT"
+                ],
+                "description": "Stable code. Branch on this, never on `message`."
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable. May change freely; do not match on it."
+              },
+              "details": {
+                "description": "Code-specific.",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "requestId": {
+                "type": "string",
+                "description": "Quote this in a bug report."
+              },
+              "docsUrl": {
+                "type": "string",
+                "format": "uri"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "requestId",
+              "docsUrl"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "description": "The single error envelope for every failure. ADR-0018."
+      }
+    }
+  },
+  "x-generated-by": "@generated by `pnpm codegen` from packages/contract — do not edit"
+}

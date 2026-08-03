@@ -21,3 +21,15 @@ minimumReleaseAge: 1440
 catalog:
   typescript: 7.0.2
   vitest: 4.1.10
+  # The contract's schema language. apps/api validates with these exact schemas via
+  # @hono/zod-validator, and `pnpm codegen` turns them into schema/nport-api.openapi.json —
+  # so a version skew between packages would mean two different notions of the API.
+  zod: 4.4.3
+  # Runs the codegen scripts. Node 22 strips types but its ESM resolver still demands explicit
+  # extensions on relative imports, which docs/conventions/typescript.md forbids — so a runner
+  # that resolves them is the cheaper fix than changing the convention for every source file.
+  # Pinned behind the latest deliberately: minimumReleaseAge (24h) rejected 4.23.5, which is the
+  # supply-chain guard working as intended rather than something to override.
+  tsx: 4.23.1
+  # Node globals for the codegen scripts and for tests that read generated files off disk.
+  '@types/node': 22.19.1

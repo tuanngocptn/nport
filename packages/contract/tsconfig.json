@@ -1,0 +1,10 @@
+{
+  "extends": "@nport/tsconfig/base.json",
+  "compilerOptions": {
+    // The codegen script and the round-trip tests read generated files off disk, so this package
+    // genuinely runs on Node. Declared explicitly rather than relying on automatic @types
+    // discovery, which does not reach a pnpm-hoisted layout reliably.
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "fixtures/**/*.json"]
+}
