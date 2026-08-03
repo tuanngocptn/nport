@@ -1,29 +1,122 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code working in this repository. Read this file first; it tells you where everything else is.
 
 ## Project
 
-NPort — a free, open-source ngrok alternative that tunnels HTTP/HTTPS from localhost to a public `*.nport.link` URL over Cloudflare's edge network. Published to npm as `nport`; site at https://nport.link.
+NPort tunnels HTTP/HTTPS from localhost to a public `*.nport.link` URL over Cloudflare's edge. It is free, MIT-licensed, and **account-free** — no signup, no API keys, `nport 3000 -s myapp` and you have a URL. v3 is a from-scratch rewrite that replaces the bundled `cloudflared` binary with a native Rust implementation of Cloudflare's tunnel connector protocol.
 
-## Status
+**Status: pre-implementation.** This branch currently contains documentation and an empty directory skeleton. Nothing builds yet. See `docs/ROADMAP.md` for what lands when, and treat every path in the repo map below as a target, not a fact — check before you assume a file exists.
 
-This branch (`v3-new-architech`) is a from-scratch rewrite. The only tracked file is `README.md` — there is no source, build tooling, or test setup yet. Empty `bin/`, `dist/`, `server/`, `website/`, and `.vscode/` directories are leftovers from the previous tree and carry no meaning.
+## The four apps
 
-There are no build, test, or lint commands to document yet. Add them here as they land.
+| Path | Name | Runtime | Deploys to | Purpose |
+| --- | --- | --- | --- | --- |
+| `apps/web` | `@nport/web` | Next.js + OpenNext | Worker `nport-web` → nport.link | Marketing site + user docs |
+| `apps/api` | `@nport/api` | Hono on Workers | Worker `nport-api` → api.nport.link | Control plane: provisions tunnels |
+| `apps/desktop` | `@nport/desktop` | Tauri v2 (Rust + React) | signed installers | GUI + local traffic inspector |
+| `crates/cli` | `nport` | native Rust binary | npm, crates.io, Homebrew, Scoop, Releases | The CLI everyone uses |
+
+## Invariants
+
+Do not violate these without adding an ADR to `docs/DECISIONS.md` first.
+
+1. **No accounts, no auth, no signup — ever.** No user database, no dashboard, no login. Abuse control happens without identity.
+2. **No `cloudflared` binary is shipped or downloaded** by the default build. The connector is native Rust.
+3. **The server is authoritative for all time limits and ownership.** Clients display; they never enforce.
+4. **No secret ever ships in a client artifact** — no API keys, no analytics secrets, no tokens in argv.
+5. **`crates/core` is headless.** No `println!`, no `eprintln!`, no `process::exit`, no TTY detection. It emits events; `crates/cli` renders them.
+6. **Generated files are never hand-edited.** They carry a `@generated` banner and CI fails on drift.
+7. **The public API contract lives only in `packages/contract`.** Routes, schemas, and error codes are defined there and generated outward.
+8. **Never delete a Cloudflare DNS record you cannot prove you own** (see `docs/ARCHITECTURE.md` §7).
+
+## Repo map
+
+```
+apps/api/          Hono control plane          → apps/api/CLAUDE.md
+apps/web/          Next.js site + user docs    → apps/web/CLAUDE.md
+apps/desktop/      Tauri app                   → apps/desktop/CLAUDE.md
+crates/cli/        the `nport` binary          → crates/CLAUDE.md
+crates/core/       TunnelManager, headless     → crates/CLAUDE.md
+crates/protocol/   connector wire protocol     → crates/protocol/CLAUDE.md
+crates/contract/   GENERATED Rust API mirror
+crates/xtask/      codegen, fixtures, verify-docs
+packages/contract/ zod + OpenAPI + errors — API AUTHORITY
+packages/design-tokens/  tokens.css, shared by web + desktop
+packages/tsconfig/ shared tsconfig bases
+schema/            GENERATED OpenAPI document
+docs/              contributor docs (user docs live in apps/web/src/content/docs)
+```
+
+Dependency direction is one-way: `protocol → core → {cli, desktop}`, and `contract → core`. A `core → cli` edge is the most likely architectural regression — don't introduce one.
+
+## Commands
+
+Nothing is wired up yet; these are the intended commands, and Phase 0 makes them real.
+
+```bash
+corepack enable && pnpm install    # bootstrap
+pnpm dev:api                       # wrangler dev on apps/api
+pnpm dev:web                       # next dev with Worker bindings
+pnpm dev:desktop                   # tauri dev
+cargo run -p nport -- 3000 -s test # run the CLI
+pnpm test          cargo test      # tests
+pnpm lint          cargo clippy    # lint
+pnpm codegen       cargo xtask codegen   # regenerate; must leave the tree clean
+```
+
+## Where to look
+
+| If the task is… | Read, in this order |
+| --- | --- |
+| Anything touching the connector wire format | `docs/PROTOCOL.md` → `crates/protocol/CLAUDE.md` |
+| Add or change an API endpoint | `docs/API.md` → `packages/contract/` → `apps/api/CLAUDE.md` |
+| Add or change an error | `docs/ERRORS.md` → `packages/contract/src/errors.ts`, then regenerate |
+| CLI flags, output, i18n | `crates/CLAUDE.md` → `crates/cli/src/` |
+| Tunnel lifecycle logic | `docs/ARCHITECTURE.md` §3 → `crates/core/src/tunnel.rs` |
+| Website content, SEO, styling | `apps/web/CLAUDE.md` → `packages/design-tokens/` |
+| Desktop UI or IPC | `apps/desktop/CLAUDE.md` |
+| Storage, leases, expiry, abuse | `docs/ARCHITECTURE.md` §4–§7 → `apps/api/src/do/` |
+| "Why is it built this way?" | `docs/DECISIONS.md` |
+| Tests | `docs/TESTING.md` |
+| Releasing or publishing | `docs/RELEASE.md` |
+| Production incident, secrets, DNS | `docs/OPERATIONS.md` |
+| What to build next | `docs/ROADMAP.md` |
+| What v2 did and why it was wrong | `docs/DECISIONS.md` ADR-0001, `docs/ARCHITECTURE.md` §8 |
+
+## Documentation rules
+
+1. **`CLAUDE.md` files are imperative and navigational** — commands, invariants, where to look. Root ≤130 lines, per-app ≤90.
+2. **`docs/*.md` are descriptive and specificational** — how and why. Never restate a command that lives in a `package.json` or a `CLAUDE.md`.
+3. **A fact appears exactly once.** If two files need it, one links to the other. If it must live in two places, generate it.
+4. **User-facing docs live in `apps/web/src/content/docs/*.mdx` and nowhere else.** `docs/` is contributor-only.
+5. **Anything a human and a program must both agree on is generated** — error codes, API fields, the CLI flag reference.
+
+## Conventions
+
+@docs/conventions/typescript.md
+@docs/conventions/rust.md
+
+Commits are conventional: `type(scope): description` with types `feat|fix|docs|refactor|test|chore` and scopes `api|web|desktop|cli|core|protocol|contract|ci|docs`. Branches are prefixed `feature/`, `fix/`, `docs/`, `refactor/`, `protocol/`.
+
+Every user-visible failure carries a code from the registry in `packages/contract`. Never match on an error message string — that was v2's central design mistake (see ADR-0018).
+
+## Definition of done
+
+- `pnpm lint && pnpm test && cargo clippy && cargo test` pass
+- `pnpm codegen && cargo xtask codegen` leave the tree clean
+- docs updated if you touched anything a doc's `applies_to:` globs cover
+- an ADR added for any architecture or dependency decision
+- commit message follows the convention above
 
 ## Prior implementation
 
-v2 is on `main` and is not part of this branch. Consult it for reference without checking it out:
+v2 lives on `main` and is not checked out here. Consult it without switching branches:
 
 ```bash
-git ls-tree -r main --name-only      # v2 file listing
-git show main:docs/ARCHITECTURE.md   # v2 architecture notes
-git show main:CLAUDE.md              # v2 conventions and commands
+git ls-tree -r main --name-only
+git show main:server/src/index.ts     # the v2 Worker — source of the R1–R11 defect list
+git show main:src/tunnel.ts           # the v2 tunnel orchestrator
 ```
 
-v2 was a TypeScript CLI (`src/`, esbuild-bundled), a Cloudflare Worker backend (`server/`), and a static Tailwind site (`website/`), driving the `cloudflared` binary to establish tunnels. Treat those choices as history, not constraints.
-
-## Maintaining this file
-
-Keep it describing what exists on this branch. As the v3 architecture takes shape, document the parts that require reading several files to understand — the component boundaries, the request/lifecycle flow between them, and any convention that isn't evident from a single file.
+Treat v2's choices as history, not constraints. `docs/DECISIONS.md` records what was rejected and why, so you don't need to re-derive it.
