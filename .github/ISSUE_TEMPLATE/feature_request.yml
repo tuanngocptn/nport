@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest something NPort should do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things are settled and will be closed on sight, so it is fairer to say so up
+        front than to let a well-written issue sit: **accounts, auth, or signup of any
+        kind** (invariant 1, ADR-0007), and **shipping or downloading the `cloudflared`
+        binary** (invariant 2, ADR-0002).
+
+        `docs/ROADMAP.md` § Deferred lists what is already known-but-not-scheduled —
+        custom domains, TCP/UDP tunnelling, password-protected tunnels, and others. If
+        yours is there, a comment on the reasoning is more useful than a new issue.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you were trying to do when you wanted this. Not the solution yet.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Workarounds, other tools, or why the existing behaviour does not fit.

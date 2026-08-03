@@ -1,0 +1,66 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+  // Biome is the sole formatter and linter for TS/TSX/JSON/JSONC/CSS (ADR-0013).
+  // It runs once over the whole repo — `pnpm lint` — rather than as a per-package
+  // Turborepo task, because one process over every file is faster than orchestrating
+  // several and needs no per-package config.
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "**",
+      // Generated. Edit the source and run `pnpm codegen` (invariant 6).
+      "!**/generated",
+      "!schema/*.json",
+      "!**/worker-configuration.d.ts",
+      // Vendored shadcn/ui source — upstream formatting is left alone (ADR-0021).
+      "!apps/desktop/src/components/ui"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error"
+      },
+      "style": {
+        // `import type` is explicit — see docs/conventions/typescript.md.
+        "useImportType": "error",
+        "useConst": "error",
+        "noNonNullAssertion": "error"
+      },
+      "suspicious": {
+        // "Never `any`. If a type is genuinely unknown, use `unknown` and narrow it."
+        "noExplicitAny": "error"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "asNeeded",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        // External → internal → types, applied mechanically so it is never reviewed by hand.
+        "organizeImports": "on"
+      }
+    }
+  }
+}

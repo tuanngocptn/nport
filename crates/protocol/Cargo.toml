@@ -1,0 +1,17 @@
+[package]
+name = "nport-protocol"
+version = "3.0.0-dev"
+description = "Cloudflare Tunnel connector wire protocol, implemented natively in Rust."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+# Flipped in Phase 3, when there is something worth publishing (docs/RELEASE.md).
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]

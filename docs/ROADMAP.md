@@ -6,21 +6,23 @@ A gate is a hard stop: every criterion must pass before the next phase starts. G
 
 ## Current position
 
-**Phase 0, in progress.** Documentation and the directory skeleton exist. No code, no configs, no CI.
+**Phase 0 built, gate G0 pending its first CI run.** Documentation, both workspaces, and the toolchain exist. Every crate is a stub; no app has been written.
 
 ## Phase 0 — Docs and skeleton
 
 Documentation set, directory skeleton, then workspace configs and green CI on an essentially empty tree.
 
 - [x] `docs/` set, root and per-app `CLAUDE.md`, directory skeleton
-- [ ] `pnpm-workspace.yaml`, root `package.json`, `turbo.json`, `biome.jsonc`, `packages/tsconfig`
-- [ ] `Cargo.toml` workspace, `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `deny.toml`
-- [ ] `wrangler.jsonc` for both Workers
-- [ ] `.gitignore`, `.editorconfig`, `.nvmrc`, `lefthook.yml`
-- [ ] `ci.yml`, `codegen-drift.yml`
-- [ ] `.github/` issue templates, PR template, CODEOWNERS
+- [x] `pnpm-workspace.yaml`, root `package.json`, `turbo.json`, `biome.jsonc`, `packages/tsconfig`
+- [x] `Cargo.toml` workspace, `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, `deny.toml`
+- [x] `wrangler.jsonc` for both Workers
+- [x] `.gitignore`, `.editorconfig`, `.nvmrc`, `lefthook.yml`
+- [x] `ci.yml`, `codegen-drift.yml`
+- [x] `.github/` issue templates, PR template, CODEOWNERS
 
-**Gate G0.** `pnpm install && pnpm lint && pnpm test && cargo clippy && cargo test` all pass on the skeleton, and CI is green.
+Five crate stubs exist so `cargo` has something to check: `nport` (bin), `nport-core`, `nport-protocol`, `nport-contract`, and `xtask`. `xtask`'s four subcommands are recognized no-ops, which is the honest answer for a tree with nothing generated in it — and it means `codegen-drift.yml` is wired and starts biting for real the moment codegen produces something. Pins and the reasoning behind them are in ADR-0022.
+
+**Gate G0.** `pnpm install && pnpm lint && pnpm test && cargo clippy && cargo test` all pass on the skeleton, and CI is green. The TypeScript half passes locally; the Rust half is unverified until a toolchain runs it — first push, or `rustup` locally.
 
 ## Phase 1 — Protocol spike ⛔ blocks everything
 

@@ -1,0 +1,6 @@
+[toolchain]
+# An exact version, not "stable": a clippy or codegen change landing mid-protocol-spike
+# is noise nobody needs. Bump it deliberately (docs/conventions/rust.md).
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

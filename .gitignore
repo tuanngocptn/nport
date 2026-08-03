@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output — nothing built is ever committed (ADR-0006, R13)
+target/
+dist/
+.next/
+.open-next/
+.turbo/
+out/
+build/
+coverage/
+*.tsbuildinfo
+
+# Cloudflare
+.wrangler/
+.dev.vars
+.dev.vars.*
+worker-configuration.d.ts
+
+# Tauri
+apps/desktop/src-tauri/gen/
+
+# Local environment
+.env
+.env.*
+!.env.example
+.direnv/
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Logs and temporary files
+*.log
+npm-debug.log*
+.pnpm-debug.log*
+*.pending-snap

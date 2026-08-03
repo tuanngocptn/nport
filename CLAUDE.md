@@ -6,7 +6,7 @@ Guidance for Claude Code working in this repository. Read this file first; it te
 
 NPort tunnels HTTP/HTTPS from localhost to a public `*.nport.link` URL over Cloudflare's edge. It is free, MIT-licensed, and **account-free** — no signup, no API keys, `nport 3000 -s myapp` and you have a URL. v3 is a from-scratch rewrite that replaces the bundled `cloudflared` binary with a native Rust implementation of Cloudflare's tunnel connector protocol.
 
-**Status: pre-implementation.** This branch currently contains documentation and an empty directory skeleton. Nothing builds yet. See `docs/ROADMAP.md` for what lands when, and treat every path in the repo map below as a target, not a fact — check before you assume a file exists.
+**Status: Phase 0 done, no product code.** Both workspaces, Biome, Turborepo, the pinned Rust toolchain, CI, and both `wrangler.jsonc` files exist; every crate is a stub and no app has been written. See `docs/ROADMAP.md` for what lands when, and treat every path in the repo map below as a target, not a fact — check before you assume a file exists.
 
 ## The four apps
 
@@ -52,10 +52,10 @@ Dependency direction is one-way: `protocol → core → {cli, desktop}`, and `co
 
 ## Commands
 
-Nothing is wired up yet; these are the intended commands, and Phase 0 makes them real.
+The lint, test, and codegen commands run today against stubs. `dev:*` needs Phase 2.
 
 ```bash
-corepack enable && pnpm install    # bootstrap
+corepack enable && pnpm install    # bootstrap; also installs the git hooks
 pnpm dev:api                       # wrangler dev on apps/api
 pnpm dev:web                       # next dev with Worker bindings
 pnpm dev:desktop                   # tauri dev

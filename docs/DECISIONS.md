@@ -29,6 +29,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0019 | Locale auto-detection; never prompt | Accepted |
 | 0020 | Datagrams out of scope for 3.0 | Accepted |
 | 0021 | shadcn/ui + TanStack Virtual for the desktop frontend | Accepted |
+| 0022 | Phase 0 toolchain: exact pins, lefthook, root-level Biome | Accepted |
 
 ---
 
@@ -312,3 +313,37 @@ The general rule: **the authority for a boundary is whichever side owns the inva
 - WebKitGTK is the oldest of the three engines we ship against, so very recent CSS needs checking on Linux before release. shadcn's output is conservative enough that this rarely bites.
 
 **Rejected.** *Mantine, MUI, Chakra* — each ships a theming system that would have to be made to agree with `packages/design-tokens` instead of simply consuming it, plus a runtime styling cost (ADR-0010). *Svelte 5* — genuinely smaller and faster in a WebView, but a second framework alongside the Next.js site doubles the idiom surface for a solo maintainer, and the desktop app is Phase 4, so it is the code touched least often and remembered worst. *Off-the-shelf JSON viewers* — all bring styling that would be overridden anyway, for a recursive component over a value whose shape we already control.
+
+---
+
+## ADR-0022 — Phase 0 toolchain: exact pins, lefthook, root-level Biome
+
+**Date** 2026-08-03 · **Status** Accepted
+
+**Context.** Earlier ADRs named tools (Biome, Turborepo, pnpm, Tailwind v4) but not versions, and Phase 0 has to choose several things no ADR covers. Left unrecorded, the next contributor re-derives them or drifts.
+
+**Decision.** Versions are pinned exactly, not by range:
+
+| | Version | Where |
+| --- | --- | --- |
+| pnpm | `10.34.5` | `packageManager`, via Corepack |
+| Node | `24` for dev and CI | `.nvmrc`; `engines` floor is `>=22.12.0` |
+| Rust | `1.97.1` exact, MSRV `1.85` | `rust-toolchain.toml` |
+| TypeScript | `7.0.2` | `pnpm-workspace.yaml` catalog |
+| Biome | `2.5.6` | root `devDependencies` |
+| Turborepo | `2.10.8` | root `devDependencies` |
+| Vitest | `4.1.10` | catalog; matches `@cloudflare/vitest-pool-workers` 0.20's peer range |
+| lefthook | `2.1.10` | root `devDependencies` |
+
+Plus six calls worth writing down:
+
+- **`engines.node` is `>=22.12.0`, not `>=24`.** 24 is what `.nvmrc` and CI use; the floor is the oldest version that actually works, so a contributor on the previous LTS is not blocked by a number rather than a real incompatibility.
+- **`pnpm lint` is one root-level Biome pass, not a Turborepo task.** One process over every file beats orchestrating several and needs no per-package config, so Turbo owns four tasks — `build`, `typecheck`, `test`, `codegen`.
+- **pnpm `catalog:` is the JS analogue of `[workspace.dependencies]`.** Same rule in both languages: a version is declared once at the root.
+- **`minimumReleaseAge: 1440`.** No dependency is installed within a day of publication. A compromised release is usually yanked within hours, and nothing here needs a package the day it ships.
+- **lefthook, and it enforces the commit format.** One Go binary, no Node startup per hook, and it runs Biome and `cargo fmt` jobs in parallel from one config. A `commit-msg` job checks `type(scope): description` because `git-cliff` builds `CHANGELOG.md` from those subjects, so the format is load-bearing rather than a style preference. The `cargo fmt` job is guarded on `cargo` existing, so a docs- or web-only contributor needs no Rust toolchain to commit.
+- **`crates/core` denies `clippy::print_stdout`, `print_stderr`, and `exit` in its crate root.** Invariant 5 was previously a rule someone had to remember; now the build enforces it.
+
+**Consequences.** Every crate carries `publish = false` until Phase 3, so an empty stub cannot reach crates.io by accident. The rustls crypto provider is deliberately *not* pinned — offering `X25519MLKEM768` needs aws-lc-rs but the two musl release targets are where that linkage breaks, so Phase 1 decides it with evidence (`docs/PROTOCOL.md` §5, risk P3). TypeScript 7 is the current release and nothing consumes it yet; if Next.js or OpenNext disagree in Phase 2c, that is a catalog edit, not a decision to revisit.
+
+**Rejected.** *Version ranges* — a caret range means CI and a contributor's machine can run different linters, and "works on mine" is the failure this repo can least afford. *husky* — a Node process per hook, and its config is shell scripts in a directory rather than one file. *Per-package Biome configs* — nothing to configure differently, and four more files to keep in sync.

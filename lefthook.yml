@@ -1,0 +1,33 @@
+# Git hooks. Installed by the root `prepare` script, so `pnpm install` is enough.
+# Formatting and fast checks only — the full suite runs in CI (docs/CONTRIBUTING.md).
+# Do not bypass with `--no-verify` unless you are fixing the hook itself.
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}"
+      run: pnpm exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+
+    - name: rustfmt
+      glob: "*.rs"
+      # Guarded so a docs- or web-only contributor does not need a Rust toolchain to commit.
+      run: sh -c 'command -v cargo >/dev/null 2>&1 || { echo "cargo not found — skipping rustfmt"; exit 0; }; cargo fmt --all -- --check'
+
+commit-msg:
+  jobs:
+    - name: conventional commit
+      # git-cliff builds CHANGELOG.md from these subjects, so the format is load-bearing.
+      run: |
+        subject=$(head -1 "{1}")
+        case "$subject" in
+          Merge*|Revert*|fixup!*|squash!*) exit 0 ;;
+        esac
+        if ! printf '%s' "$subject" | grep -Eq '^(feat|fix|docs|refactor|test|chore)(\((api|web|desktop|cli|core|protocol|contract|ci|docs)\))?!?: .+$'; then
+          echo "Commit subject must be: type(scope): description"
+          echo "  types:  feat fix docs refactor test chore"
+          echo "  scopes: api web desktop cli core protocol contract ci docs"
+          echo "  got:    $subject"
+          exit 1
+        fi

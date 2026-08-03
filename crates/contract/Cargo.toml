@@ -1,0 +1,16 @@
+[package]
+name = "nport-contract"
+version = "3.0.0-dev"
+description = "GENERATED Rust mirror of the NPort control-plane API contract."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]

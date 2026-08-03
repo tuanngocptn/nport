@@ -1,0 +1,19 @@
+[package]
+name = "nport-core"
+version = "3.0.0-dev"
+description = "Headless NPort tunnel lifecycle: provision, connect, proxy, teardown."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+# Flipped in Phase 3, when there is something worth publishing (docs/RELEASE.md).
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# Layering is one-directional: protocol → core → { cli, desktop }, contract → core.
+# A `nport` (cli) entry here is the architectural regression to watch for.

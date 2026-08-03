@@ -1,0 +1,7 @@
+msrv = "1.85"
+
+# `unwrap()` and `expect()` are banned in library code but free in tests
+# (docs/conventions/rust.md), so the lints stay usable when a crate opts into them.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

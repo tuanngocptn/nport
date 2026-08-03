@@ -1,0 +1,94 @@
+name: Bug report
+description: Something does not work.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The fields below are the ones that actually shorten a diagnosis. `requestId` and
+        the error code identify the exact failure in the logs; `--transport http2`
+        distinguishes a network that blocks UDP from a real bug in one step.
+
+  - type: input
+    id: version
+    attributes:
+      label: nport --version
+      placeholder: "3.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (x86_64)
+        - Linux (aarch64)
+        - Windows (x86_64)
+        - Windows (aarch64)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - CLI
+        - Desktop app
+        - API (api.nport.link)
+        - Website (nport.link)
+    validations:
+      required: true
+
+  - type: input
+    id: error_code
+    attributes:
+      label: Error code
+      description: The `code` from the error, e.g. `SUBDOMAIN_IN_USE`. Not the message text.
+      placeholder: EDGE_REGISTRATION_REFUSED
+
+  - type: input
+    id: request_id
+    attributes:
+      label: requestId
+      description: Present in every API error. It is how the failure is found in the logs.
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, what you got.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: http2
+    attributes:
+      label: Does `--transport http2` change anything?
+      description: >-
+        This one answer separates a UDP-blocking network from a protocol bug. If you did
+        not try it, please do before filing.
+      options:
+        - "Not applicable"
+        - "http2 works, default does not"
+        - "Both fail the same way"
+        - "Did not try"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: Run with `--verbose`. **Redact nothing except tokens** — we need the rest.
+      render: shell
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have not pasted a tunnel token or an ownerToken into this issue.
+          required: true

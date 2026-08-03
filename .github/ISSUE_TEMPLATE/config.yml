@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/tuanngocptn/nport/security/policy
+    about: Do not open a public issue. Report privately — see SECURITY.md.
+  - name: Question or idea
+    url: https://github.com/tuanngocptn/nport/discussions
+    about: Usage questions and open-ended ideas belong in Discussions.
+  - name: Error code reference
+    url: https://nport.link/errors
+    about: Every error the CLI prints has a page explaining it. Start there.

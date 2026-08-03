@@ -8,16 +8,18 @@ Thanks for helping. NPort is MIT-licensed and maintained by [Nick Pham](https://
 
 | Tool | Version | Why |
 | --- | --- | --- |
-| Node | 24 | dev only; the published CLI needs no Node |
-| pnpm | 10.x via Corepack | workspace manager |
+| Node | 24 (`.nvmrc`); 22.12+ works | dev only; the published CLI needs no Node |
+| pnpm | pinned in `packageManager`, via Corepack | workspace manager |
 | Rust | pinned in `rust-toolchain.toml` | CLI, connector, desktop backend |
 | wrangler | via pnpm | Workers dev and deploy |
 | Tauri prerequisites | per [tauri.app](https://tauri.app/start/prerequisites/) | only for `apps/desktop` |
 
 ```bash
 corepack enable
-pnpm install          # also installs the pinned Rust toolchain via rustup
+pnpm install          # JS dependencies and the git hooks
 ```
+
+Rust comes separately: install [rustup](https://rustup.rs), and the first `cargo` command in this repo installs the exact pinned toolchain for you. Version pins and why they are exact: ADR-0022.
 
 You do **not** need a Cloudflare account to work on most of the repo. You do for `apps/api` deploys and for live-edge protocol tests.
 
@@ -34,7 +36,7 @@ cargo run -p nport -- 3000 -s test --backend http://localhost:8787   # against l
 Before pushing:
 
 ```bash
-pnpm lint && pnpm test && cargo clippy && cargo test
+pnpm lint && pnpm typecheck && pnpm test && cargo clippy && cargo test
 pnpm codegen && cargo xtask codegen   # must leave the tree clean
 ```
 
@@ -90,7 +92,7 @@ Checklist:
 - [ ] no `@generated` file hand-edited
 - [ ] no secret, token, or raw IP in code, tests, or logs
 
-CI runs Biome, `tsc`, Vitest, `cargo fmt --check`, `clippy -D warnings`, `cargo test`, `cargo deny`, and the codegen drift gate. Rust builds on Linux for PRs and on macOS and Windows too for pushes to `main`.
+CI runs Biome, `tsc`, Vitest, `cargo fmt --check`, `clippy -D warnings`, `cargo test`, `cargo deny`, and the codegen drift gate. Rust builds on Linux for pull requests, and on macOS and Windows too for pushes to a long-lived branch.
 
 ## Contributing to `crates/protocol`
 

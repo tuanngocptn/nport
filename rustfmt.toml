@@ -1,0 +1,8 @@
+edition = "2024"
+max_width = 100
+newline_style = "Unix"
+use_field_init_shorthand = true
+use_try_shorthand = true
+
+# `group_imports` and `imports_granularity` would be useful here but are nightly-only,
+# and the toolchain is pinned to stable. Import order is reviewed by hand in Rust.

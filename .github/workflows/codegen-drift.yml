@@ -1,0 +1,50 @@
+name: Codegen drift
+
+# The single mechanism keeping three languages honest: regenerate everything, then fail
+# if the tree changed. Without this, `packages/contract`, `schema/`, `crates/contract`,
+# the Tauri bindings, and docs/ERRORS.md drift apart silently (ADR-0009, invariant 6).
+
+on:
+  pull_request:
+  push:
+    branches: [main, v3-new-architech]
+
+concurrency:
+  group: codegen-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+
+jobs:
+  drift:
+    name: Regenerate and diff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+
+      - run: pnpm codegen
+      - run: cargo xtask codegen
+
+      - name: Fail if generated files are out of date
+        run: |
+          changed=$(git status --porcelain)
+          if [ -n "$changed" ]; then
+            echo "::error::Generated files are out of date. Run 'pnpm codegen && cargo xtask codegen' and commit the result."
+            echo "$changed"
+            git --no-pager diff
+            exit 1
+          fi
+          echo "Tree is clean."

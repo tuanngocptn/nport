@@ -1,0 +1,49 @@
+{
+  // The control plane at api.nport.link (apps/api/CLAUDE.md).
+  // The repo is the source of truth for both custom domains — not the dashboard
+  // (docs/OPERATIONS.md § Inventory).
+  //
+  // No secret belongs in this file. CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID, CF_DOMAIN,
+  // POW_SECRET, and IP_HASH_SECRET are set with `wrangler secret put` and never pass
+  // through CI (docs/OPERATIONS.md § Secrets).
+  "name": "nport-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "api.nport.link", "custom_domain": true }],
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "SUBDOMAIN_LEASE", "class_name": "SubdomainLease" },
+      { "name": "REGISTRY", "class_name": "Registry" }
+    ]
+  },
+
+  // SQLite-backed, so free-plan eligible (ADR-0011). Migrations are forward-only:
+  // `wrangler rollback` reverts code, not schema (docs/RELEASE.md).
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SubdomainLease", "Registry"]
+    }
+  ],
+
+  // Reconciliation only — orphan tunnels and DNS records with no lease. Expiry is
+  // driven by each lease's own DO alarm (docs/ARCHITECTURE.md §3e, §3f).
+  "triggers": { "crons": ["*/5 * * * *"] },
+
+  // Limits live here so they are reviewable, and are surfaced by GET /v1/meta so
+  // clients discover them instead of hardcoding them (apps/api/CLAUDE.md).
+  "vars": {
+    "LEASE_TTL_SECONDS": 14400,
+    "HEARTBEAT_GRACE_SECONDS": 120,
+    "MAX_ACTIVE_TUNNELS": 1000,
+    "MIN_CLIENT_VERSION": "3.0.0",
+    // Floor only. The DO raises difficulty dynamically under load, because a var
+    // change needs a deploy (docs/OPERATIONS.md § Mass abuse).
+    "POW_DIFFICULTY_BITS": 20
+  }
+
+  // The Workers rate-limit binding lands in Phase 2a with the middleware that uses it,
+  // so its shape can be verified against the pinned wrangler version rather than guessed.
+}

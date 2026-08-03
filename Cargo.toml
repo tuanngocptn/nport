@@ -1,0 +1,70 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/cli",
+  "crates/contract",
+  "crates/core",
+  "crates/protocol",
+  "crates/xtask",
+  # "apps/desktop/src-tauri" joins in Phase 4 (apps/desktop/CLAUDE.md rule 1).
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/tuanngocptn/nport"
+homepage = "https://nport.link"
+authors = ["Nick Pham <tuanngocptn@gmail.com>"]
+
+# A crate that forgets `#![forbid(unsafe_code)]` is still covered, as long as it
+# inherits with `[lints] workspace = true` (docs/conventions/rust.md).
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+# Declared once here, referenced as `{ workspace = true }`. Adding a dependency to a
+# crate without adding it here first will drift versions (docs/conventions/rust.md).
+# Every entry below is a crate the design already commits to; nothing speculative.
+[workspace.dependencies]
+anyhow = "1.0"
+base64 = "0.23"
+capnp = "0.27"
+capnp-rpc = "0.27"
+capnpc = "0.27"
+clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
+h2 = "0.4"
+# DoT feature selection depends on the crypto provider chosen below — Phase 1.
+hickory-resolver = "0.26"
+insta = "1.48"
+proptest = "1.11"
+quinn = "0.11"
+# Crypto provider (ring vs aws-lc-rs) is deliberately unset: offering X25519MLKEM768
+# needs aws-lc-rs, but the two musl release targets are where that linkage breaks.
+# Decide it in the Phase 1 spike — docs/PROTOCOL.md §5, risk P3, and docs/RELEASE.md.
+rustls = "0.23"
+rustls-platform-verifier = "0.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.53", features = [
+  "rt-multi-thread",
+  "net",
+  "io-util",
+  "macros",
+  "signal",
+  "time",
+] }
+uuid = { version = "1.24", features = ["v4", "serde"] }
+zeroize = { version = "1.9", features = ["derive"] }
+
+# Internal crates, by path.
+nport-contract = { path = "crates/contract" }
+nport-core = { path = "crates/core" }
+nport-protocol = { path = "crates/protocol" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+# `panic` is left at "unwind" on purpose: apps/desktop links crates/core in-process,
+# and a panic that aborts takes the whole GUI down with no dialog (crates/CLAUDE.md).

@@ -1,0 +1,22 @@
+[package]
+name = "nport"
+# The version users mean by "NPort version". npm `nport`, the eight `@nport/cli-*`
+# packages, and the crates.io `nport` crate all carry this number (docs/RELEASE.md).
+version = "3.0.0-dev"
+description = "Expose localhost to a public *.nport.link URL. Free, no account needed."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["tunnel", "localhost", "ngrok", "cloudflare", "https"]
+categories = ["command-line-utilities", "network-programming", "web-programming"]
+# Flipped in Phase 3, when there is something worth publishing (docs/RELEASE.md).
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]

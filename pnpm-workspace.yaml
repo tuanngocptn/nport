@@ -1,0 +1,23 @@
+packages:
+  - apps/*
+  - packages/*
+
+# pnpm 10 blocks lifecycle scripts by default. That is the behaviour we want — v2's
+# install pain was entirely postinstall pain (ADR-0012) — so every exception is listed
+# here explicitly and has to be justified in review.
+onlyBuiltDependencies:
+  - "@biomejs/biome"
+  - esbuild
+  - lefthook
+  - workerd
+
+# Refuse versions published less than 24 h ago. A compromised release is usually yanked
+# within hours, and nothing in this repo needs a package the day it ships.
+minimumReleaseAge: 1440
+
+# The JS analogue of Cargo's [workspace.dependencies]: versions are declared once here
+# and referenced as `catalog:` from a package's dependencies. Add an entry as soon as a
+# second package needs the dependency.
+catalog:
+  typescript: 7.0.2
+  vitest: 4.1.10

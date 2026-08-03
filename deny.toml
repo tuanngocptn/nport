@@ -1,0 +1,42 @@
+# cargo-deny: licence allowlist, RUSTSEC advisories, and source restrictions.
+# Run with `cargo deny check`; CI runs it on every PR.
+
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+# Every entry here needs a comment saying why it is tolerated and when it expires.
+ignore = []
+
+[licenses]
+# Permissive only. A copyleft or source-available dependency in a statically linked
+# MIT binary is a decision, not an accident — it needs an ADR, not an entry here.
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "Unicode-3.0",
+  "Zlib",
+]
+confidence-threshold = 0.93
+# The TLS stack is the known exception: `ring` and `aws-lc-rs` carry compound licences
+# that need a [[licenses.clarify]] block. Add it when Phase 1 picks the provider
+# (see the rustls comment in Cargo.toml).
+exceptions = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

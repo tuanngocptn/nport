@@ -1,0 +1,21 @@
+# Everything, by default.
+* @tuanngocptn
+
+# The protocol is the highest-blast-radius surface in the repo: an incorrect wire change
+# breaks every installed client at once and users cannot fix it themselves. Reviews here
+# are deliberately slower (crates/protocol/CLAUDE.md).
+/docs/PROTOCOL.md @tuanngocptn
+/crates/protocol/ @tuanngocptn
+
+# The API contract generates outward into three consumers (ADR-0009).
+/packages/contract/ @tuanngocptn
+/schema/ @tuanngocptn
+
+# Invariants and settled decisions.
+/CLAUDE.md @tuanngocptn
+/docs/DECISIONS.md @tuanngocptn
+
+# Supply chain and release machinery.
+/.github/workflows/ @tuanngocptn
+/deny.toml @tuanngocptn
+/pnpm-workspace.yaml @tuanngocptn
