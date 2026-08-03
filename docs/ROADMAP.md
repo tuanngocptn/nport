@@ -6,7 +6,9 @@ A gate is a hard stop: every criterion must pass before the next phase starts. G
 
 ## Current position
 
-**Phase 0 built, gate G0 pending its first CI run.** Documentation, both workspaces, and the toolchain exist. Every crate is a stub; no app has been written.
+**Phase 1 in progress — sub-steps 1–4 of 7 done.** Gate G0 is closed locally: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `cargo fmt --check`, `clippy -D warnings`, and `cargo test` all pass. CI has not run yet — nothing is pushed.
+
+`crates/protocol` parses tokens, discovers the edge, completes a QUIC handshake, and **registers a connection** with the live edge. Everything else is still a stub. Two and a half of the six open questions in `docs/PROTOCOL.md` §17 are answered, and risks P1, P2, and P3 are closed — the three that made step 4 the expected time sink.
 
 ## Phase 0 — Docs and skeleton
 
@@ -35,12 +37,12 @@ Ordered sub-steps, each independently verifiable:
 1. ~~Parse a tunnel token; assert the redaction and zeroize behaviour~~ — **done**, `crates/protocol/src/token.rs`
 2. ~~Edge discovery — start with the direct A/AAAA shortcut (`docs/PROTOCOL.md` §4), add SRV after~~ — **done**, `crates/protocol/src/edge.rs`; both paths verified against the live edge on 2026-08-03. DoT fallback still outstanding (needs a hickory TLS feature)
 3. ~~QUIC handshake: ALPN `argotunnel`, SNI `quic.cftunnel.com`, keep-alive 1 s~~ — **done**, `crates/protocol/src/quic.rs`; verified live 2026-08-03. Two spec corrections came out of it: the edge presents a Cloudflare Origin CA certificate, and `MaxIncomingStreams` must not be copied literally into quinn (`docs/PROTOCOL.md` §5)
-4. Cap'n Proto `registerConnection` over the control stream — **no preamble** (§6, trap 1)
+4. ~~Cap'n Proto `registerConnection` over the control stream — **no preamble** (§6, trap 1)~~ — **done**, `crates/protocol/src/rpc.rs`; registered against the live edge on 2026-08-03, colo `hkg09`. Risk P1 closed and the §8 interfaceId correction confirmed empirically
 5. `ConnectRequest` framing; answer one HTTP GET end-to-end
 6. WebSocket upgrade and bidirectional pipe
 7. Four-connection pool with staggered start, per-index edge rotation, reconnect
 
-Expect step 4 to be where time goes: it combines capnp-RPC interop with `zombiezen/go-capnproto2` (P1) and the no-preamble trap. Attack it with a packet capture and cloudflared running side by side. The `interfaceId` question that used to sit here was resolved from source on 2026-08-03 (`docs/PROTOCOL.md` §8) — one fewer variable.
+Step 4 was expected to be the time sink — capnp-RPC interop (P1) plus the no-preamble trap — and it registered first try, because both variables had been removed beforehand: the `interfaceId` from source (§8) and the interop by using `capnp-rpc`'s two-party vat rather than hand-encoding. No packet capture was needed.
 
 **Gate G1 — go/no-go. All five required.**
 

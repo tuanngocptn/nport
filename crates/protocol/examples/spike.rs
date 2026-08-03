@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use nport_protocol::edge;
 use nport_protocol::quic::{self, KeyExchange};
+use nport_protocol::rpc;
 use nport_protocol::token::Endpoint;
 
 /// Every step is bounded, so a hang shows up as a labelled timeout rather than a wedged
@@ -130,5 +131,49 @@ async fn main() {
         }
     }
 
-    println!("\nsteps 1–3 exercised. Registration (step 4) needs a tunnel token.");
+    // ── Step 4: registration RPC over the control stream ─────────────────────────
+    // Needs a real token. Read from the environment, never from a file and never from
+    // argv — `ps` exposes argv to every local user, which is exactly what v2 got wrong.
+    let Ok(raw_token) = std::env::var("NPORT_TUNNEL_TOKEN") else {
+        println!("\nsteps 1–3 exercised. Set NPORT_TUNNEL_TOKEN to run step 4.");
+        return;
+    };
+
+    let token = match nport_protocol::token::TunnelToken::parse(&raw_token) {
+        Ok(token) => token,
+        Err(error) => {
+            println!("\n✗ token did not parse: {error}");
+            return;
+        }
+    };
+    println!(
+        "\ntoken parsed — tunnel {}, secret redacted",
+        token.tunnel_id()
+    );
+
+    let Some(established) = step!(
+        "QUIC handshake for registration",
+        quic::connect(peer, KeyExchange::PostQuantumPreferred)
+    ) else {
+        return;
+    };
+
+    // The connector ID: a per-process random v4 UUID, distinct from the tunnel ID.
+    let client_id = uuid::Uuid::new_v4();
+    let version = concat!("nport/", env!("CARGO_PKG_VERSION"));
+
+    if let Some(details) = step!(
+        "registerConnection (control stream, no preamble)",
+        rpc::register_connection(&established.connection, &token, 0, client_id, version)
+    ) {
+        println!("    colo:                     {}", details.location_name);
+        println!("    connection uuid:          {} bytes", details.uuid.len());
+        println!(
+            "    remotely managed:         {} (expected true — config_src cloudflare)",
+            details.tunnel_is_remotely_managed
+        );
+        println!("\n✓ step 4 done. The tunnel should now show a healthy connection.");
+    }
+
+    established.connection.close(0u32.into(), b"spike");
 }

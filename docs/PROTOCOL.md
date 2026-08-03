@@ -16,8 +16,8 @@ Specification for `crates/protocol`. NPort speaks this protocol directly instead
 | **Pinned commit** | `3a2b45c2a511fcdd81b68c190938e4ffadbea5dc` (2026-07-22) |
 | Corresponding release | `2026.7.3` |
 | Upstream licence | Apache-2.0 — permits reimplementation and copying the `.capnp` schema, with attribution and NOTICE |
-| Last verified against the live edge | **2026-08-03.** Discovery (§4) plus a completed QUIC handshake with ALPN `argotunnel` negotiated (§5), both key-exchange configurations. Registration not yet attempted |
-| Implementation status | Phase 1 in progress: token parsing, edge discovery, and the QUIC handshake done. Registration RPC next |
+| Last verified against the live edge | **2026-08-03.** Discovery (§4), QUIC handshake with ALPN `argotunnel` (§5), and a **successful `registerConnection`** returning colo `hkg09` (§8). Proxying not yet attempted |
+| Implementation status | Phase 1 in progress: token parsing, edge discovery, QUIC handshake, and registration RPC done. Per-stream framing (§7, §11) next |
 
 Every constant below cites the Go file and symbol it was read from. **When you need a value that is not in this document, read it from the pinned commit and add it here with a citation — never guess, and never copy a number from a blog post.** Re-pin deliberately: bump the SHA, re-read the cited symbols, update this file, and record the bump in `docs/DECISIONS.md`.
 
@@ -381,7 +381,7 @@ Vendor the upstream `.capnp` files into `crates/protocol/schema/` unmodified and
 
 **The wire carries `interfaceId = 0xf71695ec7fe85497` (`RegistrationServer`), method `0`.** Method IDs: `registerConnection` 0, `unregisterConnection` 1, `updateLocalConfiguration` 2. A schema-driven Rust client emits this by default, so there is nothing to work around.
 
-> Verified 2026-08-03 from `tunnelrpc/proto/tunnelrpc.capnp.go` at the pinned commit: both `TunnelServer.RegisterConnection` and `RegistrationServer.RegisterConnection` build `capnp.Method{InterfaceID: 0xf71695ec7fe85497, MethodID: 0}`.
+> Verified 2026-08-03 from `tunnelrpc/proto/tunnelrpc.capnp.go` at the pinned commit: both `TunnelServer.RegisterConnection` and `RegistrationServer.RegisterConnection` build `capnp.Method{InterfaceID: 0xf71695ec7fe85497, MethodID: 0}`. **Confirmed live the same day** — a `capnp-rpc` client emitting this ID registered successfully against the edge.
 
 This entry previously said the opposite, and the reasoning is worth keeping because it is an easy trap to fall into twice. cloudflared does wrap the capability before calling:
 
@@ -598,7 +598,7 @@ Golden byte fixtures live in `crates/protocol/tests/fixtures/` and are the regre
 
 | # | Risk | Mitigation |
 | --- | --- | --- |
-| P1 | `capnp-rpc` ↔ `zombiezen/go-capnproto2` interop is unexercised by anyone | Both implement standard `rpc.capnp` Level 1. Escape hatch: the surface is one bootstrap + 3 methods, so hand-encoding `bootstrap`/`call`/`return`/`finish` is tractable |
+| ~~P1~~ | `capnp-rpc` ↔ `zombiezen/go-capnproto2` interop — **resolved 2026-08-03: it works.** A Rust `capnp-rpc` two-party client bootstrapped and called `registerConnection` against the live edge with no hand-encoding, first attempt | none needed. The hand-encoding escape hatch stays documented in case a future capnp-rpc release regresses |
 | ~~P2~~ | `interfaceId` ambiguity (§8) — **resolved from source, 2026-08-03.** The wire ID is `0xf71695ec7fe85497` and a schema-driven client emits it by default | none needed; §8 records the trap so it is not re-introduced |
 | ~~P3~~ | Post-quantum key exchange may be required — **resolved 2026-08-03: it is not.** Both classical-only and PQ-preferred handshakes succeed | none needed |
 | P4 | Version byte `"01"` is a deliberate silent-change hook — upstream comments it as a no-op branch point | `protocol-canary.yml` detects a bump within 6 h |
@@ -612,7 +612,7 @@ Golden byte fixtures live in `crates/protocol/tests/fixtures/` and are the regre
 Not answered by the source reads so far. The Phase 1 spike must answer the rest; record answers here with the date. Q1 turned out to be answerable from source after all, which is a useful reminder that "unresolvable" sometimes means "not yet read carefully enough".
 
 1. ~~Does the edge dispatch `registerConnection` on `0xea58385c65416035` (`TunnelServer`) or `0xf71695ec7fe85497` (`RegistrationServer`)?~~ — **answered 2026-08-03 from the generated Go: `0xf71695ec7fe85497`.** Never an edge-behaviour question; it was a misreading of the Go wrapper (§8).
-2. Is a minimum `ClientInfo.version` enforced? Are unknown feature strings rejected? — **unanswered**
+2. **Partly answered 2026-08-03.** No minimum `ClientInfo.version` is enforced: registration succeeded sending `nport/3.0.0-dev`, which does not resemble cloudflared's `YYYY.M.P`. Whether *unknown feature strings* are rejected is still open — only the five defaults have been sent.
 3. ~~Does the edge accept a classical-only key exchange (no PQ group)?~~ — **answered 2026-08-03: yes.** `secp256r1` alone completes the handshake.
 4. What is the full set of `ConnectionError.cause` values? Only `EDUPCONN` and substring `Unauthorized` are handled upstream. — **unanswered**
 5. Are there per-account connection-count or registration rate limits? — **unanswered**

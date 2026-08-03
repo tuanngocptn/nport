@@ -17,6 +17,8 @@ workspace = true
 [dependencies]
 base64 = { workspace = true }
 capnp = { workspace = true }
+capnp-rpc = { workspace = true }
+futures = { workspace = true }
 hickory-resolver = { workspace = true }
 quinn = { workspace = true }
 rustls = { workspace = true }
@@ -26,6 +28,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 uuid = { workspace = true }
 zeroize = { workspace = true }
 

@@ -32,6 +32,7 @@ capnp = "0.27"
 capnp-rpc = "0.27"
 capnpc = "0.27"
 clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
+futures = "0.3"
 h2 = "0.4"
 # DoT feature selection depends on the crypto provider chosen below — Phase 1.
 hickory-resolver = "0.26"
@@ -65,6 +66,7 @@ tokio = { version = "1.53", features = [
   "signal",
   "time",
 ] }
+tokio-util = { version = "0.7", features = ["compat"] }
 uuid = { version = "1.24", features = ["v4", "serde"] }
 zeroize = { version = "1.9", features = ["derive"] }
 
