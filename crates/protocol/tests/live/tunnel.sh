@@ -2,6 +2,10 @@
 # Expose a local port through a real *.nport.link URL using the Phase 1 spike.
 #
 #   ./crates/protocol/tests/live/tunnel.sh 3008 [subdomain] [seconds]
+#   ./crates/protocol/tests/live/tunnel.sh builtin ws-spike 180
+#
+# `builtin` skips the port probe and uses the spike's own origin: a fixed body over HTTP and
+# an echo over WebSocket. That is what the `ws_client` example needs — G1 criterion 3.
 #
 # Provisions a tunnel through the **live v2 API**, runs the spike against it, and deletes
 # the tunnel on exit. This is a manual live-edge driver, not a test — `cargo test` never
@@ -17,7 +21,7 @@
 #   * Cleanup runs from a trap, so Ctrl+C still deletes the tunnel. A leaked lease holds
 #     the subdomain until v2's 4-hour expiry.
 #
-# HTTP only for now. WebSocket is spike sub-step 6 (docs/ROADMAP.md).
+# HTTP and WebSocket. TCP is out of scope for 3.0 (ADR-0020).
 
 set -uo pipefail
 
@@ -27,7 +31,7 @@ SECONDS_TO_SERVE="${3:-300}"
 API="${NPORT_BACKEND:-https://api.nport.link}"
 
 if [ -z "$PORT" ]; then
-  echo "usage: $0 <local-port> [subdomain] [seconds]" >&2
+  echo "usage: $0 <local-port|builtin> [subdomain] [seconds]" >&2
   exit 64
 fi
 
@@ -40,11 +44,15 @@ cd "$ROOT" || exit 69
 export PATH="$HOME/.cargo/bin:$PATH"
 
 # Fail before provisioning anything if the local port is dead.
-if ! nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
-  echo "nothing is listening on 127.0.0.1:$PORT — start your server first" >&2
-  exit 69
+if [ "$PORT" = "builtin" ]; then
+  echo "using the spike's built-in origin (http fixed body + websocket echo)"
+else
+  if ! nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
+    echo "nothing is listening on 127.0.0.1:$PORT — start your server first" >&2
+    exit 69
+  fi
+  echo "local server on :$PORT is up"
 fi
-echo "local server on :$PORT is up"
 
 echo "building the spike…"
 cargo build --quiet -p nport-protocol --example spike || exit 70
@@ -84,11 +92,21 @@ for _ in $(seq 1 60); do
 done
 echo
 [ -n "$EDGE_IP" ] || { echo "the record never resolved" >&2; exit 70; }
+if [ "$PORT" = "builtin" ]; then
+  TARGET="the spike's built-in origin"
+else
+  TARGET="127.0.0.1:$PORT"
+fi
 cat <<INFO
 
-  https://$SUBDOMAIN.nport.link  →  127.0.0.1:$PORT
+  https://$SUBDOMAIN.nport.link  →  $TARGET
 
   Serving for ${SECONDS_TO_SERVE}s. Ctrl+C to stop early.
+
+  WebSocket echo check, in another terminal (G1 criterion 3):
+    cargo run -p nport-protocol --example ws_client -- wss://$SUBDOMAIN.nport.link/
+    NPORT_WS_RESOLVE=$EDGE_IP cargo run -p nport-protocol --example ws_client -- \\
+      wss://$SUBDOMAIN.nport.link/            # if your resolver cached the NXDOMAIN
 
   The first request or two may return 530 (Cloudflare error 1033) while the edge
   starts routing to the new connection — retry, it clears in a second or two.
@@ -99,7 +117,14 @@ cat <<INFO
 
 INFO
 
-NPORT_TUNNEL_TOKEN=$(printf '%s' "$RESPONSE" | jq -r '.tunnelToken') \
-  NPORT_SPIKE_ORIGIN="$PORT" \
-  NPORT_SPIKE_SERVE_SECS="$SECONDS_TO_SERVE" \
-  ./target/debug/examples/spike
+if [ "$PORT" = "builtin" ]; then
+  # Leaving NPORT_SPIKE_ORIGIN unset is what selects the built-in origin.
+  NPORT_TUNNEL_TOKEN=$(printf '%s' "$RESPONSE" | jq -r '.tunnelToken') \
+    NPORT_SPIKE_SERVE_SECS="$SECONDS_TO_SERVE" \
+    ./target/debug/examples/spike
+else
+  NPORT_TUNNEL_TOKEN=$(printf '%s' "$RESPONSE" | jq -r '.tunnelToken') \
+    NPORT_SPIKE_ORIGIN="$PORT" \
+    NPORT_SPIKE_SERVE_SECS="$SECONDS_TO_SERVE" \
+    ./target/debug/examples/spike
+fi

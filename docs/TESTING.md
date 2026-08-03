@@ -119,6 +119,21 @@ NPORT_TEST_BACKEND=https://api.nport.link cargo test -p nport-protocol -- --igno
 
 They create real tunnels under `smoke-*` and **must clean up in a `Drop` guard**, not at the end of the happy path — a panic mid-test otherwise leaks a lease until expiry. The `smoke-*` prefix is reserved (`docs/ARCHITECTURE.md` §7) so reconciliation can identify them.
 
+### Manual live drivers — Phase 1 only
+
+Two throwaway harnesses under `crates/protocol/tests/live/` and `examples/`, driven by hand because they need a tunnel and a person watching. Neither is a test: `cargo test` never runs them, and both disappear when `crates/core` takes over the connection lifecycle.
+
+```bash
+./crates/protocol/tests/live/tunnel.sh builtin ws-spike 180   # provision, serve, delete on exit
+cargo run -p nport-protocol --example ws_client -- wss://ws-spike.nport.link/
+```
+
+`tunnel.sh` provisions through the live v2 API, runs the spike, and deletes the tunnel from a `trap` so Ctrl+C still cleans up. Pass a port instead of `builtin` to expose a real local server; `builtin` uses the spike's own origin, which serves a fixed body over HTTP and echoes over WebSocket.
+
+`ws_client` is what closes G1 criterion 3: it alternates text and binary messages, asserts each comes back byte-identical, and finishes with one 64 KiB frame — small frames can round-trip perfectly through a pipe that truncates at a read-buffer boundary. `NPORT_WS_RESOLVE=<edge-ip>` bypasses a resolver that negative-cached the record's NXDOMAIN, which macOS does aggressively for a name created seconds ago.
+
+**The token reaches these only through the environment.** Never argv — `ps` shows argv to every local user, which is the v2 defect this rewrite exists to remove.
+
 ## Smoke tests
 
 `smoke.yml`, nightly and on every release, across six runners. Installs the published artifact — not a local build — creates `smoke-<os>-<runid>.nport.link`, asserts a **byte-exact** response through the tunnel, exercises a WebSocket echo, then shuts down gracefully and verifies the lease is gone.

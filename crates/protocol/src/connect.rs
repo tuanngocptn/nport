@@ -60,6 +60,55 @@ pub const FLOW_ID: &str = "FlowID";
 /// cloudflared: `tunnelrpc/pogs/quic_metadata_protocol.go` → `ErrorFlowConnectRateLimitedMetadata`.
 pub const FLOW_RATE_LIMITED: &str = "FlowConnectRateLimited";
 
+/// Headers that describe a single hop and must not be relayed — in either direction.
+///
+/// RFC 9110 §7.6.1, plus `proxy-connection`, which the RFC never standardised but which is
+/// hop-by-hop wherever it appears.
+///
+/// **`content-length` is deliberately not here.** It is end-to-end: a proxy that buffers a
+/// body has to recompute it, and one that streams has to forward it. Which of those applies
+/// is the caller's decision, not this predicate's.
+pub const HOP_BY_HOP_HEADERS: [&str; 9] = [
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+];
+
+/// Whether a header name is hop-by-hop, compared ASCII-case-insensitively.
+///
+/// Header names arrive from the edge in whatever case the client sent, so a `matches!` on
+/// lowercase literals silently passes `Transfer-Encoding` through.
+#[must_use]
+pub fn is_hop_by_hop(name: &str) -> bool {
+    HOP_BY_HOP_HEADERS
+        .iter()
+        .any(|candidate| name.eq_ignore_ascii_case(candidate))
+}
+
+/// The headers a proxy must **re-add** toward the origin for a `websocket` exchange.
+///
+/// The edge does not send them: `Connection` and `Upgrade` are hop-by-hop and cannot survive
+/// the edge's own HTTP hop, so the upgrade is signalled by `ConnectRequest.type` instead. The
+/// origin is an ordinary HTTP/1.1 server and will not upgrade without them.
+///
+/// `Sec-Websocket-Key` is **not** in this list on purpose — it is client-specific and arrives
+/// in the metadata like any other header. The origin derives `Sec-Websocket-Accept` from it,
+/// so substituting our own key would make the client reject the handshake.
+///
+/// cloudflared: `proxy/proxy.go` → `proxyHTTPRequest`, the `isWebsocket` branch, which sets
+/// exactly these three and zeroes `ContentLength`.
+pub const WEBSOCKET_ORIGIN_HEADERS: [(&str, &str); 3] = [
+    ("connection", "Upgrade"),
+    ("upgrade", "websocket"),
+    ("sec-websocket-version", "13"),
+];
+
 /// What kind of stream the peer opened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamKind {
@@ -335,6 +384,61 @@ mod tests {
         // Dispatch reads six bytes, but if these ever collided the reader would need to
         // buffer and retry. They do not.
         assert_ne!(DATA_SIGNATURE[0], RPC_SIGNATURE[0]);
+    }
+
+    #[test]
+    fn hop_by_hop_matching_ignores_case() {
+        // The edge relays header names in the client's casing, so a lowercase-only match
+        // leaks `Transfer-Encoding` through to the origin.
+        assert!(is_hop_by_hop("Transfer-Encoding"));
+        assert!(is_hop_by_hop("TE"));
+        assert!(is_hop_by_hop("connection"));
+        assert!(is_hop_by_hop("Proxy-Connection"));
+        assert!(!is_hop_by_hop("Cookie"));
+        assert!(!is_hop_by_hop("Authorization"));
+    }
+
+    #[test]
+    fn content_length_is_not_hop_by_hop() {
+        // It is end-to-end. Whether to forward or recompute it belongs to the proxy, and
+        // folding it in here would hide that decision.
+        assert!(!is_hop_by_hop("content-length"));
+        assert!(!is_hop_by_hop("Content-Length"));
+    }
+
+    #[test]
+    fn the_websocket_upgrade_headers_are_the_three_upstream_re_adds() {
+        let names: Vec<&str> = WEBSOCKET_ORIGIN_HEADERS
+            .iter()
+            .map(|(name, _)| *name)
+            .collect();
+        assert_eq!(
+            names,
+            vec!["connection", "upgrade", "sec-websocket-version"]
+        );
+        // The client's own key must survive from the metadata — deriving Sec-Websocket-Accept
+        // from a key we invented makes the client reject the 101.
+        assert!(
+            !WEBSOCKET_ORIGIN_HEADERS
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("sec-websocket-key"))
+        );
+    }
+
+    #[test]
+    fn two_of_the_upgrade_headers_are_themselves_hop_by_hop() {
+        // Which is exactly why they have to be re-added: a correct hop-by-hop filter strips
+        // them, so a proxy that only filters produces a request the origin will not upgrade.
+        assert!(is_hop_by_hop("connection"));
+        assert!(is_hop_by_hop("upgrade"));
+        assert!(!is_hop_by_hop("sec-websocket-version"));
+    }
+
+    #[test]
+    fn websocket_is_a_distinct_connection_type() {
+        // ConnectRequest.type is the only upgrade signal on the wire (§11); there is no
+        // `Upgrade` header to notice.
+        assert_ne!(ConnectionType::Websocket, ConnectionType::Http);
     }
 
     fn request(dest: &str, metadata: &[(&str, &str)]) -> ConnectRequest {

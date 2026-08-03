@@ -33,5 +33,12 @@ tokio-util = { workspace = true }
 uuid = { workspace = true }
 zeroize = { workspace = true }
 
+[dev-dependencies]
+# Only the spike's echo origin and its `ws_client` driver use these. Nothing under `src/`
+# may — the connector pipes WebSocket bytes without interpreting them (docs/PROTOCOL.md §11),
+# and a WebSocket library in the connector would be a sign that invariant has been broken.
+tokio-rustls = { workspace = true }
+tokio-tungstenite = { workspace = true }
+
 [build-dependencies]
 capnpc = { workspace = true }

@@ -68,6 +68,19 @@ tokio = { version = "1.53", features = [
   "time",
 ] }
 tokio-util = { version = "0.7", features = ["compat"] }
+# Test scaffolding only, and it must stay that way: the connector never speaks WebSocket
+# itself — it pipes opaque bytes (docs/PROTOCOL.md §11). These exist so the spike can be an
+# echo origin and a real client, which is what G1 criterion 3 asks for. `default-features`
+# is off to keep tungstenite's own TLS out: it would pull a second rustls crypto provider
+# alongside aws-lc-rs and rustls then refuses to pick one.
+tokio-rustls = { version = "0.26", default-features = false, features = [
+  "aws-lc-rs",
+  "tls12",
+  "logging",
+] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = [
+  "handshake",
+] }
 uuid = { version = "1.24", features = ["v4", "serde"] }
 zeroize = { version = "1.9", features = ["derive"] }
 

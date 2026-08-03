@@ -6,11 +6,11 @@ A gate is a hard stop: every criterion must pass before the next phase starts. G
 
 ## Current position
 
-**Phase 1 in progress — sub-steps 1–5 of 7 done, and G1 criterion 2 met.** Gate G0 is closed locally: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `cargo fmt --check`, `clippy -D warnings`, and `cargo test` all pass. CI has not run yet — nothing is pushed.
+**Phase 1 in progress — sub-steps 1–6 of 7 done, and G1 criteria 2 and 3 met.** Gate G0 is closed locally: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `cargo fmt --check`, `clippy -D warnings`, and `cargo test` all pass. CI has not run yet — nothing is pushed.
 
-`crates/protocol` parses tokens, discovers the edge, completes a QUIC handshake, registers a connection, and **proxies an HTTP request end-to-end** — a real `curl` through Cloudflare reaches a local origin and gets its bytes back unchanged. Two and a half of the six open questions in `docs/PROTOCOL.md` §17 are answered, and risks P1, P2, and P3 are closed.
+`crates/protocol` parses tokens, discovers the edge, completes a QUIC handshake, registers a connection, **proxies an HTTP request end-to-end**, and **carries a WebSocket** — a real `curl` through Cloudflare reaches a local origin and gets its bytes back unchanged, and a real WebSocket client completes 100 echo round-trips through the same connection. Two and a half of the six open questions in `docs/PROTOCOL.md` §17 are answered, and risks P1, P2, and P3 are closed.
 
-Remaining for G1: WebSocket (criterion 3), the four-connection pool sustained for 30 minutes (criterion 4), and golden fixtures (criterion 5).
+Remaining for G1: the four-connection pool sustained for 30 minutes across a forced disconnect (criterion 4), and golden fixtures captured from cloudflared (criterion 5).
 
 ## Phase 0 — Docs and skeleton
 
@@ -41,8 +41,10 @@ Ordered sub-steps, each independently verifiable:
 3. ~~QUIC handshake: ALPN `argotunnel`, SNI `quic.cftunnel.com`, keep-alive 1 s~~ — **done**, `crates/protocol/src/quic.rs`; verified live 2026-08-03. Two spec corrections came out of it: the edge presents a Cloudflare Origin CA certificate, and `MaxIncomingStreams` must not be copied literally into quinn (`docs/PROTOCOL.md` §5)
 4. ~~Cap'n Proto `registerConnection` over the control stream — **no preamble** (§6, trap 1)~~ — **done**, `crates/protocol/src/rpc.rs`; registered against the live edge on 2026-08-03, colo `hkg09`. Risk P1 closed and the §8 interfaceId correction confirmed empirically
 5. ~~`ConnectRequest` framing; answer one HTTP GET end-to-end~~ — **done**, `crates/protocol/src/connect.rs`; `curl https://spike.nport.link/health?q=1` returned the origin's 43-byte body **byte-identical** with `content-type` and a custom header preserved, 2026-08-03. **This is G1 criterion 2.**
-6. WebSocket upgrade and bidirectional pipe
+6. ~~WebSocket upgrade and bidirectional pipe~~ — **done**, `crates/protocol/examples/spike.rs` plus `WEBSOCKET_ORIGIN_HEADERS` in `connect.rs`; 100 alternating text/binary round-trips and a 64 KiB frame came back byte-identical through colo `hkg09`, 2026-08-03. **This is G1 criterion 3.** Run it with `tests/live/tunnel.sh builtin <sub>` in one terminal and `--example ws_client` in another
 7. Four-connection pool with staggered start, per-index edge rotation, reconnect
+
+Step 6 was mostly wiring, because step 5's live run had already shown `type Websocket` arriving correctly and being refused — the dispatch was proven before the handler existed. What it did cost was the two forwarding directions: the upgrade headers the edge does not send, and the origin bytes already queued behind its response head (`docs/PROTOCOL.md` §11).
 
 Step 4 was expected to be the time sink — capnp-RPC interop (P1) plus the no-preamble trap — and it registered first try, because both variables had been removed beforehand: the `interfaceId` from source (§8) and the interop by using `capnp-rpc`'s two-party vat rather than hand-encoding. No packet capture was needed.
 

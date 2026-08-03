@@ -16,8 +16,8 @@ Specification for `crates/protocol`. NPort speaks this protocol directly instead
 | **Pinned commit** | `3a2b45c2a511fcdd81b68c190938e4ffadbea5dc` (2026-07-22) |
 | Corresponding release | `2026.7.3` |
 | Upstream licence | Apache-2.0 — permits reimplementation and copying the `.capnp` schema, with attribution and NOTICE |
-| Last verified against the live edge | **2026-08-03.** Discovery (§4), QUIC handshake (§5), `registerConnection` (§8), and a **full HTTP GET proxied end-to-end** — `curl` returned the origin's body byte-identically with headers preserved (§11) |
-| Implementation status | Phase 1 in progress: token parsing, edge discovery, QUIC handshake, registration RPC, and HTTP framing done. WebSocket and the connection pool next |
+| Last verified against the live edge | **2026-08-03.** Discovery (§4), QUIC handshake (§5), `registerConnection` (§8), a **full HTTP exchange proxied end-to-end** with headers and body byte-identical in both directions, and a **WebSocket echo over 100 round-trips** plus a 64 KiB frame (§11) |
+| Implementation status | Phase 1 in progress: token parsing, edge discovery, QUIC handshake, registration RPC, HTTP framing, and WebSocket done. The connection pool is next |
 
 Every constant below cites the Go file and symbol it was read from. **When you need a value that is not in this document, read it from the pinned commit and add it here with a citation — never guess, and never copy a number from a blog post.** Re-pin deliberately: bump the SHA, re-read the cited symbols, update this file, and record the bump in `docs/DECISIONS.md`.
 
@@ -498,6 +498,15 @@ Upstream strips the body entirely when the request is not a WebSocket, is not ch
 ### WebSockets
 
 `ConnectRequest.type == websocket (1)`. Upstream strips the internal upgrade header and re-adds real ones toward the origin — `Connection: Upgrade`, `Upgrade: websocket`, `Sec-Websocket-Version: 13`, `ContentLength = 0` (`proxy/proxy.go`). The response is an ordinary `ConnectResponse` carrying `HttpStatus: 101` plus `HttpHeader:Sec-Websocket-Accept`, after which **the stream is a raw bidirectional byte pipe** and WebSocket frames pass through untouched.
+
+**Verified end-to-end 2026-08-03**, 100 alternating text/binary round-trips plus one 64 KiB frame, byte-identical in both directions through colo `hkg09`. Four things the implementation confirmed, in the order they bite:
+
+1. **The upgrade headers really are absent from the metadata**, and `ConnectRequest.type` is the only signal. A proxy that just filters hop-by-hop headers and forwards the rest sends the origin a request with no `Connection: Upgrade`; the origin answers `200` and the client's handshake fails with no indication of why. The three headers in `WEBSOCKET_ORIGIN_HEADERS` must be re-added — and note that two of them are themselves hop-by-hop, so filtering and re-adding are not contradictory steps but a required pair.
+2. **`Sec-Websocket-Key` does arrive in the metadata** like any ordinary header, and must be forwarded untouched — the origin derives `Sec-Websocket-Accept` from it and a substituted key makes the client reject the 101.
+3. **Bytes can already be waiting behind the origin's response head.** Whatever a reader consumed past `\r\n\r\n` is the origin's first frame. Reading the head with a scratch buffer that then goes out of scope loses it silently — the same class of bug as the request body above, and equally invisible in a test where the client speaks first.
+4. **Half-close matters.** When the client's side finishes, the origin needs an actual EOF (`shutdown()` on the write half) or it never closes its own side and the downstream copy never returns. Cancelling the other direction instead — a `try_join` rather than a `join` — truncates the close handshake.
+
+The connector must not contain a WebSocket library. Past the 101 there is nothing to parse: no masking, no fragmentation reassembly, no length validation. `tokio-tungstenite` appears in `crates/protocol` as a **dev-dependency only**, for the spike's echo origin and its `ws_client` driver; if it ever appears under `src/`, this invariant has been broken.
 
 ### Streaming and SSE
 
