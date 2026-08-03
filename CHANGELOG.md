@@ -5,7 +5,20 @@ All notable changes to NPort will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.1.6] - 2026-04-01
+## [2.1.6] - 2026-08-03
+
+### Added
+- 🇪🇸 **Spanish (`es`) Language Support**: NPort now speaks Spanish — the third supported UI language
+  - Use `nport 3000 -l es`, or pick Español from the interactive `nport --language` menu
+  - Full translation of every user-facing string (tunnel status, errors, network warnings, help text)
+  - `AVAILABLE_LANGUAGES`, `LanguageCode`, and `TranslationKeys` extended with `es` / `languageSpanish`
+- 🌐 **Translatable Binary Permission Warning**: New `binaryChmodFailed` translation key replaces the hardcoded English chmod/EPERM warning (available in EN / VI / ES)
+
+### Fixed
+- 🐛 **Duplicate cloudflared Setup on Startup**: Fixed `bin-manager`'s `main()` running when bundled into `dist/index.js`
+  - The old is-main check compared `process.argv[1]` against the module path, which matched after esbuild bundling
+  - This kicked off cloudflared setup in parallel with the language prompt, garbling first-run output
+  - Now only runs when the file is executed directly (`bin-manager.js` / `bin-manager.ts`)
 
 ### Improved
 - 💡 **EPERM Error Resolution**: Improved the user-facing warning when chmod fails after sudo install
