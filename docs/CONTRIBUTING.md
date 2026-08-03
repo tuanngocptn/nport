@@ -11,6 +11,7 @@ Thanks for helping. NPort is MIT-licensed and maintained by [Nick Pham](https://
 | Node | 24 (`.nvmrc`); 22.12+ works | dev only; the published CLI needs no Node |
 | pnpm | pinned in `packageManager`, via Corepack | workspace manager |
 | Rust | pinned in `rust-toolchain.toml` | CLI, connector, desktop backend |
+| `capnp` | 1.x, from your package manager | `crates/protocol` generates from the vendored schemas at build time |
 | wrangler | via pnpm | Workers dev and deploy |
 | Tauri prerequisites | per [tauri.app](https://tauri.app/start/prerequisites/) | only for `apps/desktop` |
 
@@ -20,6 +21,12 @@ pnpm install          # JS dependencies and the git hooks
 ```
 
 Rust comes separately: install [rustup](https://rustup.rs), and the first `cargo` command in this repo installs the exact pinned toolchain for you. Version pins and why they are exact: ADR-0022.
+
+```bash
+brew install capnp                        # macOS
+sudo apt-get install -y capnproto         # Debian/Ubuntu
+choco install capnproto                   # Windows
+```
 
 You do **not** need a Cloudflare account to work on most of the repo. You do for `apps/api` deploys and for live-edge protocol tests.
 

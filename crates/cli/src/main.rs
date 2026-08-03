@@ -10,6 +10,9 @@
 #![forbid(unsafe_code)]
 
 fn main() -> std::process::ExitCode {
-    eprintln!("nport {}: not implemented yet — see docs/ROADMAP.md", env!("CARGO_PKG_VERSION"));
+    eprintln!(
+        "nport {}: not implemented yet — see docs/ROADMAP.md",
+        env!("CARGO_PKG_VERSION")
+    );
     std::process::ExitCode::FAILURE
 }

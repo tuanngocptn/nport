@@ -47,6 +47,16 @@ jobs:
           || fromJSON('["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
+      # `crates/protocol/build.rs` runs capnpc, which shells out to the capnp compiler.
+      # Not a cargo dependency, so it has to be installed per platform.
+      - name: Install the Cap'n Proto compiler
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Linux)   sudo apt-get update && sudo apt-get install -y capnproto ;;
+            macOS)   brew install capnp ;;
+            Windows) choco install capnproto --no-progress -y ;;
+          esac
       # rust-toolchain.toml pins the exact version, and rustup honours it.
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
