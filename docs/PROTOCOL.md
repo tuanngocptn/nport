@@ -481,6 +481,16 @@ client → edge:    raw response body bytes, on the same stream
 
 ### Bodies
 
+> **Both directions matter, and it is easy to implement only one.** The spike originally read
+> the `ConnectRequest` and then proxied to the origin without forwarding either the client's
+> headers or the request body. `GET` traffic looked perfect — a whole Next.js dev app rendered
+> correctly through it — because nothing on that path needed a cookie or a payload. `POST`
+> silently lost its body and the origin never saw `content-type`, `cookie`, or
+> `authorization`. Verified fixed 2026-08-03 with an echo origin.
+>
+> Reading the body is safe immediately after the Cap'n Proto message: capnp's framed reader
+> consumes exactly the message and never over-reads into the body that follows.
+
 Bodies are **raw byte streams with no tunnel-layer framing**. `Content-Length` and `Transfer-Encoding` are just metadata entries. **End of body is QUIC stream FIN** — half-close the send side when the body ends.
 
 Upstream strips the body entirely when the request is not a WebSocket, is not chunked, and has `ContentLength == 0`, to stop Go's client emitting a spurious chunked body (`connection/quic_connection.go` → `buildHTTPRequest`).

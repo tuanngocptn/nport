@@ -176,21 +176,49 @@ async fn main() {
     );
 
     // ── Step 5: ConnectRequest framing, one HTTP GET end-to-end ──────────────────
-    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
-        Ok(listener) => listener,
-        Err(error) => {
-            println!("✗ could not bind a local origin: {error}");
-            return;
+    // NPORT_SPIKE_ORIGIN points at a real local server ("3008" or "127.0.0.1:3008").
+    // Without it the spike serves its own fixed-body origin, which is what the
+    // byte-identity check wants.
+    let origin = match std::env::var("NPORT_SPIKE_ORIGIN") {
+        Ok(value) => {
+            let target = if value.contains(':') {
+                value
+            } else {
+                format!("127.0.0.1:{value}")
+            };
+            let Ok(address) = target.parse::<std::net::SocketAddr>() else {
+                println!("✗ NPORT_SPIKE_ORIGIN is not an address: {target}");
+                return;
+            };
+            // Probe before serving. Failing fast beats publishing a URL that 502s — the
+            // R18 requirement in docs/ARCHITECTURE.md §8.
+            if let Err(error) = tokio::net::TcpStream::connect(address).await {
+                println!("\n✗ nothing is listening on {address}: {error}");
+                println!("  start your server first, then re-run.");
+                return;
+            }
+            println!("\nforwarding to {address} (pre-flight probe ok)");
+            address
+        }
+        Err(_) => {
+            let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+                Ok(listener) => listener,
+                Err(error) => {
+                    println!("✗ could not bind a local origin: {error}");
+                    return;
+                }
+            };
+            let address = listener
+                .local_addr()
+                .expect("bound listener has an address");
+            tokio::spawn(serve_origin(listener));
+            println!(
+                "\nbuilt-in origin on {address}, body {} bytes",
+                ORIGIN_BODY.len()
+            );
+            address
         }
     };
-    let origin = listener
-        .local_addr()
-        .expect("bound listener has an address");
-    tokio::spawn(serve_origin(listener));
-    println!(
-        "\nlocal origin on {origin}, body {} bytes",
-        ORIGIN_BODY.len()
-    );
 
     let serve_secs: u64 = std::env::var("NPORT_SPIKE_SERVE_SECS")
         .ok()
@@ -226,6 +254,10 @@ async fn main() {
     // Let the CONNECTION_CLOSE frame actually leave before the process exits.
     established.endpoint.wait_idle().await;
 }
+
+/// Ceiling on a buffered request body. Only exists because the spike buffers; `crates/core`
+/// streams and needs no such limit.
+const MAX_REQUEST_BODY: usize = 32 * 1024 * 1024;
 
 /// The body the origin serves. The spike asserts the tunnel delivers it byte-identically.
 const ORIGIN_BODY: &str = "nport spike origin — byte-identity check\n";
@@ -285,16 +317,60 @@ async fn handle_exchange(
         return Ok(());
     }
 
-    // Minimal origin-form HTTP/1.1 request. `connection: close` means read-to-end delimits
-    // the response, so the spike needs no chunked decoder.
+    // The request body is whatever follows the ConnectRequest on this stream, delimited by
+    // FIN (§11). Reading it is safe here because capnp's framed reader consumes exactly the
+    // message and never over-reads into the body.
+    //
+    // The spike buffers it. That is wrong for `crates/core` — a large upload must stream,
+    // which means chunked encoding toward the origin since the length is not known upfront —
+    // but it keeps the spike a single readable function.
+    let body = recv.read_to_end(MAX_REQUEST_BODY).await.unwrap_or_default();
+
     let mut upstream = tokio::net::TcpStream::connect(origin).await?;
-    let origin_request = format!(
-        "{} {} HTTP/1.1\r\nhost: {}\r\nconnection: close\r\n\r\n",
+
+    // Origin-form request line, then the client's own headers. Without these the origin
+    // sees no cookies, no authorization, and no content-type — which is why POST bodies
+    // appeared to work against a server that did not need them.
+    let mut head = format!(
+        "{} {} HTTP/1.1\r\n",
         request.method().unwrap_or("GET"),
-        request.path_and_query(),
-        request.host().unwrap_or("localhost")
+        request.path_and_query()
     );
-    upstream.write_all(origin_request.as_bytes()).await?;
+    // Host comes from the HttpHost metadata key, not from the header list.
+    head.push_str(&format!(
+        "host: {}\r\n",
+        request.host().unwrap_or("localhost")
+    ));
+    for (name, value) in request.headers() {
+        // Hop-by-hop headers describe one connection and must not be relayed. content-length
+        // is recomputed from what actually arrived, so the origin never sees a stale one.
+        if matches!(
+            name.to_ascii_lowercase().as_str(),
+            "host"
+                | "connection"
+                | "keep-alive"
+                | "transfer-encoding"
+                | "te"
+                | "trailer"
+                | "upgrade"
+                | "proxy-connection"
+                | "content-length"
+        ) {
+            continue;
+        }
+        head.push_str(&format!("{name}: {value}\r\n"));
+    }
+    if !body.is_empty() {
+        head.push_str(&format!("content-length: {}\r\n", body.len()));
+    }
+    // `connection: close` means read-to-end delimits the response, so the spike needs no
+    // chunked decoder on the way back.
+    head.push_str("connection: close\r\n\r\n");
+
+    upstream.write_all(head.as_bytes()).await?;
+    if !body.is_empty() {
+        upstream.write_all(&body).await?;
+    }
     let mut raw = Vec::new();
     upstream.read_to_end(&mut raw).await?;
 
@@ -303,7 +379,7 @@ async fn handle_exchange(
         .position(|window| window == b"\r\n\r\n")
         .ok_or("origin response had no header terminator")?;
     let head = String::from_utf8_lossy(&raw[..split]).to_string();
-    let body = &raw[split + 4..];
+    let response_body = &raw[split + 4..];
 
     let mut lines = head.split("\r\n");
     let status: u16 = lines
@@ -325,12 +401,13 @@ async fn handle_exchange(
         .collect();
 
     connect::write_connect_response(&mut send, status, &headers).await?;
-    send.write_all(body).await?;
+    send.write_all(response_body).await?;
     // End of body is stream FIN (§11).
     send.finish()?;
 
     println!(
-        "  ← {status}, {} bytes, {} headers",
+        "  ← {status}, {} bytes out, {} in, {} headers",
+        response_body.len(),
         body.len(),
         headers.len()
     );
