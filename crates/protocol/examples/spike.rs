@@ -10,6 +10,8 @@
 
 use std::time::{Duration, Instant};
 
+#[path = "support/capture.rs"]
+mod capture;
 #[path = "support/proxy.rs"]
 mod proxy;
 

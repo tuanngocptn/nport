@@ -12,7 +12,7 @@
 //! entirely inside `ConnectRequest.metadata`, and end-of-body is QUIC stream FIN.
 
 use capnp::message;
-use quinn::{RecvStream, SendStream};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
 
 use crate::schema::quic_metadata_protocol_capnp::{
@@ -237,7 +237,13 @@ impl ConnectRequest {
 /// Reads the six-byte signature that opens every stream except the control stream.
 ///
 /// The control stream carries **no** signature (§6, trap 1) — do not call this on it.
-pub async fn read_stream_kind(recv: &mut RecvStream) -> Result<StreamKind, FrameError> {
+///
+/// Generic over the stream rather than taking a `quinn::RecvStream`, for two reasons that both
+/// matter: `src/h2.rs` is the ADR-0017 fallback and carries the same frames over an HTTP/2
+/// body, and a plain `&[u8]` is what makes these codecs testable without a network at all.
+pub async fn read_stream_kind<R: AsyncRead + Unpin>(
+    recv: &mut R,
+) -> Result<StreamKind, FrameError> {
     let mut signature = [0u8; 6];
     recv.read_exact(&mut signature)
         .await
@@ -251,7 +257,7 @@ pub async fn read_stream_kind(recv: &mut RecvStream) -> Result<StreamKind, Frame
 }
 
 /// Reads and validates the two-byte version that follows a data-stream signature.
-pub async fn read_version(recv: &mut RecvStream) -> Result<(), FrameError> {
+pub async fn read_version<R: AsyncRead + Unpin>(recv: &mut R) -> Result<(), FrameError> {
     let mut version = [0u8; 2];
     recv.read_exact(&mut version)
         .await
@@ -265,7 +271,9 @@ pub async fn read_version(recv: &mut RecvStream) -> Result<(), FrameError> {
 }
 
 /// Reads the `ConnectRequest` that follows the preamble.
-pub async fn read_connect_request(recv: &mut RecvStream) -> Result<ConnectRequest, FrameError> {
+pub async fn read_connect_request<R: AsyncRead + Unpin>(
+    recv: &mut R,
+) -> Result<ConnectRequest, FrameError> {
     let mut reader = recv.compat();
     // `try_read_message` distinguishes a clean stream end from a decode failure — the edge
     // can close without sending, and that is not a protocol error.
@@ -305,8 +313,8 @@ pub async fn read_connect_request(recv: &mut RecvStream) -> Result<ConnectReques
 /// The preamble goes out in a single `write_all` (§6, trap 2). Nothing here is buffered:
 /// a `BufWriter` toward the edge stalls SSE and gRPC in ways that are miserable to
 /// diagnose (§11).
-pub async fn write_connect_response(
-    send: &mut SendStream,
+pub async fn write_connect_response<W: AsyncWrite + Unpin>(
+    send: &mut W,
     status: u16,
     headers: &[(String, String)],
 ) -> Result<(), FrameError> {
@@ -314,12 +322,15 @@ pub async fn write_connect_response(
 }
 
 /// Writes an error `ConnectResponse`. Upstream pairs the error with `HttpStatus: 502`.
-pub async fn write_error_response(send: &mut SendStream, error: &str) -> Result<(), FrameError> {
+pub async fn write_error_response<W: AsyncWrite + Unpin>(
+    send: &mut W,
+    error: &str,
+) -> Result<(), FrameError> {
     write_response_message(send, Some(error), Some(502), &[]).await
 }
 
-async fn write_response_message(
-    send: &mut SendStream,
+async fn write_response_message<W: AsyncWrite + Unpin>(
+    send: &mut W,
     error: Option<&str>,
     status: Option<u16>,
     headers: &[(String, String)],
@@ -363,6 +374,223 @@ async fn write_response_message(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Encodes a `ConnectRequest` the way the **edge** would, so the reader can be exercised
+    /// against bytes it did not produce itself.
+    ///
+    /// This is a test double, not a fixture. A real fixture has to come from cloudflared or
+    /// the live edge (`docs/TESTING.md`) — bytes from this function only prove the reader and
+    /// the schema agree, which is still worth asserting but is a weaker claim.
+    fn encode_request(dest: &str, kind: WireConnectionType, metadata: &[(&str, &str)]) -> Vec<u8> {
+        let mut builder = message::Builder::new_default();
+        {
+            let mut request = builder.init_root::<connect_request::Builder>();
+            request.set_dest(dest);
+            request.set_type(kind);
+            let mut entries =
+                request.init_metadata(u32::try_from(metadata.len()).expect("small in tests"));
+            for (index, (key, value)) in metadata.iter().enumerate() {
+                let mut entry = entries.reborrow().get(u32::try_from(index).expect("small"));
+                entry.set_key(*key);
+                entry.set_val(*value);
+            }
+        }
+        let mut out = Vec::new();
+        capnp::serialize::write_message(&mut out, &builder).expect("a Vec never fails to write");
+        out
+    }
+
+    /// `xxd`-style dump, so a snapshot diff is readable by a human at 2am.
+    fn hexdump(bytes: &[u8]) -> String {
+        bytes
+            .chunks(16)
+            .enumerate()
+            .map(|(row, chunk)| {
+                let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02x}")).collect();
+                let ascii: String = chunk
+                    .iter()
+                    .map(|b| {
+                        if b.is_ascii_graphic() {
+                            *b as char
+                        } else {
+                            '.'
+                        }
+                    })
+                    .collect();
+                format!("{:08x}  {:<47}  {ascii}", row * 16, hex.join(" "))
+            })
+            .collect::<Vec<String>>()
+            .join("\n")
+    }
+
+    #[tokio::test]
+    async fn reads_a_data_stream_preamble_then_the_request() {
+        // The whole edge→client path, end to end, with no network: signature, version, capnp.
+        let mut stream = DATA_PREAMBLE.to_vec();
+        stream.extend_from_slice(&encode_request(
+            "https://spike.nport.link/a?b=c",
+            WireConnectionType::Http,
+            &[
+                (HTTP_METHOD, "POST"),
+                (HTTP_HOST, "spike.nport.link"),
+                ("HttpHeader:Content-Type", "application/json"),
+            ],
+        ));
+
+        let mut reader: &[u8] = &stream;
+        assert_eq!(
+            read_stream_kind(&mut reader).await.expect("data signature"),
+            StreamKind::Data
+        );
+        read_version(&mut reader).await.expect("version 01");
+        let request = read_connect_request(&mut reader)
+            .await
+            .expect("a well-formed request");
+
+        assert_eq!(request.kind, ConnectionType::Http);
+        assert_eq!(request.method(), Some("POST"));
+        assert_eq!(request.host(), Some("spike.nport.link"));
+        assert_eq!(request.path_and_query(), "/a?b=c");
+        // The reader must stop exactly at the end of the capnp message, or the request body
+        // that follows on a real stream is lost. This is the guarantee §11 depends on.
+        assert!(reader.is_empty(), "{} bytes over-read", reader.len());
+    }
+
+    #[tokio::test]
+    async fn a_body_after_the_request_survives_the_reader() {
+        // The regression test for the bug that shipped in the spike: the reader must not
+        // consume into the body. Here the body is checkable rather than merely absent.
+        let mut stream = DATA_PREAMBLE.to_vec();
+        stream.extend_from_slice(&encode_request(
+            "https://x.nport.link/",
+            WireConnectionType::Http,
+            &[(HTTP_METHOD, "POST")],
+        ));
+        stream.extend_from_slice(b"hello-body-42");
+
+        let mut reader: &[u8] = &stream;
+        read_stream_kind(&mut reader).await.expect("signature");
+        read_version(&mut reader).await.expect("version");
+        read_connect_request(&mut reader).await.expect("request");
+        assert_eq!(reader, b"hello-body-42");
+    }
+
+    #[tokio::test]
+    async fn decodes_a_websocket_request_as_websocket() {
+        let mut stream = DATA_PREAMBLE.to_vec();
+        stream.extend_from_slice(&encode_request(
+            "https://x.nport.link/socket",
+            WireConnectionType::Websocket,
+            &[("HttpHeader:Sec-Websocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")],
+        ));
+
+        let mut reader: &[u8] = &stream;
+        read_stream_kind(&mut reader).await.expect("signature");
+        read_version(&mut reader).await.expect("version");
+        let request = read_connect_request(&mut reader).await.expect("request");
+
+        assert_eq!(request.kind, ConnectionType::Websocket);
+        // The client's key has to survive: the origin derives Sec-Websocket-Accept from it.
+        assert_eq!(
+            request
+                .headers()
+                .find(|(name, _)| *name == "Sec-Websocket-Key"),
+            Some(("Sec-Websocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="))
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_an_rpc_signature_as_a_distinct_kind_not_an_error() {
+        let mut reader: &[u8] = &RPC_SIGNATURE;
+        assert_eq!(
+            read_stream_kind(&mut reader).await.expect("rpc signature"),
+            StreamKind::Rpc
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_an_unknown_signature_without_guessing() {
+        let bytes = [0xFFu8; 6];
+        let mut reader: &[u8] = &bytes;
+        assert!(matches!(
+            read_stream_kind(&mut reader).await,
+            Err(FrameError::UnknownSignature(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_version_other_than_01_is_its_own_error() {
+        // Risk P4: upstream comments the version as a branch point for future protocol
+        // versions, so this is the exact shape an edge bump takes. It must not be reported as
+        // a generic read failure or nobody will notice what happened.
+        let bytes = *b"02";
+        let mut reader: &[u8] = &bytes;
+        assert!(matches!(
+            read_version(&mut reader).await,
+            Err(FrameError::UnsupportedVersion(v)) if v == *b"02"
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_truncated_stream_is_a_read_error_not_a_panic() {
+        let bytes = [0x0Au8, 0x36];
+        let mut reader: &[u8] = &bytes;
+        assert!(matches!(
+            read_stream_kind(&mut reader).await,
+            Err(FrameError::Read(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_stream_that_ends_before_the_request_says_so() {
+        let mut reader: &[u8] = &[];
+        let error = read_connect_request(&mut reader)
+            .await
+            .expect_err("no message");
+        assert!(matches!(error, FrameError::Malformed(_)), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn the_response_encoder_writes_the_preamble_before_the_message() {
+        let mut out: Vec<u8> = Vec::new();
+        write_connect_response(
+            &mut out,
+            200,
+            &[("Content-Type".to_owned(), "text/plain".to_owned())],
+        )
+        .await
+        .expect("a Vec never fails");
+        assert_eq!(&out[..8], &DATA_PREAMBLE, "preamble missing or reordered");
+        assert!(out.len() > 8, "no capnp message followed the preamble");
+    }
+
+    #[tokio::test]
+    async fn snapshot_of_a_200_response() {
+        // Rule 4 in crates/protocol/CLAUDE.md: a wire-format change needs a reviewed snapshot.
+        // This asserts our *encoder* is stable, which is a different claim from the golden
+        // fixtures — those assert we agree with cloudflared.
+        let mut out: Vec<u8> = Vec::new();
+        write_connect_response(
+            &mut out,
+            200,
+            &[
+                ("Content-Type".to_owned(), "text/plain".to_owned()),
+                ("Content-Length".to_owned(), "2".to_owned()),
+            ],
+        )
+        .await
+        .expect("a Vec never fails");
+        insta::assert_snapshot!(hexdump(&out));
+    }
+
+    #[tokio::test]
+    async fn snapshot_of_an_error_response() {
+        let mut out: Vec<u8> = Vec::new();
+        write_error_response(&mut out, "origin unreachable")
+            .await
+            .expect("a Vec never fails");
+        insta::assert_snapshot!(hexdump(&out));
+    }
 
     #[test]
     fn signatures_match_the_pinned_source() {

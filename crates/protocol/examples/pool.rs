@@ -19,6 +19,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+#[path = "support/capture.rs"]
+mod capture;
 #[path = "support/proxy.rs"]
 mod proxy;
 

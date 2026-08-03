@@ -129,13 +129,34 @@ pub async fn handle_exchange(
 ) -> Fallible {
     use nport_protocol::connect::{self, ConnectionType, StreamKind};
 
-    let kind = connect::read_stream_kind(&mut recv).await?;
+    // With `NPORT_FIXTURE_DIR` set, every read is teed so the frame's exact extent can be
+    // recorded. The tee wraps `&mut recv`, so the body left on the stream afterwards is
+    // untouched and the proxy paths below behave identically either way.
+    let fixture_dir = std::env::var("NPORT_FIXTURE_DIR").ok();
+    let mut tee = crate::capture::Tee::new(&mut recv);
+
+    let kind = connect::read_stream_kind(&mut tee).await?;
     if kind != StreamKind::Data {
         println!("  ! {kind:?} stream — not implemented (ADR-0020)");
         return Ok(());
     }
-    connect::read_version(&mut recv).await?;
-    let request = connect::read_connect_request(&mut recv).await?;
+    connect::read_version(&mut tee).await?;
+    let request = connect::read_connect_request(&mut tee).await?;
+
+    if let Some(dir) = &fixture_dir {
+        let name = match request.kind {
+            ConnectionType::Http => "connect_request_http.bin",
+            ConnectionType::Websocket => "connect_request_websocket.bin",
+            ConnectionType::Tcp => "connect_request_tcp.bin",
+        };
+        // The edge stamps the *capturing machine's* public IP into Cf-Connecting-Ip and
+        // X-Forwarded-For. These files get committed to a public repository, so those bytes are
+        // overwritten in place before anything is written to disk.
+        let mut bytes = tee.seen.clone();
+        let count = crate::capture::redact_client_ips(&mut bytes, &request.metadata);
+        println!("  · redacted {count} client-IP occurrence(s) before writing the fixture");
+        crate::capture::record(dir, name, &bytes);
+    }
 
     println!(
         "  → {} {} (type {:?}, {} headers)",
