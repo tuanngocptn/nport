@@ -397,3 +397,32 @@ Phase 1's `examples/pool.rs` hit this the moment it tried to `tokio::spawn` a pe
 - If it ever becomes a problem, the escape hatch is the one `docs/PROTOCOL.md` §16 already records for risk P1: the registration surface is one bootstrap plus three methods, so hand-encoding the RPC frames removes `capnp-rpc` entirely. Not worth doing pre-emptively.
 
 **Rejected.** *Everything on a `LocalSet`* — pushes a library's implementation detail into every consumer, and serialises unrelated per-connection work onto one thread for the sake of one RPC. *`unsafe impl Send`* — forbidden by `#![forbid(unsafe_code)]`, and it would be a lie: the `Rc`s are genuinely shared. *Forking `capnp-rpc` to use `Arc`* — a maintenance burden for a dependency whose interop is the thing we most want to keep boring.
+
+## ADR-0025 — A purpose-built Rust emitter instead of `typify`
+
+**Date.** 2026-08-03. **Status.** Accepted. **Amends** ADR-0009.
+
+**Context.** ADR-0009 fixed the contract direction — zod is the authority, everything generates outward — and named the pipeline as `zod → openapi.json → typify → crates/contract`. That direction is unchanged and correct. The tool is not.
+
+`typify` generates Rust types from JSON Schema. Two things went wrong when Phase 1.5 came to use it:
+
+1. **The error registry is not expressible in JSON Schema.** The document can say a response body has a `code` field with 30 allowed string values. It cannot say `SUBDOMAIN_IN_USE` is a 409, or that retrying it cannot succeed. Both facts are exactly what a Rust client needs — `crates/cli` branches on retryability — so `typify` could produce at most half of `crates/contract`, and a second generator would have to produce the rest.
+2. **zod inlines reused schemas.** `z.toJSONSchema` emits `CreateTunnelRequest.client` as `{type: "string", enum: ["cli", "desktop"]}` rather than a `$ref` to `ClientKind`. A generator that takes JSON Schema at face value emits `String` there, which is the stringly-typed matching ADR-0018 exists to eliminate — arriving through the very pipeline meant to prevent it.
+
+**Decision.** `cargo xtask codegen` reads two files and emits `crates/contract/src/generated.rs`:
+
+- `schema/nport-api.openapi.json` for request and response types
+- `schema/errors.json`, a new output of `pnpm codegen`, carrying each code's origin, status, retryability, slug, and default message
+
+The emitter resolves inlined enums back to their named component by value set, and **fails rather than guessing** on any construct it does not recognise. An unnamed inline enum is a codegen error telling the author to name it, not a silent `String`.
+
+**Consequences.**
+
+- One pipeline instead of two, and the emitter is ~300 lines of `serde_json` walking with no new dependency. `typify` and its tree stay out of the build.
+- The schemas it supports are narrow by construction: flat objects of string, integer, boolean, string-enum, `$ref`, and one open map for `details`. That is all the contract uses. Anything else stops codegen with a message naming the file to extend.
+- **The emitter runs `rustfmt` on its output.** Discovered the hard way: raw output was one newline away from canonical, which would have failed `codegen-drift.yml` on a tree nobody had touched.
+- `ErrorCode` is `#[non_exhaustive]`, so adding a code is not a breaking change for downstream matches.
+- The error envelope stays **hand-written** in `lib.rs` rather than generated, because `code` must be a typed `ErrorCode`. A generated `code: String` would hand every caller the problem the registry exists to solve.
+- If the contract ever grows genuinely complex schemas — nested objects, unions, discriminated variants — `typify` is still the escape hatch and this ADR should be revisited rather than the emitter grown to match it.
+
+**Rejected.** *`typify` plus a second generator for the registry* — two pipelines, two failure modes, and the registry generator would still be hand-written. *Reading `packages/contract/src/errors.ts` from Rust* — that means parsing TypeScript. *Duplicating status and retryability by hand on the Rust side* — precisely the drift the contract exists to prevent.

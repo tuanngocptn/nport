@@ -26,32 +26,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$schema": "https://json-schema.org/draft/2020-12/schema",
-                  "type": "object",
-                  "properties": {
-                    "challenge": {
-                      "type": "string",
-                      "description": "Opaque, HMAC-signed, self-validating. Nothing is stored server-side."
-                    },
-                    "difficulty": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 32,
-                      "description": "Required leading zero bits. Raised under load."
-                    },
-                    "expiresAt": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991,
-                      "description": "After this, solving it is pointless."
-                    }
-                  },
-                  "required": [
-                    "challenge",
-                    "difficulty",
-                    "expiresAt"
-                  ],
-                  "description": "A stateless proof-of-work challenge."
+                  "$ref": "#/components/schemas/ChallengeResponse"
                 }
               }
             }
@@ -110,38 +85,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "type": "object",
-                "properties": {
-                  "subdomain": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 95,
-                    "description": "Desired subdomain. Normalized server-side; omit to have one generated."
-                  },
-                  "challenge": {
-                    "type": "string",
-                    "description": "The `challenge` value from `GET /v1/challenge`."
-                  },
-                  "nonce": {
-                    "type": "string",
-                    "description": "A solution satisfying the challenge's difficulty."
-                  },
-                  "client": {
-                    "type": "string",
-                    "enum": [
-                      "cli",
-                      "desktop"
-                    ],
-                    "description": "Which client is calling."
-                  }
-                },
-                "required": [
-                  "challenge",
-                  "nonce",
-                  "client"
-                ],
-                "description": "Claim a subdomain and provision a tunnel."
+                "$ref": "#/components/schemas/CreateTunnelRequest"
               }
             }
           }
@@ -152,50 +96,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$schema": "https://json-schema.org/draft/2020-12/schema",
-                  "type": "object",
-                  "properties": {
-                    "subdomain": {
-                      "type": "string",
-                      "minLength": 3,
-                      "maxLength": 63,
-                      "description": "The normalized subdomain that was claimed."
-                    },
-                    "url": {
-                      "type": "string",
-                      "format": "uri",
-                      "description": "The public HTTPS URL. Ready within a few seconds, not instantly."
-                    },
-                    "tunnelId": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-                      "description": "Cloudflare's tunnel UUID."
-                    },
-                    "tunnelToken": {
-                      "type": "string",
-                      "description": "Connector credential. Returned ONCE. Never logged, never in argv."
-                    },
-                    "ownerToken": {
-                      "type": "string",
-                      "description": "256-bit bearer proof for this lease. Returned ONCE; only its SHA-256 is stored."
-                    },
-                    "expiresAt": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991,
-                      "description": "Server-authoritative. The client only displays it."
-                    }
-                  },
-                  "required": [
-                    "subdomain",
-                    "url",
-                    "tunnelId",
-                    "tunnelToken",
-                    "ownerToken",
-                    "expiresAt"
-                  ],
-                  "description": "A provisioned tunnel. Both tokens are shown exactly once."
+                  "$ref": "#/components/schemas/CreateTunnelResponse"
                 }
               }
             }
@@ -315,18 +216,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "type": "object",
-                "properties": {
-                  "ownerToken": {
-                    "type": "string",
-                    "description": "Proves this caller created the lease."
-                  }
-                },
-                "required": [
-                  "ownerToken"
-                ],
-                "description": "Renew a lease."
+                "$ref": "#/components/schemas/HeartbeatRequest"
               }
             }
           }
@@ -337,20 +227,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$schema": "https://json-schema.org/draft/2020-12/schema",
-                  "type": "object",
-                  "properties": {
-                    "expiresAt": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991,
-                      "description": "Authoritative. Clients correct their countdown from this rather than counting locally."
-                    }
-                  },
-                  "required": [
-                    "expiresAt"
-                  ],
-                  "description": "The lease's current expiry."
+                  "$ref": "#/components/schemas/HeartbeatResponse"
                 }
               }
             }
@@ -450,17 +327,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "type": "object",
-                "properties": {
-                  "ownerToken": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "ownerToken"
-                ],
-                "description": "Release a lease and tear the tunnel down. Idempotent."
+                "$ref": "#/components/schemas/DeleteTunnelRequest"
               }
             }
           }
@@ -563,30 +430,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$schema": "https://json-schema.org/draft/2020-12/schema",
-                  "type": "object",
-                  "properties": {
-                    "subdomain": {
-                      "type": "string",
-                      "minLength": 3,
-                      "maxLength": 63,
-                      "description": "The normalized subdomain that was claimed."
-                    },
-                    "active": {
-                      "type": "boolean"
-                    },
-                    "expiresAt": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991,
-                      "description": "Milliseconds since the Unix epoch, UTC."
-                    }
-                  },
-                  "required": [
-                    "subdomain",
-                    "active"
-                  ],
-                  "description": "Public status. Deliberately carries nothing an attacker could use."
+                  "$ref": "#/components/schemas/TunnelStatusResponse"
                 }
               }
             }
@@ -656,48 +500,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$schema": "https://json-schema.org/draft/2020-12/schema",
-                  "type": "object",
-                  "properties": {
-                    "minClientVersion": {
-                      "type": "string",
-                      "description": "Below this, requests get 426 CLIENT_TOO_OLD."
-                    },
-                    "tunnelDurationMs": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "heartbeatIntervalMs": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "powDifficulty": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 32
-                    },
-                    "maxConcurrentPerSource": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "maxCreatesPerHourPerSource": {
-                      "type": "integer",
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991
-                    }
-                  },
-                  "required": [
-                    "minClientVersion",
-                    "tunnelDurationMs",
-                    "heartbeatIntervalMs",
-                    "powDifficulty",
-                    "maxConcurrentPerSource",
-                    "maxCreatesPerHourPerSource"
-                  ],
-                  "description": "Limits, discovered rather than hardcoded, so they can be tuned without a client release."
+                  "$ref": "#/components/schemas/MetaResponse"
                 }
               }
             }
@@ -750,6 +553,236 @@
   },
   "components": {
     "schemas": {
+      "ChallengeResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string",
+            "description": "Opaque, HMAC-signed, self-validating. Nothing is stored server-side."
+          },
+          "difficulty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32,
+            "description": "Required leading zero bits. Raised under load."
+          },
+          "expiresAt": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "After this, solving it is pointless."
+          }
+        },
+        "required": [
+          "challenge",
+          "difficulty",
+          "expiresAt"
+        ],
+        "description": "A stateless proof-of-work challenge."
+      },
+      "ClientKind": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "string",
+        "enum": [
+          "cli",
+          "desktop"
+        ],
+        "description": "Which client is calling."
+      },
+      "CreateTunnelRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "subdomain": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 95,
+            "description": "Desired subdomain. Normalized server-side; omit to have one generated."
+          },
+          "challenge": {
+            "type": "string",
+            "description": "The `challenge` value from `GET /v1/challenge`."
+          },
+          "nonce": {
+            "type": "string",
+            "description": "A solution satisfying the challenge's difficulty."
+          },
+          "client": {
+            "type": "string",
+            "enum": [
+              "cli",
+              "desktop"
+            ],
+            "description": "Which client is calling."
+          }
+        },
+        "required": [
+          "challenge",
+          "nonce",
+          "client"
+        ],
+        "description": "Claim a subdomain and provision a tunnel."
+      },
+      "CreateTunnelResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "subdomain": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "description": "The normalized subdomain that was claimed."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "The public HTTPS URL. Ready within a few seconds, not instantly."
+          },
+          "tunnelId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "description": "Cloudflare's tunnel UUID."
+          },
+          "tunnelToken": {
+            "type": "string",
+            "description": "Connector credential. Returned ONCE. Never logged, never in argv."
+          },
+          "ownerToken": {
+            "type": "string",
+            "description": "256-bit bearer proof for this lease. Returned ONCE; only its SHA-256 is stored."
+          },
+          "expiresAt": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Server-authoritative. The client only displays it."
+          }
+        },
+        "required": [
+          "subdomain",
+          "url",
+          "tunnelId",
+          "tunnelToken",
+          "ownerToken",
+          "expiresAt"
+        ],
+        "description": "A provisioned tunnel. Both tokens are shown exactly once."
+      },
+      "HeartbeatRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ownerToken": {
+            "type": "string",
+            "description": "Proves this caller created the lease."
+          }
+        },
+        "required": [
+          "ownerToken"
+        ],
+        "description": "Renew a lease."
+      },
+      "HeartbeatResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "expiresAt": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Authoritative. Clients correct their countdown from this rather than counting locally."
+          }
+        },
+        "required": [
+          "expiresAt"
+        ],
+        "description": "The lease's current expiry."
+      },
+      "DeleteTunnelRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ownerToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ownerToken"
+        ],
+        "description": "Release a lease and tear the tunnel down. Idempotent."
+      },
+      "TunnelStatusResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "subdomain": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "description": "The normalized subdomain that was claimed."
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Milliseconds since the Unix epoch, UTC."
+          }
+        },
+        "required": [
+          "subdomain",
+          "active"
+        ],
+        "description": "Public status. Deliberately carries nothing an attacker could use."
+      },
+      "MetaResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "minClientVersion": {
+            "type": "string",
+            "description": "Below this, requests get 426 CLIENT_TOO_OLD."
+          },
+          "tunnelDurationMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "heartbeatIntervalMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "powDifficulty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "maxConcurrentPerSource": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "maxCreatesPerHourPerSource": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "minClientVersion",
+          "tunnelDurationMs",
+          "heartbeatIntervalMs",
+          "powDifficulty",
+          "maxConcurrentPerSource",
+          "maxCreatesPerHourPerSource"
+        ],
+        "description": "Limits, discovered rather than hardcoded, so they can be tuned without a client release."
+      },
       "Error": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",

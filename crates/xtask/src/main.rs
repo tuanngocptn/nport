@@ -1,7 +1,7 @@
 //! Repository automation, run as `cargo xtask <command>` via the alias in
 //! `.cargo/config.toml`.
 //!
-//! **Commands are not implemented yet.** Each lands with the phase that needs it
+//! `codegen` is implemented. The rest land with the phase that needs them
 //! (`docs/ROADMAP.md`). Until then they succeed as no-ops, which is the honest answer
 //! for a repository with nothing generated in it: `codegen-drift.yml` compares the tree
 //! before and after, so a no-op leaves it clean and the gate starts biting for real the
@@ -10,6 +10,8 @@
 #![forbid(unsafe_code)]
 
 use std::process::ExitCode;
+
+mod codegen;
 
 const USAGE: &str = "\
 usage: cargo xtask <command>
@@ -28,7 +30,14 @@ fn main() -> ExitCode {
     };
 
     match command.as_str() {
-        "codegen" | "fixtures" | "npm-packages" | "verify-docs" => {
+        "codegen" => match codegen::run() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("xtask codegen: {error}");
+                ExitCode::FAILURE
+            }
+        },
+        "fixtures" | "npm-packages" | "verify-docs" => {
             eprintln!("xtask {command}: not implemented yet — see docs/ROADMAP.md");
             ExitCode::SUCCESS
         }
