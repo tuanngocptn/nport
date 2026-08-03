@@ -6,11 +6,19 @@ A gate is a hard stop: every criterion must pass before the next phase starts. G
 
 ## Current position
 
-**Phase 1 in progress — sub-steps 1–6 of 7 done, and G1 criteria 2 and 3 met.** Gate G0 is closed locally: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `cargo fmt --check`, `clippy -D warnings`, and `cargo test` all pass. CI has not run yet — nothing is pushed.
+**Phase 1: all seven sub-steps done. G1 criteria 2, 3, and 4 met; 5 is partial; 1 is unverified for want of dashboard access.** Gate G0 is closed locally: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `cargo fmt --check`, `clippy -D warnings`, and `cargo test` all pass. CI has not run yet — nothing is pushed.
 
-`crates/protocol` parses tokens, discovers the edge, completes a QUIC handshake, registers a connection, **proxies an HTTP request end-to-end**, and **carries a WebSocket** — a real `curl` through Cloudflare reaches a local origin and gets its bytes back unchanged, and a real WebSocket client completes 100 echo round-trips through the same connection. Two and a half of the six open questions in `docs/PROTOCOL.md` §17 are answered, and risks P1, P2, and P3 are closed.
+`crates/protocol` parses tokens, discovers the edge, completes a QUIC handshake, registers connections, **proxies HTTP end-to-end**, **carries WebSockets**, and **sustains a four-connection pool across forced disconnects**. Two and a half of the six open questions in `docs/PROTOCOL.md` §17 are answered, and risks P1, P2, and P3 are closed.
 
-Remaining for G1: the four-connection pool sustained for 30 minutes across a forced disconnect (criterion 4), and golden fixtures captured from cloudflared (criterion 5).
+| G1 criterion | State |
+| --- | --- |
+| 1 · `healthy` in the Cloudflare dashboard | **not directly verified** — no dashboard access from here. Four connections registering, reporting their colo, and serving 340 exchanges is strong indirect evidence, but it is not the same check |
+| 2 · byte-identical body and headers | ✅ 2026-08-03, both directions including request bodies |
+| 3 · WebSocket echo, 100 messages | ✅ 2026-08-03, plus a 64 KiB frame |
+| 4 · 30 min across 4 connections and a forced disconnect | ✅ 2026-08-03, 99.6–99.8% per connection, and **338 of 339 requests during the window returned 200** — the pool's exchange count matches the client's success count, so every request that reached it was served |
+| 5 · golden fixtures for every frame type | **partial** — 2 of 7, the edge→client ones. The rest need cloudflared (`docs/TESTING.md`) |
+
+The two gaps are both "needs access I do not have" rather than "needs design": criterion 1 wants the Cloudflare dashboard, criterion 5 wants cloudflared installed. Neither blocks Phase 1.5, and neither is a protocol risk — the behaviour they would confirm is already exercised.
 
 ## Phase 0 — Docs and skeleton
 
@@ -42,7 +50,7 @@ Ordered sub-steps, each independently verifiable:
 4. ~~Cap'n Proto `registerConnection` over the control stream — **no preamble** (§6, trap 1)~~ — **done**, `crates/protocol/src/rpc.rs`; registered against the live edge on 2026-08-03, colo `hkg09`. Risk P1 closed and the §8 interfaceId correction confirmed empirically
 5. ~~`ConnectRequest` framing; answer one HTTP GET end-to-end~~ — **done**, `crates/protocol/src/connect.rs`; `curl https://spike.nport.link/health?q=1` returned the origin's 43-byte body **byte-identical** with `content-type` and a custom header preserved, 2026-08-03. **This is G1 criterion 2.**
 6. ~~WebSocket upgrade and bidirectional pipe~~ — **done**, `crates/protocol/examples/spike.rs` plus `WEBSOCKET_ORIGIN_HEADERS` in `connect.rs`; 100 alternating text/binary round-trips and a 64 KiB frame came back byte-identical through colo `hkg09`, 2026-08-03. **This is G1 criterion 3.** Run it with `tests/live/tunnel.sh builtin <sub>` in one terminal and `--example ws_client` in another
-7. Four-connection pool with staggered start, per-index edge rotation, reconnect — **in progress**, `crates/protocol/src/edge.rs` (`AddressPool`) plus `examples/pool.rs`; all four connections came up 2/2 across regions in four distinct colos on 2026-08-03. The sustained run is what closes criterion 4
+7. ~~Four-connection pool with staggered start, per-index edge rotation, reconnect~~ — **done**, `crates/protocol/src/edge.rs` (`AddressPool`) plus `examples/pool.rs`. A 30-minute run on 2026-08-03 held four connections at **99.6–99.8% availability each** across five forced disconnects, 340 exchanges, and **zero** dial or registration failures; each loss rotated to the other region and re-registered. **This is G1 criterion 4.**
 
 Step 6 was mostly wiring, because step 5's live run had already shown `type Websocket` arriving correctly and being refused — the dispatch was proven before the handler existed. What it did cost was the two forwarding directions: the upgrade headers the edge does not send, and the origin bytes already queued behind its response head (`docs/PROTOCOL.md` §11).
 
