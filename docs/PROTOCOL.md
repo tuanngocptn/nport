@@ -16,8 +16,8 @@ Specification for `crates/protocol`. NPort speaks this protocol directly instead
 | **Pinned commit** | `3a2b45c2a511fcdd81b68c190938e4ffadbea5dc` (2026-07-22) |
 | Corresponding release | `2026.7.3` |
 | Upstream licence | Apache-2.0 — permits reimplementation and copying the `.capnp` schema, with attribution and NOTICE |
-| Last verified against the live edge | **2026-08-03, discovery only.** SRV, region A/AAAA, and both TXT dials confirmed (§4). No QUIC handshake has been attempted yet |
-| Implementation status | Phase 1 in progress: token parsing and edge discovery done, transports not started |
+| Last verified against the live edge | **2026-08-03.** Discovery (§4) plus a completed QUIC handshake with ALPN `argotunnel` negotiated (§5), both key-exchange configurations. Registration not yet attempted |
+| Implementation status | Phase 1 in progress: token parsing, edge discovery, and the QUIC handshake done. Registration RPC next |
 
 Every constant below cites the Go file and symbol it was read from. **When you need a value that is not in this document, read it from the pinned commit and add it here with a citation — never guess, and never copy a number from a blog post.** Re-pin deliberately: bump the SHA, re-read the cited symbols, update this file, and record the bump in `docs/DECISIONS.md`.
 
@@ -177,7 +177,23 @@ Upstream pins a Cloudflare fork of quic-go (`chungthuang/quic-go`, based on 0.45
 
 > `tlsconfig/certreloader.go` → `CreateTunnelConfig`
 
-Verification is **standard and not customized**: the OS system root pool, normal hostname and chain verification, **no certificate pinning**, and **no client certificate**. Upstream also appends three legacy Cloudflare Origin-CA roots, which are irrelevant to edge verification (`quic.cftunnel.com` is publicly trusted) and marked for removal upstream. `rustls` with `rustls-platform-verifier` is sufficient — do not add pinning or disable verification.
+Hostname and chain verification are normal, with **no certificate pinning** and **no client certificate**. But the trust anchors are not just the system pool:
+
+> **Corrected 2026-08-03.** This section previously said upstream's three Cloudflare Origin-CA roots were "irrelevant to edge verification, since `quic.cftunnel.com` is publicly trusted". That is wrong. **The edge presents a Cloudflare Origin CA certificate**, so a client trusting only public roots fails the handshake. Observed against the live edge: macOS's platform verifier rejects it with `“CloudFlare Origin Certificate” certificate is not standards compliant: -67901`.
+
+`CreateTunnelConfig` builds `x509.SystemCertPool()` and then adds `GetCloudflareRootCA()`. Both halves are required, and the second is the load-bearing one. The three roots live in `tlsconfig/cloudflare_ca.go` and are vendored to `crates/protocol/certs/cloudflare-root-ca.pem`:
+
+```
+CloudFlare Origin SSL ECC Certificate Authority      (ECDSA, expires 2029-08-15)
+CloudFlare Origin SSL Certificate Authority          (RSA,   expires 2029-08-15)
+origin-pull.cloudflare.net                           (Origin Pull)
+```
+
+Consequences for the Rust side:
+
+- **`rustls-platform-verifier` is not usable here**, because a platform verifier cannot be extended with extra roots — and Apple's policy engine rejects these certificates outright regardless. Use `rustls-native-certs` for the system roots, add the vendored bundle, and let rustls' own webpki verifier do the checking.
+- Upstream's comment on the bundle is `TODO: remove the Origin CA root certs when migrated to Authenticated Origin Pull certs`. When that migration happens the bundle stops being needed — but until then, dropping it breaks every connection. Re-check it whenever the pinned commit moves.
+- Do not respond to a certificate error here by disabling verification. The failure mode is a missing root, and the fix is adding the root.
 
 ### Key exchange — a live risk
 
@@ -187,7 +203,7 @@ Default mode is `PostQuantumPrefer`, so cloudflared advertises `X25519MLKEM768` 
 
 `0xfe32` is a Cloudflare-specific draft Kyber hybrid with no Rust equivalent, and is deprecated upstream. Offer **`X25519MLKEM768` + `secp256r1`**.
 
-**Whether the edge accepts a classical-only client is unverified** (see §12). The spike should try `secp256r1` alone first — fewer variables — and add `X25519MLKEM768` if the handshake is rejected.
+**Answered 2026-08-03: the edge accepts a classical-only client.** A handshake offering `secp256r1` alone succeeds, as does one offering `X25519MLKEM768` first. NPort offers the post-quantum set by default, matching cloudflared, and keeps a classical-only mode for platforms that cannot do ML-KEM.
 
 ### Transport parameters
 
@@ -198,14 +214,18 @@ Default mode is `PostQuantumPrefer`, so cloudflared advertises `X25519MLKEM768` 
 | Handshake idle timeout | 5 s | `HandshakeIdleTimeout` |
 | Max idle timeout | 5 s | `MaxIdleTimeout` |
 | **Keep-alive period** | **1 s** | `MaxIdlePingPeriod` |
-| Max incoming bidi streams | 2^60 | `MaxIncomingStreams` |
-| Max incoming uni streams | 2^60 | `MaxIncomingStreams` |
+| Max incoming bidi streams | 2^60 — **do not copy, see below** | `MaxIncomingStreams` |
+| Max incoming uni streams | 2^60 — **do not copy, see below** | `MaxIncomingStreams` |
 | Datagrams | enabled | `EnableDatagrams: true` |
 | Connection receive window | 30 MiB | `QuicConnLevelFlowControlLimit` |
 | Stream receive window | 6 MiB | `QuicStreamLevelFlowControlLimit` |
 | Initial packet size | **1232** (IPv4) / **1252** (IPv6) | `serveQUIC` |
 
-Two of these are load-bearing:
+**`MaxIncomingStreams` is the one value in this table that must not be transcribed literally.** quic-go tracks stream permits lazily, so `2^60` costs it nothing. `quinn_proto::StreamsState::new` instead pre-populates a map with one entry per initially-permitted receive stream, so passing `2^60` does not error — it spins inside `Endpoint::connect` attempting ~10^18 `HashMap` inserts. Because that happens **synchronously, before the future is returned**, no `tokio::time::timeout` around the dial can interrupt it; the task never yields, and the process looks wedged rather than slow. Diagnosed 2026-08-03 with `sample(1)` on a stuck spike; `crates/protocol/src/quic.rs` uses 4096 with a compile-time assertion against regressing to the upstream value.
+
+The general lesson for this whole table: a constant can be simultaneously correct about the wire and wrong as a quinn input. Faithfulness means matching what the peer observes, not what the Go source literally says.
+
+Two more are load-bearing:
 
 - **Keep-alive 1 s is mandatory.** The edge idles you out after 5 s. `quinn` does not enable keep-alive by default — set `TransportConfig::keep_alive_interval` explicitly or every connection dies after five seconds of quiet.
 - **Initial packet size 1232/1252, not 1280.** Upstream's comment: quic-go 0.44 raised the default to 1280, which broke anyone tunnelling through WARP, whose MTU *is* 1280. `quinn`'s 1200 default is safe; if you enable MTU discovery, mirror this ceiling.
@@ -564,7 +584,7 @@ Note `cf-cloudflared-request-headers` is declared upstream but no longer read �
 | capnp RPC registration | `src/rpc/` | integration, live edge |
 | `Transport` trait, shared by quic/h2 | `src/lib.rs` | — |
 
-Crates: `quinn`, `rustls` + `rustls-platform-verifier`, `capnp` + `capnpc`, `capnp-rpc`, `h2`, `hickory-resolver`, `base64`, `serde`/`serde_json`, `uuid`, `zeroize`. **No msgpack.**
+Crates: `quinn` (with `rustls-aws-lc-rs`, not `ring` — ML-KEM needs it), `rustls` + `rustls-native-certs` + `rustls-pemfile`, `capnp` + `capnpc`, `capnp-rpc`, `h2`, `hickory-resolver`, `base64`, `serde`/`serde_json`, `uuid`, `zeroize`. **No msgpack, and not `rustls-platform-verifier`** — see §5.
 
 `#![forbid(unsafe_code)]` — a network-facing protocol client has no need for `unsafe`.
 
@@ -580,7 +600,7 @@ Golden byte fixtures live in `crates/protocol/tests/fixtures/` and are the regre
 | --- | --- | --- |
 | P1 | `capnp-rpc` ↔ `zombiezen/go-capnproto2` interop is unexercised by anyone | Both implement standard `rpc.capnp` Level 1. Escape hatch: the surface is one bootstrap + 3 methods, so hand-encoding `bootstrap`/`call`/`return`/`finish` is tractable |
 | ~~P2~~ | `interfaceId` ambiguity (§8) — **resolved from source, 2026-08-03.** The wire ID is `0xf71695ec7fe85497` and a schema-driven client emits it by default | none needed; §8 records the trap so it is not re-introduced |
-| P3 | Post-quantum key exchange may be required | Try classical first, add `X25519MLKEM768` if rejected |
+| ~~P3~~ | Post-quantum key exchange may be required — **resolved 2026-08-03: it is not.** Both classical-only and PQ-preferred handshakes succeed | none needed |
 | P4 | Version byte `"01"` is a deliberate silent-change hook — upstream comments it as a no-op branch point | `protocol-canary.yml` detects a bump within 6 h |
 | P5 | Two TXT kill-switches let the edge change client expectations with no cloudflared release | Read `protocol-v2.argotunnel.com`; canary catches the rest |
 | P6 | The SRV name is already at `v2`; a `v3` rename is plausible | Canary; keep discovery in one module |
@@ -593,7 +613,7 @@ Not answered by the source reads so far. The Phase 1 spike must answer the rest;
 
 1. ~~Does the edge dispatch `registerConnection` on `0xea58385c65416035` (`TunnelServer`) or `0xf71695ec7fe85497` (`RegistrationServer`)?~~ — **answered 2026-08-03 from the generated Go: `0xf71695ec7fe85497`.** Never an edge-behaviour question; it was a misreading of the Go wrapper (§8).
 2. Is a minimum `ClientInfo.version` enforced? Are unknown feature strings rejected? — **unanswered**
-3. Does the edge accept a classical-only key exchange (no PQ group)? — **unanswered**
+3. ~~Does the edge accept a classical-only key exchange (no PQ group)?~~ — **answered 2026-08-03: yes.** `secp256r1` alone completes the handshake.
 4. What is the full set of `ConnectionError.cause` values? Only `EDUPCONN` and substring `Unauthorized` are handled upstream. — **unanswered**
 5. Are there per-account connection-count or registration rate limits? — **unanswered**
 6. Does the edge *require* the data-stream preamble on `ConnectResponse`, or merely tolerate it? cloudflared always writes it. — **unanswered**

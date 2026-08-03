@@ -37,12 +37,23 @@ h2 = "0.4"
 hickory-resolver = "0.26"
 insta = "1.48"
 proptest = "1.11"
-quinn = "0.11"
-# Crypto provider (ring vs aws-lc-rs) is deliberately unset: offering X25519MLKEM768
-# needs aws-lc-rs, but the two musl release targets are where that linkage breaks.
-# Decide it in the Phase 1 spike — docs/PROTOCOL.md §5, risk P3, and docs/RELEASE.md.
+# aws-lc-rs, not quinn's default ring: offering X25519MLKEM768 requires it, and rustls
+# 0.23's own default features pair aws-lc-rs with `prefer-post-quantum` — which is
+# precisely cloudflared's PostQuantumPrefer default (docs/PROTOCOL.md §5).
+# Watch this at release time: the two musl targets are where aws-lc-rs linkage bites
+# (docs/RELEASE.md).
+quinn = { version = "0.11", default-features = false, features = [
+  "log",
+  "runtime-tokio",
+  "rustls-aws-lc-rs",
+  "bloom",
+] }
 rustls = "0.23"
-rustls-platform-verifier = "0.7"
+# System roots, mirroring upstream's x509.SystemCertPool(). Not rustls-platform-verifier:
+# the edge presents a Cloudflare Origin CA certificate, and a platform verifier cannot be
+# extended with the extra roots that requires (docs/PROTOCOL.md §5).
+rustls-native-certs = "0.8"
+rustls-pemfile = "2.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"

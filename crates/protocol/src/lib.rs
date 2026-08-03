@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 pub mod edge;
+pub mod quic;
 pub mod token;
 
 /// Generated from `schema/`. Not our code, so not our lint standards — but it is our
