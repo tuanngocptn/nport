@@ -52,6 +52,40 @@ User documentation lives at [nport.link](https://nport.link). This repository's 
 | [SELF_HOSTING](docs/SELF_HOSTING.md) | run your own control plane on your own domain |
 | [OPERATIONS](docs/OPERATIONS.md) · [RELEASE](docs/RELEASE.md) | running and shipping it |
 
+## Development
+
+Node 24 and [rustup](https://rustup.rs) — full prerequisites and dev loop in [CONTRIBUTING](docs/CONTRIBUTING.md).
+
+```bash
+corepack enable && pnpm install    # dependencies and the git hooks
+```
+
+Most of these currently run against stubs; the phase in brackets is when each becomes meaningful.
+
+| Command | What it does |
+| --- | --- |
+| `pnpm lint` | Biome over the whole repo — the linter and the formatter check |
+| `pnpm lint:fix` | the same, applying every safe fix |
+| `pnpm format` | formatting only, no lint rules |
+| `pnpm typecheck` | `tsc` in every package that has TypeScript |
+| `pnpm test` | Vitest, including the API's real-`workerd` tests [2a] |
+| `pnpm build` | Next.js + OpenNext, and any package that builds [2c] |
+| `pnpm codegen` | regenerate the OpenAPI document and everything downstream of it [1.5] |
+| `pnpm dev:api` | `wrangler dev` with local Durable Objects [2a] |
+| `pnpm dev:web` | `next dev` with Worker bindings [2c] |
+| `pnpm dev:desktop` | `tauri dev` [4] |
+| `cargo run -p nport -- 3000 -s test` | the CLI [2b] |
+| `cargo test` | all Rust, hermetic — add `-- --ignored` for the live-edge tests [1] |
+| `cargo clippy --all-targets -- -D warnings` | Rust lint, as CI runs it |
+| `cargo fmt` | Rust formatting |
+| `cargo deny check all` | licence allowlist and RUSTSEC advisories |
+| `cargo xtask codegen` | the Rust half of codegen; must leave the tree clean [1.5] |
+| `cargo xtask fixtures` | capture golden protocol byte fixtures [1] |
+| `cargo xtask verify-docs` | check repo-map paths, error codes, and markdown links |
+| `cargo xtask npm-packages` | generate the nine npm manifests from the Cargo version [3] |
+
+`pnpm install` installs the git hooks, so committing runs Biome and `cargo fmt` on what you staged and checks the commit subject. Full script list: root [`package.json`](package.json).
+
 ## A note on the native connector
 
 v3 implements Cloudflare's tunnel connector protocol directly in Rust rather than shipping the `cloudflared` binary. That is what makes NPort a single static binary with no runtime dependency, no download at install time, and a traffic inspector that comes almost for free.
