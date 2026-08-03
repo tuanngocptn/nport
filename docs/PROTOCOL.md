@@ -502,6 +502,24 @@ client → edge:    raw response body bytes, on the same stream
 
 Bodies are **raw byte streams with no tunnel-layer framing**. `Content-Length` and `Transfer-Encoding` are just metadata entries. **End of body is QUIC stream FIN** — half-close the send side when the body ends.
 
+> **Chunked transfer coding must be decoded before the body crosses the tunnel.** Observed
+> 2026-08-03 against a Next.js dev server: the origin answered `Transfer-Encoding: chunked`, the
+> proxy stripped the header — correct, it is hop-by-hop and cannot survive the edge's HTTP/2 hop —
+> and forwarded the body still chunk-framed. The browser rendered hex chunk-size lines as page
+> content: a wall of binary garbage starting with `a` and `1c8d`.
+>
+> cloudflared never encounters this because Go's `http.Client` decodes chunked transparently. Any
+> hand-rolled origin client must do it explicitly, and this is the strongest argument for
+> `crates/core` using `hyper` rather than its own HTTP/1.1 reader.
+>
+> Two consequences beyond the decode itself:
+>
+> - **`Content-Length` must be re-derived, never copied.** A dechunked body has a different length
+>   than the framing announced, and a stale length truncates the response.
+> - **`Content-Encoding` is end-to-end and passes through untouched.** Only the *transfer* coding
+>   is the proxy's business. Verified byte-identical both ways: with `gzip` relayed to the edge and
+>   with the edge decompressing for a client that did not ask for it.
+
 Upstream strips the body entirely when the request is not a WebSocket, is not chunked, and has `ContentLength == 0`, to stop Go's client emitting a spurious chunked body (`connection/quic_connection.go` → `buildHTTPRequest`).
 
 ### WebSockets

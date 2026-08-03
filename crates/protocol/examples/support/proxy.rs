@@ -227,16 +227,30 @@ pub fn origin_request_head(
     head
 }
 
-/// Reads one HTTP/1.1 response head, returning the status, the headers, and **any bytes read
-/// past the terminator**.
+/// A parsed origin response head.
+pub struct ResponseHead {
+    pub status: u16,
+    /// Hop-by-hop headers already removed.
+    pub headers: Vec<(String, String)>,
+    /// Bytes read past the `\r\n\r\n`. On a `101` these are already WebSocket frames.
+    pub leftover: Vec<u8>,
+    /// Whether the body arrives chunk-framed.
+    ///
+    /// Read from `Transfer-Encoding` **before** it is stripped, and it has to be surfaced rather
+    /// than dropped with the header: the framing is still in the body, and forwarding it raw
+    /// sends chunk-size lines to the browser as content.
+    pub chunked: bool,
+}
+
+/// Reads one HTTP/1.1 response head.
 ///
-/// Incremental rather than read-to-end, and it hands the leftover back rather than dropping
-/// it, because on a `101` the very next bytes on the socket are already WebSocket frames.
-/// Reading into a scratch buffer that goes out of scope would lose the origin's first frame
-/// with nothing to show for it.
+/// Incremental rather than read-to-end, and it hands the leftover back rather than dropping it,
+/// because on a `101` the very next bytes on the socket are already WebSocket frames. Reading
+/// into a scratch buffer that goes out of scope would lose the origin's first frame with nothing
+/// to show for it.
 pub async fn read_response_head(
     socket: &mut tokio::net::TcpStream,
-) -> Result<(u16, Vec<(String, String)>, Vec<u8>), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<ResponseHead, Box<dyn std::error::Error + Send + Sync>> {
     use nport_protocol::connect::is_hop_by_hop;
     use tokio::io::AsyncReadExt as _;
 
@@ -266,16 +280,81 @@ pub async fn read_response_head(
         .and_then(|code| code.parse().ok())
         .ok_or("origin response had no status code")?;
 
-    // Hop-by-hop headers must not be forwarded; everything else travels as metadata. On a
-    // 101 this strips `Connection` and `Upgrade`, which matches upstream: the edge is told
-    // about the upgrade by the 101 itself plus Sec-Websocket-Accept, not by headers.
-    let headers = lines
+    let all: Vec<(String, String)> = lines
         .filter_map(|line| line.split_once(": "))
-        .filter(|(name, _)| !is_hop_by_hop(name))
         .map(|(name, value)| (name.to_owned(), value.to_owned()))
         .collect();
 
-    Ok((status, headers, leftover))
+    let chunked = all.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("transfer-encoding")
+            && value.to_ascii_lowercase().contains("chunked")
+    });
+
+    // Hop-by-hop headers must not be forwarded; everything else travels as metadata. On a 101
+    // this strips `Connection` and `Upgrade`, which matches upstream: the edge is told about the
+    // upgrade by the 101 itself plus Sec-Websocket-Accept, not by headers.
+    //
+    // `content-length` goes too, and is re-added from the body we actually assembled. A length
+    // copied from the origin is wrong the moment the body is dechunked, and a wrong
+    // content-length truncates the response in the browser.
+    let headers = all
+        .into_iter()
+        .filter(|(name, _)| !is_hop_by_hop(name) && !name.eq_ignore_ascii_case("content-length"))
+        .collect();
+
+    Ok(ResponseHead {
+        status,
+        headers,
+        leftover,
+        chunked,
+    })
+}
+
+/// Decodes HTTP/1.1 chunked transfer coding.
+///
+/// **This is why the browser saw binary garbage.** A Next.js dev server answers `Transfer-Encoding:
+/// chunked`; the proxy correctly stripped the header, because it is hop-by-hop and cannot cross to
+/// the edge's HTTP/2 hop — but the chunk framing is in the *body*, and forwarding it raw meant the
+/// browser rendered hex chunk-size lines as page content.
+///
+/// cloudflared never hits this: Go's `http.Client` decodes chunked transparently. A hand-rolled
+/// reader has to do it explicitly, which is the whole argument for `crates/core` using `hyper`
+/// rather than growing this file.
+///
+/// Trailers after the terminating `0` chunk are discarded, matching what a proxy should do with
+/// headers it is not forwarding.
+pub fn decode_chunked(body: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut out = Vec::with_capacity(body.len());
+    let mut rest = body;
+
+    loop {
+        let line_end = rest
+            .windows(2)
+            .position(|window| window == b"\r\n")
+            .ok_or("chunked body ended mid-size-line")?;
+        let line = &rest[..line_end];
+
+        // A chunk-size line may carry `;ext=value` extensions. Ignore them, but do not let one
+        // corrupt the size.
+        let size_text = line.split(|byte| *byte == b';').next().unwrap_or(line);
+        let size_text = std::str::from_utf8(size_text)?.trim();
+        let size = usize::from_str_radix(size_text, 16)
+            .map_err(|_| format!("chunk size {size_text:?} is not hexadecimal"))?;
+
+        rest = &rest[line_end + 2..];
+        if size == 0 {
+            // Terminating chunk. Anything after it is trailers, which are dropped.
+            break;
+        }
+        if rest.len() < size + 2 {
+            return Err(format!("chunk claims {size} bytes but only {} remain", rest.len()).into());
+        }
+        out.extend_from_slice(&rest[..size]);
+        // Each chunk is followed by its own CRLF.
+        rest = &rest[size + 2..];
+    }
+
+    Ok(out)
 }
 
 /// An ordinary request/response exchange.
@@ -307,17 +386,33 @@ pub async fn proxy_http(
         upstream.write_all(&body).await?;
     }
 
-    let (status, headers, mut response_body) = read_response_head(&mut upstream).await?;
-    upstream.read_to_end(&mut response_body).await?;
+    let head = read_response_head(&mut upstream).await?;
+    // `connection: close` means read-to-end delimits the body, so no length header is needed to
+    // know where it stops.
+    let mut raw_body = head.leftover;
+    upstream.read_to_end(&mut raw_body).await?;
 
-    connect::write_connect_response(&mut send, status, &headers).await?;
+    let response_body = if head.chunked {
+        decode_chunked(&raw_body)?
+    } else {
+        raw_body
+    };
+
+    // content-length is re-derived, never copied: read_response_head dropped the origin's, and a
+    // dechunked body has a different length than the framing announced.
+    let mut headers = head.headers;
+    headers.push(("content-length".to_owned(), response_body.len().to_string()));
+
+    connect::write_connect_response(&mut send, head.status, &headers).await?;
     send.write_all(&response_body).await?;
     // End of body is stream FIN (§11).
     send.finish()?;
 
     println!(
-        "  ← {status}, {} bytes out, {} in, {} headers",
+        "  ← {}, {} bytes out{}, {} in, {} headers",
+        head.status,
         response_body.len(),
+        if head.chunked { " (dechunked)" } else { "" },
         body.len(),
         headers.len()
     );
@@ -348,30 +443,39 @@ pub async fn proxy_websocket(
     let head = origin_request_head(request, &WEBSOCKET_ORIGIN_HEADERS, None);
     upstream.write_all(head.as_bytes()).await?;
 
-    let (status, headers, leftover) = read_response_head(&mut upstream).await?;
+    let head = read_response_head(&mut upstream).await?;
 
-    if status != 101 {
-        // The origin declined the upgrade — a plain HTTP response, relayed as one. The
-        // client sees its handshake fail with the origin's own status, which is far more
-        // useful than a synthesised 502.
-        let mut body = leftover;
-        upstream.read_to_end(&mut body).await?;
-        connect::write_connect_response(&mut send, status, &headers).await?;
+    if head.status != 101 {
+        // The origin declined the upgrade — a plain HTTP response, relayed as one. The client
+        // sees its handshake fail with the origin's own status, which is far more useful than a
+        // synthesised 502.
+        let mut raw_body = head.leftover;
+        upstream.read_to_end(&mut raw_body).await?;
+        let body = if head.chunked {
+            decode_chunked(&raw_body)?
+        } else {
+            raw_body
+        };
+        let mut headers = head.headers;
+        headers.push(("content-length".to_owned(), body.len().to_string()));
+        connect::write_connect_response(&mut send, head.status, &headers).await?;
         send.write_all(&body).await?;
         send.finish()?;
-        println!("  ← {status} — origin refused the upgrade");
+        println!("  ← {} — origin refused the upgrade", head.status);
         return Ok(());
     }
 
-    let accept = headers
+    let accept = head
+        .headers
         .iter()
         .any(|(name, _)| name.eq_ignore_ascii_case("sec-websocket-accept"));
-    connect::write_connect_response(&mut send, 101, &headers).await?;
+    // No content-length on a 101: there is no body, only a byte pipe.
+    connect::write_connect_response(&mut send, 101, &head.headers).await?;
     println!("  ← 101 switching protocols (accept header {accept}), piping");
 
     // Anything the origin sent immediately after its head is already a frame.
-    if !leftover.is_empty() {
-        send.write_all(&leftover).await?;
+    if !head.leftover.is_empty() {
+        send.write_all(&head.leftover).await?;
     }
 
     let (mut origin_read, mut origin_write) = upstream.into_split();
@@ -398,4 +502,105 @@ pub async fn proxy_websocket(
         (up, down) => println!("  ⇄ pipe ended with an error — up {up:?}, down {down:?}"),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Run with `cargo test --examples` — a plain `cargo test` compiles examples but does not run
+    /// tests inside them. Called out because a test nobody runs is worse than none.
+    #[test]
+    fn decodes_a_single_chunk() {
+        assert_eq!(
+            decode_chunked(b"5\r\nhello\r\n0\r\n\r\n").unwrap(),
+            b"hello"
+        );
+    }
+
+    #[test]
+    fn joins_several_chunks_without_separators() {
+        // The failure this guards: leaving the CRLF between chunks in the output, which shows up
+        // as stray blank lines rather than as obvious garbage.
+        assert_eq!(
+            decode_chunked(b"5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n").unwrap(),
+            b" world"
+                .iter()
+                .copied()
+                .fold(b"hello".to_vec(), |mut acc, b| {
+                    acc.push(b);
+                    acc
+                })
+        );
+    }
+
+    #[test]
+    fn reads_sizes_as_hexadecimal_not_decimal() {
+        // `1c8d` was in the corrupted page the user saw. Parsed as decimal it is nonsense; the
+        // whole bug class starts with getting this radix wrong.
+        let payload = vec![b'x'; 0x1c8d];
+        let mut body = format!("{:x}\r\n", payload.len()).into_bytes();
+        body.extend_from_slice(&payload);
+        body.extend_from_slice(b"\r\n0\r\n\r\n");
+        assert_eq!(decode_chunked(&body).unwrap().len(), 0x1c8d);
+    }
+
+    #[test]
+    fn ignores_chunk_extensions() {
+        assert_eq!(
+            decode_chunked(b"5;name=value\r\nhello\r\n0\r\n\r\n").unwrap(),
+            b"hello"
+        );
+    }
+
+    #[test]
+    fn discards_trailers_after_the_final_chunk() {
+        assert_eq!(
+            decode_chunked(b"5\r\nhello\r\n0\r\nX-Trailer: v\r\n\r\n").unwrap(),
+            b"hello"
+        );
+    }
+
+    #[test]
+    fn an_empty_body_decodes_to_nothing() {
+        assert_eq!(decode_chunked(b"0\r\n\r\n").unwrap(), b"");
+    }
+
+    #[test]
+    fn preserves_bytes_that_look_like_framing() {
+        // A body containing "\r\n0\r\n\r\n" must not terminate early. Real HTML and gzip both
+        // contain arbitrary bytes, so a decoder that scans for the terminator instead of
+        // honouring sizes truncates pages at random.
+        let payload = b"before\r\n0\r\n\r\nafter";
+        let mut body = format!("{:x}\r\n", payload.len()).into_bytes();
+        body.extend_from_slice(payload);
+        body.extend_from_slice(b"\r\n0\r\n\r\n");
+        assert_eq!(decode_chunked(&body).unwrap(), payload);
+    }
+
+    #[test]
+    fn handles_binary_payloads() {
+        // gzip is what the origin actually sends, and it is full of bytes that are not UTF-8.
+        let payload: Vec<u8> = (0..=255u8).collect();
+        let mut body = format!("{:x}\r\n", payload.len()).into_bytes();
+        body.extend_from_slice(&payload);
+        body.extend_from_slice(b"\r\n0\r\n\r\n");
+        assert_eq!(decode_chunked(&body).unwrap(), payload);
+    }
+
+    #[test]
+    fn rejects_a_truncated_chunk_rather_than_returning_partial_data() {
+        // Silently returning what arrived would serve a half page as if it were whole.
+        assert!(decode_chunked(b"10\r\nshort\r\n").is_err());
+    }
+
+    #[test]
+    fn rejects_a_non_hexadecimal_size() {
+        assert!(decode_chunked(b"zz\r\nhello\r\n0\r\n\r\n").is_err());
+    }
+
+    #[test]
+    fn rejects_a_body_that_ends_mid_size_line() {
+        assert!(decode_chunked(b"5").is_err());
+    }
 }
