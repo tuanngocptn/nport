@@ -1,0 +1,28 @@
+{
+  "name": "@nport/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "NPort control plane: Hono on Cloudflare Workers.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nport/contract": "workspace:*",
+    "hono": "catalog:",
+    "@hono/zod-validator": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@nport/tsconfig": "workspace:*",
+    "@cloudflare/vitest-pool-workers": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

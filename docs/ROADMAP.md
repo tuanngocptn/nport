@@ -88,7 +88,20 @@ The one deliverable outstanding is the tag, which needs a remote. Everything Pha
 
 ### 2a · `apps/api`
 
-Hono routes under `/v1`; `SubdomainLease` and `Registry` DOs; the journaled provisioning saga with compensations; subdomain normalization and validation; the reserved list; proof-of-work challenge and verification; rate limiting and caps; alarm-driven expiry; the reconciliation cron; the legacy v2 method-dispatch shim; workerd integration tests covering alarms and storage.
+**In progress.** The stateless half is done; the lease lifecycle is next.
+
+- [x] Hono app, `ApiError` → envelope error handler, request-id from `cf-ray`
+- [x] client gate with the minimum-version floor
+- [x] stateless proof-of-work: HMAC-signed challenge, bit-level difficulty, `GET /v1/challenge`
+- [x] `GET /v1/meta`, `GET /v1/health`, `GET /` redirect
+- [x] 37 tests in real `workerd`
+- [ ] `SubdomainLease` and `Registry` DOs; the journaled provisioning saga with compensations
+- [ ] `POST /v1/tunnels`, heartbeat, delete, status
+- [ ] rate limiting and per-source caps; dynamic PoW difficulty
+- [ ] alarm-driven expiry and the reconciliation cron
+- [ ] the legacy v2 method-dispatch shim
+
+The DO classes are declared and exported but empty: `wrangler.jsonc` binds them and its `v1` migration tag is already committed, so a missing class is a deploy-time failure. They are empty rather than stubbed with fake behaviour, so nothing pretends to work.
 
 ### 2b · `crates/core` + `crates/cli`
 
