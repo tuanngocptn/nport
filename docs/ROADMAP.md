@@ -32,15 +32,15 @@ The highest-risk work, done first and alone. A throwaway `crates/protocol/exampl
 
 Ordered sub-steps, each independently verifiable:
 
-1. Parse a tunnel token; assert the redaction and zeroize behaviour
-2. Edge discovery — start with the direct A/AAAA shortcut (`docs/PROTOCOL.md` §4), add SRV after
+1. ~~Parse a tunnel token; assert the redaction and zeroize behaviour~~ — **done**, `crates/protocol/src/token.rs`
+2. ~~Edge discovery — start with the direct A/AAAA shortcut (`docs/PROTOCOL.md` §4), add SRV after~~ — **done**, `crates/protocol/src/edge.rs`; both paths verified against the live edge on 2026-08-03. DoT fallback still outstanding (needs a hickory TLS feature)
 3. QUIC handshake: ALPN `argotunnel`, SNI `quic.cftunnel.com`, keep-alive 1 s
 4. Cap'n Proto `registerConnection` over the control stream — **no preamble** (§6, trap 1)
 5. `ConnectRequest` framing; answer one HTTP GET end-to-end
 6. WebSocket upgrade and bidirectional pipe
 7. Four-connection pool with staggered start, per-index edge rotation, reconnect
 
-Expect step 4 to be where time goes: it combines the `interfaceId` ambiguity (P2), capnp-RPC interop (P1), and the no-preamble trap. Attack it with a packet capture and cloudflared running side by side.
+Expect step 4 to be where time goes: it combines capnp-RPC interop with `zombiezen/go-capnproto2` (P1) and the no-preamble trap. Attack it with a packet capture and cloudflared running side by side. The `interfaceId` question that used to sit here was resolved from source on 2026-08-03 (`docs/PROTOCOL.md` §8) — one fewer variable.
 
 **Gate G1 — go/no-go. All five required.**
 

@@ -16,19 +16,27 @@ Specification for `crates/protocol`. NPort speaks this protocol directly instead
 | **Pinned commit** | `3a2b45c2a511fcdd81b68c190938e4ffadbea5dc` (2026-07-22) |
 | Corresponding release | `2026.7.3` |
 | Upstream licence | Apache-2.0 — permits reimplementation and copying the `.capnp` schema, with attribution and NOTICE |
-| Last verified against the live edge | **never — Phase 1 has not run** |
-| Implementation status | **not started** |
+| Last verified against the live edge | **2026-08-03, discovery only.** SRV, region A/AAAA, and both TXT dials confirmed (§4). No QUIC handshake has been attempted yet |
+| Implementation status | Phase 1 in progress: token parsing and edge discovery done, transports not started |
 
 Every constant below cites the Go file and symbol it was read from. **When you need a value that is not in this document, read it from the pinned commit and add it here with a citation — never guess, and never copy a number from a blog post.** Re-pin deliberately: bump the SHA, re-read the cited symbols, update this file, and record the bump in `docs/DECISIONS.md`.
 
 Read a file from the pinned commit with:
 
 ```bash
-gh api repos/cloudflare/cloudflared/contents/quic/constants.go \
-  --jq '.content' -f ref=3a2b45c2a511fcdd81b68c190938e4ffadbea5dc | base64 -d
+REF=3a2b45c2a511fcdd81b68c190938e4ffadbea5dc
+gh api "repos/cloudflare/cloudflared/contents/quic/constants.go?ref=$REF" \
+  --jq '.content' | base64 -d
 ```
 
-> `raw.githubusercontent.com` returns 404 for this repo — use `gh api` as above.
+> Two traps here. `raw.githubusercontent.com` returns 404 for this repo, so `gh api` is the way in. And the ref must go in the **query string**: passing it as `-f ref=…` makes `gh` issue a POST, which fails with an unhelpful empty body.
+
+To find a file whose path you are unsure of:
+
+```bash
+gh api "repos/cloudflare/cloudflared/git/trees/$REF?recursive=1" \
+  --jq '.tree[].path' | grep capnp
+```
 
 ### Upstream source map
 
@@ -121,12 +129,28 @@ A client may skip SRV entirely and A/AAAA-resolve `region1.v2.argotunnel.com` + 
 
 ### Other records queried
 
-| Record | Type | Content | Refresh |
+| Record | Type | Shape per the pinned source | Refresh |
 | --- | --- | --- | --- |
 | `protocol-v2.argotunnel.com` | TXT | `[{"protocol":"quic","percentage":100},…]` | 1 h (`connection/protocol.go` → `ResolveTTL`) |
 | `cfd-features.argotunnel.com` | TXT | `{"dv3_2":<pct>,"skip_prechecks":<bool>}` | 1 h, 10 s timeout (`features/selector.go`) |
 
 Both are **live remote kill-switches**: Cloudflare can change client behaviour without shipping a cloudflared release. A third-party client that ignores them will diverge from cloudflared over time. NPort should read `protocol-v2` at minimum, so a QUIC→HTTP/2 rollout change is respected rather than fought.
+
+#### Observed live, 2026-08-03
+
+```
+_v2-origintunneld._tcp.argotunnel.com.  SRV  1 1 7844 region1.v2.argotunnel.com.
+                                             2 1 7844 region2.v2.argotunnel.com.
+protocol-v2.argotunnel.com.             TXT  [{"protocol": "http2", "percentage": 100},
+                                              {"protocol": "quic",  "percentage": 100}]
+cfd-features.argotunnel.com.            TXT  {"dv3":0,"dv3_1":0,"pq":101}
+```
+
+Three things worth having on record:
+
+- **The SRV targets are exactly the hardcoded region hostnames**, at port 7844 with priorities 1 and 2. So the A/AAAA shortcut in the previous section is not an approximation today — it reaches the same addresses SRV would.
+- **`http2` is also at 100%.** The ADR-0017 fallback transport is not a legacy path being wound down; it is fully rolled out, which is the best possible news for that ladder.
+- **`cfd-features` does not currently carry the keys the pinned code parses.** It has `dv3`, `dv3_1`, and `pq` rather than `dv3_2` and `skip_prechecks`. The record and the struct are allowed to diverge — the code ignores unknown keys — but this is exactly risk P5 made visible, and `pq: 101` is a dial above 100, i.e. post-quantum key exchange is effectively always-on for cloudflared clients. That is circumstantial evidence for open question 3, not an answer: it says what cloudflared is told to *offer*, not what the edge *requires*.
 
 ### Connection pool
 
@@ -333,11 +357,13 @@ interface RegistrationServer @0xf71695ec7fe85497 {
 
 Vendor the upstream `.capnp` files into `crates/protocol/schema/` unmodified and generate with `capnpc`. The deprecated legacy section of `tunnelrpc.capnp` (`TunnelServer.registerTunnel`, `Authentication`, `RegistrationOptions`, …) must be kept verbatim if you vendor the file, because type IDs matter — but none of it is called.
 
-### The interfaceId quirk
+### The interfaceId — send `RegistrationServer`'s
 
-> `tunnelrpc/pogs/registration_server.go` → `RegisterConnection`
+**The wire carries `interfaceId = 0xf71695ec7fe85497` (`RegistrationServer`), method `0`.** Method IDs: `registerConnection` 0, `unregisterConnection` 1, `updateLocalConfiguration` 2. A schema-driven Rust client emits this by default, so there is nothing to work around.
 
-cloudflared does **not** call these methods on `RegistrationServer`. It wraps the capability as `proto.TunnelServer` and calls through that, because `TunnelServer extends (RegistrationServer)`:
+> Verified 2026-08-03 from `tunnelrpc/proto/tunnelrpc.capnp.go` at the pinned commit: both `TunnelServer.RegisterConnection` and `RegistrationServer.RegisterConnection` build `capnp.Method{InterfaceID: 0xf71695ec7fe85497, MethodID: 0}`.
+
+This entry previously said the opposite, and the reasoning is worth keeping because it is an easy trap to fall into twice. cloudflared does wrap the capability before calling:
 
 ```go
 func (c RegistrationServer_PogsClient) RegisterConnection(...) {
@@ -345,9 +371,11 @@ func (c RegistrationServer_PogsClient) RegisterConnection(...) {
 	promise := client.RegisterConnection(ctx, ...)
 ```
 
-So the call on the wire carries **`interfaceId = 0xea58385c65416035` (`TunnelServer`)**, method `0`. A schema-driven Rust client will emit `0xf71695ec7fe85497` (`RegistrationServer`) instead.
+That looks like it should put `TunnelServer`'s ID on the wire. It does not. Cap'n Proto dispatches an inherited method on **the interface that declares it**, so go-capnproto2 generates `TunnelServer.RegisterConnection` with `RegistrationServer`'s ID. The wrapper is an ergonomic type conversion, not a change of wire identity.
 
-**Send `0xea58385c65416035` to match cloudflared byte-for-byte.** Whether the edge also accepts the `RegistrationServer` ID is unverified — resolve it in the spike and record the answer in §12. Method IDs: `registerConnection` 0, `unregisterConnection` 1, `updateLocalConfiguration` 2.
+**Do not send `0xea58385c65416035`.** `TunnelServer` declares its own `@0` — the deprecated `registerTunnel(originCert :Data, hostname :Text, options :RegistrationOptions)`. Sending `0xea58385c65416035`/`@0` is not "matching cloudflared byte-for-byte"; it invokes a different method with an incompatible parameter struct, and the edge will read our `TunnelAuth` as an `originCert`.
+
+The general lesson, since this cost a doc revision: **read the generated code, not the hand-written wrapper.** The wrapper says what the author found convenient; the generated code says what goes on the wire.
 
 ### Argument wire forms
 
@@ -551,7 +579,7 @@ Golden byte fixtures live in `crates/protocol/tests/fixtures/` and are the regre
 | # | Risk | Mitigation |
 | --- | --- | --- |
 | P1 | `capnp-rpc` ↔ `zombiezen/go-capnproto2` interop is unexercised by anyone | Both implement standard `rpc.capnp` Level 1. Escape hatch: the surface is one bootstrap + 3 methods, so hand-encoding `bootstrap`/`call`/`return`/`finish` is tractable |
-| P2 | `interfaceId` ambiguity (§8) | Send `0xea58385c65416035`; resolve empirically in the spike |
+| ~~P2~~ | `interfaceId` ambiguity (§8) — **resolved from source, 2026-08-03.** The wire ID is `0xf71695ec7fe85497` and a schema-driven client emits it by default | none needed; §8 records the trap so it is not re-introduced |
 | P3 | Post-quantum key exchange may be required | Try classical first, add `X25519MLKEM768` if rejected |
 | P4 | Version byte `"01"` is a deliberate silent-change hook — upstream comments it as a no-op branch point | `protocol-canary.yml` detects a bump within 6 h |
 | P5 | Two TXT kill-switches let the edge change client expectations with no cloudflared release | Read `protocol-v2.argotunnel.com`; canary catches the rest |
@@ -561,9 +589,9 @@ Golden byte fixtures live in `crates/protocol/tests/fixtures/` and are the regre
 
 ## 17. Open questions
 
-Unresolvable from source. The Phase 1 spike must answer these; record answers here with the date.
+Not answered by the source reads so far. The Phase 1 spike must answer the rest; record answers here with the date. Q1 turned out to be answerable from source after all, which is a useful reminder that "unresolvable" sometimes means "not yet read carefully enough".
 
-1. Does the edge dispatch `registerConnection` on `0xea58385c65416035` (`TunnelServer`), `0xf71695ec7fe85497` (`RegistrationServer`), or both? — **unanswered**
+1. ~~Does the edge dispatch `registerConnection` on `0xea58385c65416035` (`TunnelServer`) or `0xf71695ec7fe85497` (`RegistrationServer`)?~~ — **answered 2026-08-03 from the generated Go: `0xf71695ec7fe85497`.** Never an edge-behaviour question; it was a misreading of the Go wrapper (§8).
 2. Is a minimum `ClientInfo.version` enforced? Are unknown feature strings rejected? — **unanswered**
 3. Does the edge accept a classical-only key exchange (no PQ group)? — **unanswered**
 4. What is the full set of `ConnectionError.cause` values? Only `EDUPCONN` and substring `Unauthorized` are handled upstream. — **unanswered**

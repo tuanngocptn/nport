@@ -68,7 +68,7 @@ cargo xtask fixtures                      # capture golden byte fixtures
 **Debug a failing handshake** — work the list in order, because it is roughly the order of likelihood:
 
 1. Is the control stream being sent a signature preamble? **It must not be** (§6, trap 1). This is the most common first-attempt failure by a wide margin.
-2. Is `interfaceId` `0xea58385c65416035` (`TunnelServer`) rather than `RegistrationServer`'s own ID? (§8, risk P2)
+2. Is `interfaceId` `0xf71695ec7fe85497` (`RegistrationServer`)? `0xea58385c65416035`/`@0` is the deprecated `registerTunnel`, not `registerConnection` (§8).
 3. Is keep-alive set to 1 s? Without it the connection dies after 5 s of quiet and looks like a server-side reject.
 4. Is `tunnelId` the 16 raw UUID bytes, not the dashed string?
 5. Is `tunnelSecret` the raw decoded bytes, not the base64 text?
