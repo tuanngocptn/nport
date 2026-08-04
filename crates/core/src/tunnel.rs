@@ -220,11 +220,19 @@ async fn run(
     // The manager has its own stream; consumers of a `Tunnel` see one. Forwarding rather than
     // handing the manager this channel keeps `TunnelManager` usable on its own, which is what its
     // tests drive.
-    let forwarding = tokio::spawn(forward(handle.events(), events.clone()));
+    //
+    // The forwarder also reports when the manager *ends*, and that is not decoration. A pool that
+    // gives up announces `ShuttingDown` and stops — and the broadcast sender lives in the handle
+    // this function owns, so the stream never closes to say so. Without this signal the select
+    // below would wait forever on a tunnel with zero connections: nothing to serve with, no
+    // terminal event, and a CLI hanging while it looks healthy. Defect R1's exact shape.
+    let (finished, manager_ended) = oneshot::channel();
+    let forwarding = tokio::spawn(forward(handle.events(), events.clone(), finished));
 
     let reason = tokio::select! {
         _ = stopped => ShutdownReason::Requested,
         () = heartbeat(&api, &lease, &events) => ShutdownReason::LeaseExpired,
+        _ = manager_ended => ShutdownReason::ConnectionsExhausted,
     };
 
     if reason == ShutdownReason::LeaseExpired {
@@ -247,10 +255,25 @@ async fn run(
     let _ = events.send(TunnelEvent::Stopped { drained: true });
 }
 
-/// Forwards the manager's events, dropping its own `Stopped` — this module sends the last one.
-async fn forward(mut from: broadcast::Receiver<TunnelEvent>, to: broadcast::Sender<TunnelEvent>) {
+/// Forwards the manager's events, and reports when it ends.
+///
+/// The manager's own `Stopped` is dropped rather than forwarded — this module sends the last event,
+/// after the lease has been released, so a consumer treating `Stopped` as "everything is done" is
+/// not lied to. But it is also the manager's *only* signal that it has finished, so it becomes
+/// `finished` rather than disappearing.
+async fn forward(
+    mut from: broadcast::Receiver<TunnelEvent>,
+    to: broadcast::Sender<TunnelEvent>,
+    finished: oneshot::Sender<()>,
+) {
+    let mut finished = Some(finished);
     while let Ok(event) = from.recv().await {
         if matches!(event, TunnelEvent::Stopped { .. }) {
+            if let Some(finished) = finished.take() {
+                // Gone when the shutdown was ours: `run` has already left the select and is waiting
+                // on `handle.shutdown()`. Not an error — just nobody listening.
+                let _ = finished.send(());
+            }
             continue;
         }
         let _ = to.send(event);
@@ -268,18 +291,27 @@ async fn heartbeat(
     lease: &nport_contract::CreateTunnelResponse,
     events: &broadcast::Sender<TunnelEvent>,
 ) {
+    let mut announced = i64::try_from(lease.expires_at).unwrap_or(i64::MAX);
+
     loop {
         tokio::time::sleep(HEARTBEAT_INTERVAL).await;
 
         match api.heartbeat(&lease.subdomain, &lease.owner_token).await {
             Ok(renewed) => {
-                // The server's number, not ours. Correcting the displayed expiry from each response
-                // is what keeps invariant 3 true in the UI as well as in the design.
-                let _ = events.send(TunnelEvent::Provisioned {
-                    url: lease.url.clone(),
-                    subdomain: lease.subdomain.clone(),
-                    expires_at: i64::try_from(renewed.expires_at).unwrap_or(i64::MAX),
-                });
+                // **Only when it moved.** A heartbeat does not extend the lease (defect R6), so this
+                // number is normally identical every thirty seconds — and re-announcing it makes a
+                // CLI reprint its whole URL banner twice a minute. A correction still gets through,
+                // which is the case invariant 3 actually cares about: the server owns this number,
+                // and if it ever moves one, the display follows.
+                let expires_at = i64::try_from(renewed.expires_at).unwrap_or(i64::MAX);
+                if expires_at != announced {
+                    announced = expires_at;
+                    let _ = events.send(TunnelEvent::Provisioned {
+                        url: lease.url.clone(),
+                        subdomain: lease.subdomain.clone(),
+                        expires_at,
+                    });
+                }
             }
             Err(error) => match error.code() {
                 // The lease is gone: expired, deleted elsewhere, or reaped. Nothing to renew.
@@ -472,6 +504,40 @@ mod tests {
             "expected a connection to be announced, saw {seen:?}"
         );
         tunnel.shutdown().await;
+    }
+
+    /// Fails every attempt in a way nothing can retry, so the pool gives up.
+    struct AlwaysFatal;
+
+    impl Connector for AlwaysFatal {
+        type Conn = Held;
+        async fn connect(&self, _index: ConnectionIndex, _rotate: bool) -> Result<Held, RpcError> {
+            Err(RpcError::Malformed("unreadable".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_pool_that_gives_up_ends_the_tunnel_rather_than_leaving_it_looking_alive() {
+        // Nobody asked it to stop and the lease is fine — there is simply nothing left to serve
+        // with. Without this the tunnel sits with zero connections, the CLI never receives a
+        // terminal event, and the process hangs looking healthy: defect R1's exact shape.
+        let (backend, _) = control_plane("HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n").await;
+        let api = Api::new(&backend).expect("backend");
+
+        let tunnel = Tunnel::serve(config(backend), api, lease(), AlwaysFatal);
+        let seen = collect(tunnel.events(), 3).await;
+
+        assert!(
+            seen.contains(&TunnelEvent::ShuttingDown {
+                reason: ShutdownReason::ConnectionsExhausted
+            }),
+            "expected the exhaustion to be announced, saw {seen:?}"
+        );
+        assert!(
+            seen.iter()
+                .any(|event| matches!(event, TunnelEvent::Stopped { .. })),
+            "a tunnel that ends must say so — it is the CLI's only signal to exit: {seen:?}"
+        );
     }
 
     #[tokio::test]
