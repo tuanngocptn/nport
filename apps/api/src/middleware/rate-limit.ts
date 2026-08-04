@@ -23,6 +23,14 @@ export const rateLimit: MiddlewareHandler<{ Bindings: Env; Variables: Variables 
   context,
   next,
 ) => {
+  // Health is for uptime monitors, which poll on a fixed schedule and must not be able to rate-limit
+  // themselves out of existence. It reads no storage and takes no bindings, so it costs nothing to
+  // leave open. Same exemption, and the same reasoning, as the client gate.
+  if (context.req.path === "/v1/health") {
+    await next()
+    return
+  }
+
   const ip = context.req.header("cf-connecting-ip") ?? "unknown"
   const hash = await sourceHash(
     context.env.IP_HASH_SECRET,

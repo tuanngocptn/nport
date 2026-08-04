@@ -98,7 +98,7 @@ The one deliverable outstanding is the tag, which needs a remote. Everything Pha
 - [x] `POST /v1/tunnels`, heartbeat, delete, status
 - [x] alarm-driven expiry, including the heartbeat-timeout and abandoned-saga paths
 - [x] rate limiting, per-source caps, and per-source PoW escalation (ADR-0028)
-- [x] 142 tests in real `workerd`
+- [x] 143 tests in real `workerd`
 - [ ] the reconciliation cron, and the `Registry` sweep cursor it walks
 - [ ] the legacy v2 method-dispatch shim
 

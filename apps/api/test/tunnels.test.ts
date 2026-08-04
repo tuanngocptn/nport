@@ -16,7 +16,7 @@ import {
 } from "cloudflare:test"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { solveChallenge } from "../src/domain/pow"
+import { hasLeadingZeroBits, solveChallenge } from "../src/domain/pow"
 import type { Env } from "../src/types"
 import { FakeCloudflare } from "./fake-cloudflare"
 
@@ -213,12 +213,24 @@ describe("POST /v1/tunnels", () => {
     const response = await SELF.fetch("https://api.nport.link/v1/challenge", {
       headers: { "user-agent": UA },
     })
-    const { challenge } = (await response.json()) as { challenge: string }
+    const { challenge, difficulty } = (await response.json()) as {
+      challenge: string
+      difficulty: number
+    }
+
+    // A nonce that is *verified* not to satisfy the difficulty, rather than a hardcoded "0". At the
+    // 4-bit difficulty these tests run at, "0" satisfies the challenge one time in sixteen — so the
+    // hardcoded version was a 6%-flaky test asserting that proof of work is enforced, which is the
+    // worst possible thing to be flaky about. It passed for several runs before failing.
+    let nonce = 0
+    while (await hasLeadingZeroBits(`${challenge}.${nonce}`, difficulty)) {
+      nonce += 1
+    }
 
     const created = await post("/v1/tunnels", {
       subdomain: "nowork",
       challenge,
-      nonce: "0",
+      nonce: String(nonce),
       client: "cli",
     })
     expect(created.status).toBe(400)

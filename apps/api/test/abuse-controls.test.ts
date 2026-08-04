@@ -319,3 +319,27 @@ describe("the concurrency cap under concurrent creates", () => {
     expect(cloudflare.tunnels.size).toBe(limit)
   })
 })
+
+describe("the concurrency cap against a source re-requesting its own name", () => {
+  it("cannot be evaded by asking again for a name it already holds", async () => {
+    // `reserve` exempts a name the source already holds from the cap, so that a client retrying a
+    // create for a subdomain it is already provisioning does not spend a second slot. That exemption
+    // must not extend to a name whose lease is already *live* — and the failure path that hands a
+    // reservation back must not hand back a confirmed hold.
+    const limit = Number(env.MAX_CONCURRENT_PER_SOURCE)
+    const ip = "203.0.113.90"
+
+    for (let index = 0; index < limit; index += 1) {
+      expect((await create(ip, `own${index}`)).status, `create ${index}`).toBe(201)
+    }
+
+    // Asking again for a name it already holds is refused by the lease, which is correct.
+    expect((await create(ip, "own0")).status).toBe(409)
+
+    // The refusal must leave the source exactly where it was: at its cap, holding three live leases.
+    const extra = await create(ip, "extra")
+    expect(extra.status).toBe(429)
+    expect(await codeOf(extra)).toBe("CONCURRENCY_LIMIT")
+    expect(cloudflare.tunnels.size).toBe(limit)
+  })
+})

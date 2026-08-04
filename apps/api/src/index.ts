@@ -46,12 +46,12 @@ app.use("/v1/*", clientGate)
 
 // After the client gate, so a request that never identified itself is refused before it costs a
 // platform call — and before every route that reads storage, since the whole point of the outermost
-// layer is to be the cheapest one. Health is excluded: an uptime monitor polls on a fixed schedule and
-// must not be able to rate-limit itself out of existence, and it reads nothing.
-app.use("/v1/challenge", rateLimit)
-app.use("/v1/meta", rateLimit)
-app.use("/v1/tunnels", rateLimit)
-app.use("/v1/tunnels/*", rateLimit)
+// layer is to be the cheapest one.
+//
+// Registered on `/v1/*` rather than per route, like the client gate above. A per-route list is a
+// standing invitation to add a route and forget the limiter, and the failure would be silent: the new
+// route would simply be unprotected, and nothing would say so. `rateLimit` skips `/v1/health` itself.
+app.use("/v1/*", rateLimit)
 
 app.route("/v1/challenge", challengeRoute)
 app.route("/v1/meta", metaRoute)

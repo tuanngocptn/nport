@@ -105,13 +105,31 @@ export class SourceQuota extends DurableObject<Env> {
       return { ok: false, code: "CREATE_QUOTA_EXCEEDED", details: { resetAt } }
     }
 
-    // Re-reserving a name this source already holds is not a new slot. Without this, a client
-    // retrying a create for a subdomain it is already provisioning would consume its own quota.
-    const held = this.#holds()
-    const alreadyHeld = this.ctx.storage.sql
-      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM hold WHERE subdomain = ?", subdomain)
-      .one().count
-    if (alreadyHeld === 0 && held >= limits.maxConcurrent) {
+    const existing = this.ctx.storage.sql
+      .exec<{ confirmed: number }>(
+        "SELECT confirmed FROM hold WHERE subdomain = ? LIMIT 1",
+        subdomain,
+      )
+      .toArray()[0]
+
+    // A **confirmed** hold means this source already has a live lease for this name. The attempt is
+    // charged and allowed through so that `SubdomainLease` gives the real answer — but the hold is left
+    // strictly alone, and that is load-bearing.
+    //
+    // Touching it was a hole that defeated the cap outright. `reserve` used to overwrite any existing
+    // hold's expiry with the 60-second reservation window, and the route's failure path then deleted
+    // it — so a source at its cap could ask again for a name it already held, take the `409` the lease
+    // correctly returns, and come away one slot lighter. Repeat once per lease and the cap is gone,
+    // bounded only by the hourly quota. Hence: no write here, and `releaseReservation` below.
+    if (existing?.confirmed === 1) {
+      this.ctx.storage.sql.exec("INSERT INTO create_attempt (at) VALUES (?)", now)
+      return { ok: true }
+    }
+
+    // An **unconfirmed** hold is this source's own reservation from a previous attempt in the last
+    // minute, so re-reserving the same name is not a second slot. This is the case the exemption was
+    // written for: a client retrying a create for a subdomain it is already provisioning.
+    if (existing === undefined && this.#holds() >= limits.maxConcurrent) {
       return { ok: false, code: "CONCURRENCY_LIMIT", details: { limit: limits.maxConcurrent } }
     }
 
@@ -136,12 +154,26 @@ export class SourceQuota extends DurableObject<Env> {
   }
 
   /**
-   * Frees a concurrency slot. Tolerates a slot that was never taken or has already expired.
+   * Frees a concurrency slot, confirmed or not. Tolerates a slot that was never taken.
+   *
+   * For **teardown**: the lease is gone, so the hold must go with it. A caller undoing its own failed
+   * create wants `releaseReservation` instead.
    *
    * Does **not** refund the create attempt — see the class comment.
    */
   async release(subdomain: string): Promise<void> {
     this.ctx.storage.sql.exec("DELETE FROM hold WHERE subdomain = ?", subdomain)
+  }
+
+  /**
+   * Frees a slot **only if it is still an unconfirmed reservation**.
+   *
+   * For a create that failed: it hands back what this request took and nothing else. The guard is the
+   * point — a confirmed hold belongs to a live lease, and deleting one on a failed create is how the
+   * cap became evadable by re-requesting an owned name.
+   */
+  async releaseReservation(subdomain: string): Promise<void> {
+    this.ctx.storage.sql.exec("DELETE FROM hold WHERE subdomain = ? AND confirmed = 0", subdomain)
   }
 
   /**

@@ -186,7 +186,6 @@ export const tunnelsRoute = new Hono<App>()
 
       const attempts = requested === undefined ? GENERATE_ATTEMPTS : 1
       let result: ClaimResult = { ok: false, code: "PROVISION_FAILED" }
-      let claimedName = pending
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         const candidate = chosen ?? generateSubdomain()
         const claimed = await leaseStub(env, candidate).claim({
@@ -196,7 +195,6 @@ export const tunnelsRoute = new Hono<App>()
           clientVersion,
         })
         result = claimed
-        claimedName = candidate
         // Only a name collision is worth a second try, and only when we chose the name.
         if (result.ok || result.code !== "SUBDOMAIN_IN_USE") {
           break
@@ -211,11 +209,10 @@ export const tunnelsRoute = new Hono<App>()
         throw new ApiError(result.code, result.details)
       }
 
-      // Move the slot from the placeholder onto the real name, or teardown would never find it to
-      // release. Confirm before releasing: the reverse order would drop the source's hold count for a
-      // round trip, and a concurrent create could slip past the cap in that window.
+      // The lease confirmed its own hold, under the real name, as it activated — it is the only party
+      // that knows the authoritative expiry. All that is left is to hand back the placeholder that
+      // stood in for a name nobody knew yet.
       if (chosen === undefined) {
-        await quota.confirm(claimedName, result.expiresAt)
         await releaseQuietly(quota, pending)
       }
 
@@ -346,15 +343,16 @@ function quotaStub(env: Env, sourceHash: string): DurableObjectStub<SourceQuota>
 }
 
 /**
- * Releases a slot without letting the attempt fail over bookkeeping.
+ * Hands back the reservation this request took, without letting bookkeeping fail the request.
  *
- * Every caller is already on an error path or has already succeeded, so throwing here would replace a
- * meaningful response with an opaque 500. An unreleased slot lapses on its own within the reservation
- * window anyway.
+ * `releaseReservation`, never `release`: it frees a slot only while it is still an unconfirmed
+ * reservation, so it can never remove the hold of a lease that is already live. Every caller here is on
+ * an error path or has already succeeded, so throwing would replace a meaningful response with an
+ * opaque 500 — and an unreleased reservation lapses on its own within the minute anyway.
  */
 async function releaseQuietly(quota: DurableObjectStub<SourceQuota>, name: string): Promise<void> {
   try {
-    await quota.release(name)
+    await quota.releaseReservation(name)
   } catch (error) {
     console.error("could not release a reserved quota slot", { error: String(error) })
   }
