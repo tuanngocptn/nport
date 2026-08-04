@@ -16,3 +16,4 @@
 pub mod event;
 pub mod proxy;
 pub mod retry;
+pub mod supervisor;
