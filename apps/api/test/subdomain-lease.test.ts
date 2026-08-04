@@ -287,3 +287,57 @@ describe("storage", () => {
     expect(result.ok).toBe(true)
   })
 })
+
+describe("reclaiming an expired lease", () => {
+  it("does not let two concurrent claims both win", async () => {
+    // Honest note on what this does and does not prove: the second claim is refused early, on seeing
+    // `RELEASING`, so it never reaches the window that motivated splitting `#clearLease` out of
+    // `#teardown`. That window — the row absent across an `await` — is closed by statement order
+    // rather than by anything this test can schedule. The test is still worth keeping: it pins the
+    // early-refusal path, which is what makes the common case safe.
+    await claim("contested")
+    await patchRow("contested", { expires_at: Date.now() - 1000 })
+
+    const outcomes = await Promise.all([claim("contested"), claim("contested")])
+
+    expect(outcomes.filter((outcome) => outcome.result.ok).length).toBe(1)
+    expect(cloudflare.tunnels.size).toBe(1)
+  })
+
+  it("gives the reclaimed lease a fresh watchdog window", async () => {
+    // This one *is* provable, and it is the reason reclaim can no longer delete the row. With the row
+    // preserved, `#write` is an UPDATE — and `created_at` was excluded from the UPDATE, so the new
+    // lease inherited the dead one's creation time. Its watchdog window was therefore already in the
+    // past, and `#isReclaimable` would have handed the name straight to the next caller mid-saga.
+    await claim("handover")
+    const original = await readRow("handover")
+    await patchRow("handover", { expires_at: Date.now() - 1000, created_at: Date.now() - 600_000 })
+
+    const { result } = await claim("handover")
+    expect(result.ok).toBe(true)
+
+    const reclaimed = await readRow("handover")
+    expect(Number(reclaimed?.created_at)).toBeGreaterThan(Number(original?.created_at) - 1)
+    expect(Number(reclaimed?.created_at)).toBeGreaterThan(Date.now() - 60_000)
+
+    // And the freshly claimed lease is not reclaimable by the next caller.
+    const { result: intruder } = await claim("handover")
+    expect(intruder.ok).toBe(false)
+    if (!intruder.ok) {
+      expect(intruder.code).toBe("SUBDOMAIN_IN_USE")
+    }
+  })
+
+  it("hands over ownership, so the previous owner's token stops working", async () => {
+    const first = await claim("changedhands")
+    await patchRow("changedhands", { expires_at: Date.now() - 1000 })
+
+    const second = await claim("changedhands")
+    expect(second.result.ok).toBe(true)
+
+    const stale = await lease("changedhands").heartbeat(await hashOwnerToken(first.ownerToken))
+    expect(stale.ok).toBe(false)
+    const fresh = await lease("changedhands").heartbeat(await hashOwnerToken(second.ownerToken))
+    expect(fresh.ok).toBe(true)
+  })
+})

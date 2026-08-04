@@ -192,7 +192,14 @@ export class SubdomainLease extends DurableObject<Env> {
       // during the teardown sees RELEASING and gets a clean 409 instead of tearing down twice.
       this.#write({ ...existing, state: "RELEASING", saga_step: "teardown" })
       await this.#armWatchdog(now)
-      const torndown = await this.#teardown(existing)
+
+      // `#releaseCloudflare`, not `#release`: the row must **not** be cleared here. Reclaim is the
+      // one path that keeps using this object after tearing down, and an absent row is a free name.
+      // Clearing it would open a window — every `await` in the clearing sequence is a chance for
+      // another claim to see no row and start its own saga, which is defect R4 arriving through the
+      // one path allowed to await. The row instead goes RELEASING → CLAIMING in a single synchronous
+      // write below, so it is never absent.
+      const torndown = await this.#releaseCloudflare(existing)
       if (!torndown.ok) {
         return torndown
       }
@@ -463,6 +470,29 @@ export class SubdomainLease extends DurableObject<Env> {
   /**
    * Removes the DNS record and the tunnel, then clears the lease. Idempotent.
    *
+   * The two halves are separate on purpose — see `#releaseCloudflare` and `#clearLease`. Callers that
+   * keep using this object afterwards (reclaim) must not clear the row.
+   */
+  async #teardown(row: LeaseRow): Promise<{ ok: true } | LeaseFailure> {
+    const released = await this.#releaseCloudflare(row)
+
+    // The two failure codes mean opposite things here, and collapsing them is a real bug:
+    //
+    // - `DNS_CONFLICT` — the work is done. A record NPort cannot prove it owns was left in place, but
+    //   nothing of ours remains. Clear the lease, because holding the name hostage would make one
+    //   stray DNS record permanently unclaimable.
+    // - `UPSTREAM_CLOUDFLARE_ERROR` — the calls themselves failed, so a tunnel and possibly a DNS
+    //   record may still point at this name. **Keep the row in RELEASING** and let the watchdog retry.
+    //   Freeing it here is exactly the takeover v3 forbids (defect R7).
+    if (released.ok || released.code === "DNS_CONFLICT") {
+      await this.#clearLease(row)
+    }
+    return released
+  }
+
+  /**
+   * The Cloudflare half of a teardown. Touches no lease state.
+   *
    * Order is deliberate: DNS first, so the name stops resolving before the tunnel it points at
    * disappears. The reverse would leave a window where the hostname resolves to a tunnel that no
    * longer exists, which the edge answers with its own error page rather than ours.
@@ -472,7 +502,7 @@ export class SubdomainLease extends DurableObject<Env> {
    * reported as `DNS_CONFLICT` with a log line for manual review. This is v2's subdomain-takeover
    * path, which deleted the incumbent's records on nothing more than a status string (defect R7).
    */
-  async #teardown(row: LeaseRow): Promise<{ ok: true } | LeaseFailure> {
+  async #releaseCloudflare(row: LeaseRow): Promise<{ ok: true } | LeaseFailure> {
     const client = this.#cloudflare()
     const fqdn = client.fqdn(row.subdomain)
     let conflict = false
@@ -518,14 +548,26 @@ export class SubdomainLease extends DurableObject<Env> {
       return { ok: false, code: "UPSTREAM_CLOUDFLARE_ERROR" }
     }
 
-    this.ctx.storage.sql.exec("DELETE FROM lease")
+    return conflict ? { ok: false, code: "DNS_CONFLICT" } : { ok: true }
+  }
+
+  /**
+   * Frees the name.
+   *
+   * **The row's deletion is the last statement, and nothing is awaited after it.** That ordering is
+   * the whole point of this method. Both calls below yield: `deleteAlarm` is a storage operation, and
+   * `forget` is an outbound RPC to another Durable Object which does *not* hold the input gate. Doing
+   * either one after the delete would leave the name looking free across an await, so a claim
+   * arriving in that window would start a second saga on a name that is still being torn down.
+   *
+   * Deleting the alarm first is deliberate for the same reason in reverse: if a new claim had already
+   * begun, a later `deleteAlarm` would remove *its* watchdog and leave that saga with nothing to
+   * compensate it.
+   */
+  async #clearLease(row: LeaseRow): Promise<void> {
     await this.ctx.storage.deleteAlarm()
     await this.#registry().forget(row.subdomain)
-
-    // A conflict still clears the lease: our own record of it is gone, and holding the name hostage
-    // would make one stray DNS record permanently unclaimable. The next claim will hit the same
-    // conflict at `create-dns` and be refused there, which is the same answer with the same log.
-    return conflict ? { ok: false, code: "DNS_CONFLICT" } : { ok: true }
+    this.ctx.storage.sql.exec("DELETE FROM lease")
   }
 
   #provisionFailure(error: unknown, subdomain: string, step: SagaStep): LeaseFailure {
@@ -564,6 +606,12 @@ export class SubdomainLease extends DurableObject<Env> {
          owner_token_hash = excluded.owner_token_hash,
          state = excluded.state,
          saga_step = excluded.saga_step,
+         -- Updated, not preserved -- reclaim transitions RELEASING to CLAIMING without deleting the
+         -- row, so this is an UPDATE, and inheriting the dead lease's creation time would put the new
+         -- saga's watchdog window in the past and make it instantly reclaimable by anyone. Every
+         -- caller passes a full row carrying the creation time it intends, so nothing else moves.
+         -- (No backticks in this comment: it lives inside a JS template literal.)
+         created_at = excluded.created_at,
          expires_at = excluded.expires_at,
          last_heartbeat_at = excluded.last_heartbeat_at,
          client_version = excluded.client_version,
