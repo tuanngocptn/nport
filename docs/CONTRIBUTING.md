@@ -2,7 +2,7 @@
 
 Thanks for helping. NPort is MIT-licensed and maintained by [Nick Pham](https://github.com/tuanngocptn).
 
-**The project is mid-rewrite.** `v3-new-architech` holds the documentation set, both workspaces, and a partly-built `crates/protocol`; nothing tunnels yet. v2 is on `main` and still shipping. Check `docs/ROADMAP.md` for what phase we are in before starting work — and if you want to contribute code right now, say so in an issue first, because the protocol spike (Phase 1) gates almost everything else.
+**The project is mid-rewrite.** `v3-new-architect` holds the documentation set, both workspaces, and a partly-built `crates/protocol`; nothing tunnels yet. v2 is on `main` and still shipping. Check `docs/ROADMAP.md` for what phase we are in before starting work — and if you want to contribute code right now, say so in an issue first, because the protocol spike (Phase 1) gates almost everything else.
 
 ## Prerequisites
 
@@ -87,7 +87,7 @@ Anything scoped `protocol` should explain *why* in the body. Those are the commi
 
 ```bash
 git remote add upstream https://github.com/tuanngocptn/nport.git
-git fetch upstream && git rebase upstream/v3-new-architech
+git fetch upstream && git rebase upstream/v3-new-architect
 git push origin feature/my-thing
 ```
 

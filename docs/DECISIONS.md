@@ -40,7 +40,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 
 **Context.** v2 (`main`) worked and had 668 stars, but its foundations were wrong in ways that could not be patched incrementally: the backend had no storage, so ownership, timing, and liveness were all inferred from the Cloudflare API; the error taxonomy was string prefixes inside HTTP 500; and the CLI was a Node wrapper supervising a Go binary by scraping its stderr. Fixing any one of these meant changing all of them.
 
-**Decision.** Rewrite all four surfaces on the `v3-new-architech` branch. Keep the product promise (one command, custom subdomain, free, no account) and the brand; keep nothing else.
+**Decision.** Rewrite all four surfaces on the `v3-new-architect` branch. Keep the product promise (one command, custom subdomain, free, no account) and the brand; keep nothing else.
 
 **Consequences.** A long period with no shippable artifact, mitigated by the phased roadmap and gates in `docs/ROADMAP.md`. v2 stays deployed and supported until Phase 5 sunset. Existing users keep `npm i -g nport` working (ADR-0012).
 

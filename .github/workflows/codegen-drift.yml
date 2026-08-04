@@ -7,7 +7,7 @@ name: Codegen drift
 on:
   pull_request:
   push:
-    branches: [main, v3-new-architech]
+    branches: [main, v3-new-architect]
 
 concurrency:
   group: codegen-drift-${{ github.ref }}

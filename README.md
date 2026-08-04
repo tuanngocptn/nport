@@ -17,7 +17,7 @@ No account. No config. No paywall.
 
 ## ⚠️ This branch is a rewrite in progress
 
-You are on `v3-new-architech`, a from-scratch rewrite. **It does not tunnel anything yet** — it currently contains architecture documentation, the workspace and CI setup, and stub crates.
+You are on `v3-new-architect`, a from-scratch rewrite. **It does not tunnel anything yet** — it currently contains architecture documentation, the workspace and CI setup, and stub crates.
 
 **For the working version, use `main`**, which is what `npm i -g nport` installs today.
 
