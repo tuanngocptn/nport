@@ -13,4 +13,6 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::print_stdout, clippy::print_stderr, clippy::exit)]
 
+pub mod event;
 pub mod proxy;
+pub mod retry;

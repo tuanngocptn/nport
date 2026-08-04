@@ -896,6 +896,7 @@ dependencies = [
 name = "nport-core"
 version = "3.0.0-dev"
 dependencies = [
+ "nport-contract",
  "nport-protocol",
  "thiserror",
  "tokio",
