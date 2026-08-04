@@ -260,55 +260,6 @@ pub async fn read_response_head(
         chunked,
     })
 }
-
-/// Decodes HTTP/1.1 chunked transfer coding.
-///
-/// **This is why the browser saw binary garbage.** A Next.js dev server answers `Transfer-Encoding:
-/// chunked`; the proxy correctly stripped the header, because it is hop-by-hop and cannot cross to
-/// the edge's HTTP/2 hop — but the chunk framing is in the *body*, and forwarding it raw meant the
-/// browser rendered hex chunk-size lines as page content.
-///
-/// cloudflared never hits this: Go's `http.Client` decodes chunked transparently. A hand-rolled
-/// reader has to do it explicitly, which is the whole argument for `crates/core` using `hyper`
-/// rather than growing this file.
-///
-/// Trailers after the terminating `0` chunk are discarded, matching what a proxy should do with
-/// headers it is not forwarding.
-pub fn decode_chunked(body: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut out = Vec::with_capacity(body.len());
-    let mut rest = body;
-
-    loop {
-        let line_end = rest
-            .windows(2)
-            .position(|window| window == b"\r\n")
-            .ok_or("chunked body ended mid-size-line")?;
-        let line = &rest[..line_end];
-
-        // A chunk-size line may carry `;ext=value` extensions. Ignore them, but do not let one
-        // corrupt the size.
-        let size_text = line.split(|byte| *byte == b';').next().unwrap_or(line);
-        let size_text = std::str::from_utf8(size_text)?.trim();
-        let size = usize::from_str_radix(size_text, 16)
-            .map_err(|_| format!("chunk size {size_text:?} is not hexadecimal"))?;
-
-        rest = &rest[line_end + 2..];
-        if size == 0 {
-            // Terminating chunk. Anything after it is trailers, which are dropped.
-            break;
-        }
-        if rest.len() < size + 2 {
-            return Err(format!("chunk claims {size} bytes but only {} remain", rest.len()).into());
-        }
-        out.extend_from_slice(&rest[..size]);
-        // Each chunk is followed by its own CRLF.
-        rest = &rest[size + 2..];
-    }
-
-    Ok(out)
-}
-
-/// An ordinary request/response exchange.
 pub async fn proxy_http(
     mut send: quinn::SendStream,
     mut recv: quinn::RecvStream,
@@ -348,7 +299,7 @@ pub async fn proxy_http(
     upstream.read_to_end(&mut raw_body).await?;
 
     let response_body = if head.chunked {
-        decode_chunked(&raw_body)?
+        nport_core::proxy::decode_chunked(&raw_body)?
     } else {
         raw_body
     };
@@ -407,7 +358,7 @@ pub async fn proxy_websocket(
         let mut raw_body = head.leftover;
         upstream.read_to_end(&mut raw_body).await?;
         let body = if head.chunked {
-            decode_chunked(&raw_body)?
+            nport_core::proxy::decode_chunked(&raw_body)?
         } else {
             raw_body
         };
@@ -457,105 +408,4 @@ pub async fn proxy_websocket(
         (up, down) => println!("  ⇄ pipe ended with an error — up {up:?}, down {down:?}"),
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Run with `cargo test --examples` — a plain `cargo test` compiles examples but does not run
-    /// tests inside them. Called out because a test nobody runs is worse than none.
-    #[test]
-    fn decodes_a_single_chunk() {
-        assert_eq!(
-            decode_chunked(b"5\r\nhello\r\n0\r\n\r\n").unwrap(),
-            b"hello"
-        );
-    }
-
-    #[test]
-    fn joins_several_chunks_without_separators() {
-        // The failure this guards: leaving the CRLF between chunks in the output, which shows up
-        // as stray blank lines rather than as obvious garbage.
-        assert_eq!(
-            decode_chunked(b"5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n").unwrap(),
-            b" world"
-                .iter()
-                .copied()
-                .fold(b"hello".to_vec(), |mut acc, b| {
-                    acc.push(b);
-                    acc
-                })
-        );
-    }
-
-    #[test]
-    fn reads_sizes_as_hexadecimal_not_decimal() {
-        // `1c8d` was in the corrupted page the user saw. Parsed as decimal it is nonsense; the
-        // whole bug class starts with getting this radix wrong.
-        let payload = vec![b'x'; 0x1c8d];
-        let mut body = format!("{:x}\r\n", payload.len()).into_bytes();
-        body.extend_from_slice(&payload);
-        body.extend_from_slice(b"\r\n0\r\n\r\n");
-        assert_eq!(decode_chunked(&body).unwrap().len(), 0x1c8d);
-    }
-
-    #[test]
-    fn ignores_chunk_extensions() {
-        assert_eq!(
-            decode_chunked(b"5;name=value\r\nhello\r\n0\r\n\r\n").unwrap(),
-            b"hello"
-        );
-    }
-
-    #[test]
-    fn discards_trailers_after_the_final_chunk() {
-        assert_eq!(
-            decode_chunked(b"5\r\nhello\r\n0\r\nX-Trailer: v\r\n\r\n").unwrap(),
-            b"hello"
-        );
-    }
-
-    #[test]
-    fn an_empty_body_decodes_to_nothing() {
-        assert_eq!(decode_chunked(b"0\r\n\r\n").unwrap(), b"");
-    }
-
-    #[test]
-    fn preserves_bytes_that_look_like_framing() {
-        // A body containing "\r\n0\r\n\r\n" must not terminate early. Real HTML and gzip both
-        // contain arbitrary bytes, so a decoder that scans for the terminator instead of
-        // honouring sizes truncates pages at random.
-        let payload = b"before\r\n0\r\n\r\nafter";
-        let mut body = format!("{:x}\r\n", payload.len()).into_bytes();
-        body.extend_from_slice(payload);
-        body.extend_from_slice(b"\r\n0\r\n\r\n");
-        assert_eq!(decode_chunked(&body).unwrap(), payload);
-    }
-
-    #[test]
-    fn handles_binary_payloads() {
-        // gzip is what the origin actually sends, and it is full of bytes that are not UTF-8.
-        let payload: Vec<u8> = (0..=255u8).collect();
-        let mut body = format!("{:x}\r\n", payload.len()).into_bytes();
-        body.extend_from_slice(&payload);
-        body.extend_from_slice(b"\r\n0\r\n\r\n");
-        assert_eq!(decode_chunked(&body).unwrap(), payload);
-    }
-
-    #[test]
-    fn rejects_a_truncated_chunk_rather_than_returning_partial_data() {
-        // Silently returning what arrived would serve a half page as if it were whole.
-        assert!(decode_chunked(b"10\r\nshort\r\n").is_err());
-    }
-
-    #[test]
-    fn rejects_a_non_hexadecimal_size() {
-        assert!(decode_chunked(b"zz\r\nhello\r\n0\r\n\r\n").is_err());
-    }
-
-    #[test]
-    fn rejects_a_body_that_ends_mid_size_line() {
-        assert!(decode_chunked(b"5").is_err());
-    }
 }

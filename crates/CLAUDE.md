@@ -4,7 +4,7 @@ The Rust workspace: the connector, the tunnel manager, and the CLI.
 
 Style rules are in `docs/conventions/rust.md`. This file covers layering and the crate-specific rules that document cannot.
 
-**Status: `protocol` works; `core` and `cli` are empty.** Phase 1 is done — the connector speaks the wire end to end against the live edge. Phase 2b has started with the `Transport` trait; `TunnelManager` and the CLI are next.
+**Status: `protocol` works; `core` has its origin-side proxy; `cli` is empty.** Phase 1 is done — the connector speaks the wire end to end against the live edge. Phase 2b has the `Transport` trait and `core::proxy`; `TunnelManager`, the event stream, and the CLI are next.
 
 ## Crates
 
@@ -85,6 +85,7 @@ The v2 CLI got several basics wrong; these are the corrections, and they are all
 
 - **`apps/desktop/src-tauri` is also a workspace member**, so `cargo clippy` from the root includes it.
 - **`crates/contract` is generated.** Edits are overwritten and CI fails on drift.
+- **`crates/protocol` has `nport-core` as a dev-dependency**, so its examples can call the real proxy instead of keeping a second copy that drifts. Cargo permits the cycle and it stays out of `nport-protocol`'s library graph. If it ever appears outside `[dev-dependencies]`, that is the regression.
 - **`crates/core` is linked in-process by the desktop app**, so a panic there kills the GUI. Return errors; do not panic.
 - **The tunnel token must never reach argv, a log line, a config file, or a `Debug` output.** v2 passed it as a command-line argument, visible via `ps` to every local user.
 - Windows process handling differs: no shell wrapper, and terminate the child directly. v2's `kill()` hit a shell on Windows and `cloudflared` outlived it.

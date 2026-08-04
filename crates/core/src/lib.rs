@@ -1,7 +1,8 @@
 //! `TunnelManager`: provision → connect → proxy → teardown, plus the connection pool,
 //! reconnect logic, local proxy, event stream, and the optional traffic inspector.
 //!
-//! **Not implemented.** Phase 2b in `docs/ROADMAP.md`.
+//! **Phase 2b, in progress.** `proxy` is the origin-side half; `TunnelManager` and the event
+//! stream are next (`docs/ROADMAP.md`).
 //!
 //! This crate is **headless** (invariant 5). It emits `TunnelEvent`s; `crates/cli` and
 //! `apps/desktop` render them. The lints below make that mechanical rather than a rule
@@ -11,3 +12,5 @@
 
 #![forbid(unsafe_code)]
 #![deny(clippy::print_stdout, clippy::print_stderr, clippy::exit)]
+
+pub mod proxy;

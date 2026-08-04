@@ -33,6 +33,13 @@ uuid = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+# **Dev-only, and only for the examples.** `crates/core` owns the real origin-side proxy, so the
+# spike calls it rather than keeping a second copy that could drift from the one under test. This is
+# a dev-dependency cycle (core depends on protocol), which Cargo permits and which does not appear in
+# `nport-protocol`'s library dependency graph — the one-way layering in `crates/CLAUDE.md` is about
+# the libraries, not about throwaway scaffolding. If this ever appears outside `[dev-dependencies]`,
+# that IS the regression.
+nport-core = { workspace = true }
 # Snapshots of every wire encoder (docs/TESTING.md, and rule 4 in CLAUDE.md).
 insta = { workspace = true }
 # Only the spike's echo origin and its `ws_client` driver use these. Nothing under `src/`

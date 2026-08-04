@@ -17,3 +17,6 @@ workspace = true
 [dependencies]
 # Layering is one-directional: protocol → core → { cli, desktop }, contract → core.
 # A `nport` (cli) entry here is the architectural regression to watch for.
+nport-protocol = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }

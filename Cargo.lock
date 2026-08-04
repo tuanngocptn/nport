@@ -895,6 +895,11 @@ dependencies = [
 [[package]]
 name = "nport-core"
 version = "3.0.0-dev"
+dependencies = [
+ "nport-protocol",
+ "thiserror",
+ "tokio",
+]
 
 [[package]]
 name = "nport-protocol"
@@ -908,6 +913,7 @@ dependencies = [
  "futures",
  "hickory-resolver",
  "insta",
+ "nport-core",
  "quinn",
  "rustls",
  "rustls-native-certs",
