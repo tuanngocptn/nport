@@ -139,7 +139,7 @@ One flaky test came out of the same work, worth recording for what it was assert
 - [x] `TunnelManager` — the supervision tasks, event broadcast, and shutdown
 - [x] **`LocalRuntime::host`** — a long-lived `!Send` object on the confined thread, with a `Send` handle
 - [x] `rpc::read_connection_response` — the response reader, extracted and finally tested
-- [ ] **`rpc::Session`** — hold the control stream open and expose `unregisterConnection` (§12). Blocks the connector
+- [x] **`rpc::Session`** — holds the control stream open and exposes `unregisterConnection` (§12)
 - [ ] the QUIC `Connector`: edge discovery, dial, register, serve — wiring the manager to a real edge
 - [ ] `core::inspector` behind an optional sink
 - [ ] the API client over `crates/contract`
@@ -187,7 +187,11 @@ Remaining order: `rpc::Session` → QUIC connector. Doing the connector first wo
 
 That function had never been tested. It is where both of registration's traps live: the response has **two hops with the same name** — the results struct's `result` pointer holds a `ConnectionResponse` whose own `result` is the union, and reading the outer one compiles — and `retryAfter` is **nanoseconds**, a Go `time.Duration`, where reading milliseconds gives a 1000x wrong backoff during an incident. Both now have hermetic tests built from in-memory capnp messages, plus one for a negative `retryAfter`: the field is signed, and casting blindly to `u64` turns `-1` into roughly 584 years, which every caller would read as a permanent failure.
 
-**Worth knowing about what comes next:** `Session` will be verifiable only against a live edge, exactly like `register_connection` — there is no capnp peer to test against, which is why `docs/TESTING.md` puts registration in the live tier. The response reader was the one part that could be pulled into the hermetic tier, and it has been.
+**`rpc::Session` exists.** It opens the control stream, drives its `RpcSystem` on a `spawn_local`'d task, and exposes `register` and `unregister`. A spawned driver rather than `select!` because a session has to keep polling *between* calls — with `select!` the edge's messages would go unread and the stream would stall.
+
+`Session::open` **panics outside a `LocalSet`**, deliberately: a session with nothing polling its system would silently never make progress, which is far worse to diagnose than a panic at construction.
+
+**It is verifiable only against a live edge**, exactly like `register_connection` — there is no capnp peer to test against, which is why `docs/TESTING.md` puts registration in the live tier. Two pieces were pulled into the hermetic tier instead: the response reader above, and the death signal. That signal carries a trap already hit once in `core`'s shutdown — `watch::changed()` fires only on a *transition*, so a stream that died before a call would wait the full RPC timeout rather than failing at once, which on the shutdown path is the difference between a prompt exit and a five-second hang. Three tests cover it: already dead, still alive then dying, and a driver whose sender was dropped.
 
 Worth noting what this does *not* block: the manager already treats a connection that returns from `serve` as safe to cut, so the only thing missing is the unregister call itself. The drain, the deadline, and the `Stopped { drained }` reporting are all in place and tested.
 

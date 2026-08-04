@@ -13,6 +13,7 @@
 //!    (`0xf71695ec7fe85497`), method 0, which is what a schema-driven client emits by
 //!    default. `TunnelServer`'s `@0` is the deprecated `registerTunnel` (§8).
 
+use std::future::Future;
 use std::time::Duration;
 
 use capnp_rpc::rpc_twoparty_capnp::Side;
@@ -173,41 +174,7 @@ pub async fn register_connection(
 
     let call = async move {
         let mut request = client.register_connection_request();
-        {
-            let mut params = request.get();
-
-            let mut auth = params.reborrow().init_auth();
-            auth.set_account_tag(token.account_tag());
-            auth.set_tunnel_secret(token.tunnel_secret());
-
-            // The 16 raw UUID bytes, not the dashed string (§8).
-            params
-                .reborrow()
-                .set_tunnel_id(token.tunnel_id().as_bytes());
-            params.reborrow().set_conn_index(conn_index);
-
-            let mut options = params.reborrow().init_options();
-            {
-                let mut info = options.reborrow().init_client();
-                // The connector ID — a per-process random v4 UUID, not the tunnel ID.
-                info.set_client_id(client_id.as_bytes());
-                info.set_version(version);
-                info.set_arch(arch().as_str());
-
-                let mut features = info.init_features(
-                    u32::try_from(DEFAULT_FEATURES.len()).expect("five features fit in u32"),
-                );
-                for (index, feature) in DEFAULT_FEATURES.iter().enumerate() {
-                    features.set(
-                        u32::try_from(index).expect("five features fit in u32"),
-                        *feature,
-                    );
-                }
-            }
-            options.set_replace_existing(false);
-            options.set_compression_quality(0);
-            options.set_num_previous_attempts(0);
-        }
+        fill_registration(request.get(), token, conn_index, client_id, version);
 
         let response = request.send().promise.await?;
         read_connection_response(response.get()?.get_result()?)
@@ -227,6 +194,200 @@ pub async fn register_connection(
     })
     .await
     .map_err(|_| RpcError::Timeout)?
+}
+
+/// A control stream held open for a connection's whole life.
+///
+/// [`register_connection`] registers and lets the control stream go, which the edge tolerates —
+/// `docs/PROTOCOL.md` records connections serving for 30 minutes after it closed. **§12's graceful
+/// shutdown does not tolerate it.** Unregistering is an RPC, and an RPC needs the stream, so anything
+/// that intends to shut down cleanly has to keep one of these instead.
+///
+/// ## Must be created inside a `LocalSet`
+///
+/// The `RpcSystem` is driven by a `spawn_local`'d task, because `capnp-rpc` holds `Rc` and cannot be
+/// spawned onto a multi-threaded runtime (ADR-0024). `spawn_local` **panics** outside a `LocalSet`, so
+/// this constructor does too — deliberately, since the alternative is a session that silently never
+/// makes progress. `crates/core`'s `LocalRuntime::host` is the intended home.
+///
+/// ## Why a spawned driver rather than `select!`
+///
+/// [`register_connection`] drives the system with `select!` for the duration of one call, which is
+/// exactly right for one call and useless for a session: between calls there would be nothing polling
+/// the system, so the edge's messages would go unread and the stream would stall. A spawned driver
+/// polls it continuously, and the death signal below replaces what `select!` gave for free.
+pub struct Session {
+    client: registration_server::Client,
+    /// Set when the driver ends, meaning the peer closed the control stream.
+    ///
+    /// Without this a call on a dead session would wait the full [`RPC_TIMEOUT`] before failing.
+    /// `select!` detected it immediately for one call; this restores that for every call.
+    dead: tokio::sync::watch::Receiver<bool>,
+}
+
+impl Session {
+    /// Opens the control stream and starts driving its RPC system.
+    ///
+    /// **The control stream carries no signature and no version byte** (§6, trap 1) — it is opened and
+    /// handed straight to the capnp transport. Sending a preamble here is the single most likely
+    /// first-attempt failure in the whole protocol.
+    ///
+    /// # Panics
+    ///
+    /// Outside a `LocalSet`. See the type documentation.
+    ///
+    /// # Errors
+    ///
+    /// [`RpcError::OpenStream`] if the connection refuses a new stream.
+    pub fn open(connection: &quinn::Connection) -> impl Future<Output = Result<Self, RpcError>> {
+        let opening = connection.open_bi();
+        async move {
+            let (send, recv) = opening
+                .await
+                .map_err(|e| RpcError::OpenStream(Box::new(e)))?;
+
+            let network = Box::new(twoparty::VatNetwork::new(
+                recv.compat(),
+                send.compat_write(),
+                Side::Client,
+                Default::default(),
+            ));
+            let mut rpc_system = RpcSystem::new(network, None);
+            let client: registration_server::Client = rpc_system.bootstrap(Side::Server);
+
+            let (died, dead) = tokio::sync::watch::channel(false);
+            tokio::task::spawn_local(async move {
+                // The system's return value is the disconnect reason. Callers learn about it through
+                // `dead` and their own errors, and this crate must not log (it has no idea who is
+                // listening), so it is dropped here rather than swallowed silently elsewhere.
+                let _ = rpc_system.await;
+                let _ = died.send(true);
+            });
+
+            Ok(Self { client, dead })
+        }
+    }
+
+    /// Registers this connection with the edge.
+    ///
+    /// Sends the identical message [`register_connection`] does — see [`fill_registration`].
+    ///
+    /// # Errors
+    ///
+    /// [`RpcError::Refused`] if the edge said no, [`RpcError::Timeout`] past [`RPC_TIMEOUT`], or
+    /// [`RpcError::Capnp`] if the control stream died first.
+    pub async fn register(
+        &self,
+        token: &TunnelToken,
+        conn_index: u8,
+        client_id: Uuid,
+        version: &str,
+    ) -> Result<ConnectionDetails, RpcError> {
+        let mut request = self.client.register_connection_request();
+        fill_registration(request.get(), token, conn_index, client_id, version);
+
+        let call = async move {
+            let response = request.send().promise.await?;
+            read_connection_response(response.get()?.get_result()?)
+        };
+
+        self.bounded(call).await
+    }
+
+    /// Tells the edge to stop routing to this connection.
+    ///
+    /// **Step one of §12's graceful shutdown.** The QUIC connection must then stay open for the grace
+    /// period so in-flight requests finish; closing straight after this drops them on the floor, which
+    /// is the whole reason a session exists rather than a fire-and-forget registration.
+    ///
+    /// # Errors
+    ///
+    /// As [`Session::register`]. A failure here is not worth retrying — the connection is about to be
+    /// closed regardless, and the edge reaps unregistered connections on its own.
+    pub async fn unregister(&self) -> Result<(), RpcError> {
+        let request = self.client.unregister_connection_request();
+        let call = async move {
+            request.send().promise.await?;
+            Ok(())
+        };
+
+        self.bounded(call).await
+    }
+
+    /// Runs one call, bounded by [`RPC_TIMEOUT`] and by the control stream staying alive.
+    async fn bounded<T>(
+        &self,
+        call: impl Future<Output = Result<T, RpcError>>,
+    ) -> Result<T, RpcError> {
+        let mut dead = self.dead.clone();
+        tokio::time::timeout(RPC_TIMEOUT, async move {
+            tokio::select! {
+                () = wait_until_dead(&mut dead) => Err(RpcError::Capnp(capnp::Error::disconnected(
+                    "edge closed the control stream".to_owned(),
+                ))),
+                answer = call => answer,
+            }
+        })
+        .await
+        .map_err(|_| RpcError::Timeout)?
+    }
+}
+
+/// Resolves once the control stream's driver has ended.
+async fn wait_until_dead(dead: &mut tokio::sync::watch::Receiver<bool>) {
+    // Checked before awaiting: `changed()` only fires on transitions, so a session that died before
+    // this call was made would otherwise wait forever for an edge that is already gone.
+    if *dead.borrow() {
+        return;
+    }
+    let _ = dead.changed().await;
+}
+
+/// Fills a `registerConnection` request.
+///
+/// Extracted so [`register_connection`] and [`Session::register`] send the *same* message. They need
+/// different drivers — one is a one-shot `select!`, the other a long-lived spawned system — but what
+/// goes on the wire must be identical, and three of these fields have specific traps:
+///
+/// - **`tunnelId` is the 16 raw UUID bytes**, not the dashed string (§8).
+/// - **`tunnelSecret` is the raw decoded bytes**, not the base64 text.
+/// - **`clientId` is the connector ID** — a per-process random v4 UUID — and *not* the tunnel ID.
+fn fill_registration(
+    mut params: registration_server::register_connection_params::Builder<'_>,
+    token: &TunnelToken,
+    conn_index: u8,
+    client_id: Uuid,
+    version: &str,
+) {
+    let mut auth = params.reborrow().init_auth();
+    auth.set_account_tag(token.account_tag());
+    auth.set_tunnel_secret(token.tunnel_secret());
+
+    params
+        .reborrow()
+        .set_tunnel_id(token.tunnel_id().as_bytes());
+    params.reborrow().set_conn_index(conn_index);
+
+    let mut options = params.reborrow().init_options();
+    {
+        let mut info = options.reborrow().init_client();
+        info.set_client_id(client_id.as_bytes());
+        info.set_version(version);
+        info.set_arch(arch().as_str());
+
+        let mut features = info.init_features(
+            u32::try_from(DEFAULT_FEATURES.len()).expect("five features fit in u32"),
+        );
+        for (index, feature) in DEFAULT_FEATURES.iter().enumerate() {
+            features.set(
+                u32::try_from(index).expect("five features fit in u32"),
+                *feature,
+            );
+        }
+    }
+    options.set_replace_existing(false);
+    options.set_compression_quality(0);
+    options.set_num_previous_attempts(0);
 }
 
 /// Turns a `ConnectionResponse` into a result.
@@ -351,6 +512,57 @@ mod tests {
             RpcError::Refused { retry_after, .. } => assert_eq!(retry_after, None),
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn a_session_notices_a_stream_that_died_before_the_call() {
+        // The trap: `watch::changed()` only fires on a *transition*. A session whose driver ended
+        // before a call was made would wait the full RPC timeout instead of failing at once — and on
+        // the shutdown path that is the difference between a prompt exit and a five-second hang.
+        // The same mistake in `core`'s shutdown signal cost a test failure earlier.
+        let (died, dead) = tokio::sync::watch::channel(false);
+        died.send(true).expect("receiver alive");
+        let mut dead = dead;
+
+        let waited =
+            tokio::time::timeout(Duration::from_millis(250), wait_until_dead(&mut dead)).await;
+        assert!(
+            waited.is_ok(),
+            "an already-dead stream must resolve immediately"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_session_waits_while_the_stream_is_alive() {
+        // The other half: a live stream must not look dead, or every call would fail instantly.
+        let (died, dead) = tokio::sync::watch::channel(false);
+        let mut dead = dead;
+
+        let waited =
+            tokio::time::timeout(Duration::from_millis(80), wait_until_dead(&mut dead)).await;
+        assert!(waited.is_err(), "a live stream must keep waiting");
+
+        // And it notices the transition when it happens.
+        died.send(true).expect("receiver alive");
+        let noticed =
+            tokio::time::timeout(Duration::from_millis(250), wait_until_dead(&mut dead)).await;
+        assert!(noticed.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_dropped_driver_counts_as_dead() {
+        // If the driver task is cancelled — shutdown, a panic — its sender drops. `changed()` then
+        // returns an error, which must read as "gone", not as "keep waiting".
+        let (died, dead) = tokio::sync::watch::channel(false);
+        let mut dead = dead;
+        drop(died);
+
+        let waited =
+            tokio::time::timeout(Duration::from_millis(250), wait_until_dead(&mut dead)).await;
+        assert!(
+            waited.is_ok(),
+            "a dropped driver must not leave callers waiting"
+        );
     }
 
     #[test]

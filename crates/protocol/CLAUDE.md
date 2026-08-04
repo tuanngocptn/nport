@@ -27,7 +27,8 @@ src/quic.rs       QUIC transport (primary)
 src/connect.rs    stream signatures, version byte, ConnectRequest/Response codecs,
                   and the metadata-to-request-head mapping
                   (src/datagram.rs — out of scope for 3.0, ADR-0020, not written)
-src/rpc.rs        Cap'n Proto registration RPC
+src/rpc.rs        Cap'n Proto registration RPC, and the session that holds
+                  the control stream open for graceful shutdown
 schema/*.capnp    VENDORED from cloudflared at the pinned commit — do not edit
 tests/            codec, handshake, fixtures/, snapshots/, live/
 build.rs          capnpc codegen
@@ -81,6 +82,7 @@ cargo xtask fixtures                      # capture golden byte fixtures
 ## Gotchas
 
 - **The control stream carries no signature and no version byte**, unlike every other stream type. Say it out loud before debugging anything else.
+- **`Session::open` panics outside a `LocalSet`.** It `spawn_local`s the driver, because `capnp-rpc` holds `Rc` (ADR-0024). The panic is deliberate — a session with nothing polling its `RpcSystem` would silently never make progress, which is far harder to diagnose. `crates/core`'s `LocalRuntime::host` is where it belongs.
 - **Upstream's `readVersion` uses a bare `Read`, not `ReadFull`**, so splitting the two version bytes across packets desyncs the peer. Write the preamble in one call.
 - **`quinn` does not enable keep-alive by default.** Set `keep_alive_interval` explicitly.
 - **Initial packet size is 1232/1252, not 1280.** Upstream chose this because 1280 broke tunnelling through WARP, whose MTU is exactly 1280.
