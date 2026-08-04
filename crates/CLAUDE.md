@@ -86,6 +86,7 @@ The v2 CLI got several basics wrong; these are the corrections, and they are all
 - **`apps/desktop/src-tauri` is also a workspace member**, so `cargo clippy` from the root includes it.
 - **`crates/contract` is generated.** Edits are overwritten and CI fails on drift.
 - **`crates/protocol` has `nport-core` as a dev-dependency**, so its examples can call the real proxy instead of keeping a second copy that drifts. Cargo permits the cycle and it stays out of `nport-protocol`'s library graph. If it ever appears outside `[dev-dependencies]`, that is the regression.
+- **An internal path dependency needs `version` as well as `path`.** Path-only is a wildcard requirement and `deny.toml` denies wildcards — but the failure is invisible until something actually *depends* on the crate, because cargo-deny only inspects the resolved graph. Three of these sat declared-but-unused for weeks and only broke CI the day one was used. `cargo-deny` is CI-only, so check `cargo metadata` shows a real `req` before pushing a Cargo.toml change.
 - **`crates/core` is linked in-process by the desktop app**, so a panic there kills the GUI. Return errors; do not panic.
 - **The tunnel token must never reach argv, a log line, a config file, or a `Debug` output.** v2 passed it as a command-line argument, visible via `ps` to every local user.
 - Windows process handling differs: no shell wrapper, and terminate the child directly. v2's `kill()` hit a shell on Windows and `cloudflared` outlived it.

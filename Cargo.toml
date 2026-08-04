@@ -84,9 +84,13 @@ uuid = { version = "1.24", features = ["v4", "serde"] }
 zeroize = { version = "1.9", features = ["derive"] }
 
 # Internal crates, by path.
-nport-contract = { path = "crates/contract" }
-nport-core = { path = "crates/core" }
-nport-protocol = { path = "crates/protocol" }
+# `version` alongside `path` is not decoration. Path-only is a wildcard requirement, which
+# `deny.toml` refuses under `[bans] wildcards` — and the refusal only surfaced once these were
+# genuinely depended on rather than merely declared. Publishing to crates.io in Phase 3 requires
+# both fields anyway (`docs/RELEASE.md`), so this is the fix that does not weaken a check.
+nport-contract = { path = "crates/contract", version = "3.0.0-dev" }
+nport-core = { path = "crates/core", version = "3.0.0-dev" }
+nport-protocol = { path = "crates/protocol", version = "3.0.0-dev" }
 
 [profile.release]
 lto = "thin"
