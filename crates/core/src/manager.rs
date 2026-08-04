@@ -23,10 +23,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use nport_protocol::rpc::RpcError;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{broadcast, oneshot, watch};
 
 use crate::event::{ConnectionIndex, ShutdownReason, TunnelEvent};
 use crate::supervisor::{Action, CONNECTIONS, Supervisor};
+
+/// How long connections get to unregister and drain before they are cut.
+///
+/// cloudflared: `--grace-period`, default 30s. `docs/PROTOCOL.md` §12 — graceful shutdown is
+/// `unregisterConnection`, then hold the connection open so in-flight requests finish, then close.
+/// Overridable per tunnel because tests need milliseconds, not half a minute.
+pub const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(30);
 
 /// How many events are buffered for a slow consumer before the oldest are dropped.
 ///
@@ -43,6 +50,42 @@ pub struct TunnelConfig {
     pub subdomain: Option<String>,
     /// The control-plane base URL. Overridable for self-hosting (`docs/SELF_HOSTING.md`).
     pub backend: String,
+    /// How long in-flight requests get to finish on shutdown. See [`DEFAULT_SHUTDOWN_GRACE`].
+    pub shutdown_grace: Duration,
+}
+
+impl TunnelConfig {
+    /// A config with the documented grace period.
+    #[must_use]
+    pub fn new(local_port: u16, subdomain: Option<String>, backend: String) -> Self {
+        Self {
+            local_port,
+            subdomain,
+            backend,
+            shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
+        }
+    }
+}
+
+/// Tells a connection that the tunnel is stopping.
+///
+/// Handed to [`Connection::serve`] so the connection can do the §12 sequence itself —
+/// `unregisterConnection`, let in-flight requests finish, then close. The manager cannot do that on
+/// its behalf: only the connection holds the control stream, and only the transport knows what
+/// "close" means.
+#[derive(Debug, Clone)]
+pub struct Shutdown(watch::Receiver<bool>);
+
+impl Shutdown {
+    /// Resolves when shutdown has been requested. Returns immediately if it already has.
+    pub async fn requested(&mut self) {
+        // `changed()` only fires on transitions, so an already-set flag has to be checked first or a
+        // connection that starts serving after the request would wait forever.
+        if *self.0.borrow() {
+            return;
+        }
+        let _ = self.0.changed().await;
+    }
 }
 
 /// A live connection to the edge, from the manager's point of view.
@@ -50,8 +93,12 @@ pub trait Connection: Send + 'static {
     /// The Cloudflare colo that answered. Useful in a bug report and nowhere else.
     fn colo(&self) -> String;
 
-    /// Serves until the connection ends. Returning means the connection is gone.
-    fn serve(self) -> impl std::future::Future<Output = ()> + Send;
+    /// Serves until the connection ends, or until `shutdown` fires and the drain completes.
+    ///
+    /// **On shutdown the implementation must unregister and drain, not just close.** Closing without
+    /// `unregisterConnection` drops in-flight requests on the floor (`docs/PROTOCOL.md` §12), and the
+    /// edge keeps routing to a connection that is no longer there. Returning means it is safe to cut.
+    fn serve(self, shutdown: Shutdown) -> impl std::future::Future<Output = ()> + Send;
 }
 
 /// Dials and registers one connection.
@@ -127,12 +174,13 @@ impl TunnelManager {
 }
 
 async fn run<C: Connector>(
-    _config: TunnelConfig,
+    config: TunnelConfig,
     connector: Arc<C>,
     events: broadcast::Sender<TunnelEvent>,
     stopped: oneshot::Receiver<()>,
 ) {
     let supervisor = Arc::new(Mutex::new(Supervisor::new(CONNECTIONS)));
+    let (draining, drain_signal) = watch::channel(false);
 
     // The start plan is the supervisor's, not this loop's: only connection 0 may start until it
     // registers (§4). Each index then runs its own task, which is what ADR-0024's thread boundary
@@ -144,6 +192,7 @@ async fn run<C: Connector>(
             Arc::clone(&connector),
             Arc::clone(&supervisor),
             events.clone(),
+            Shutdown(drain_signal.clone()),
         )));
     }
 
@@ -155,11 +204,30 @@ async fn run<C: Connector>(
 
     let _ = events.send(TunnelEvent::ShuttingDown { reason });
 
-    // Every spawned task has a defined shutdown path (`docs/conventions/rust.md`).
-    for task in tasks {
-        task.abort();
+    // Ask, then wait — do not abort. Aborting a task mid-`serve` cuts the connection without
+    // `unregisterConnection`, which drops in-flight requests on the floor and leaves the edge routing
+    // to a connection that is gone (`docs/PROTOCOL.md` §12). The first version of this function did
+    // exactly that, while the `Transport::close` docs said not to.
+    let _ = draining.send(true);
+
+    let drained = tokio::time::timeout(config.shutdown_grace, async {
+        for task in &mut tasks {
+            let _ = task.await;
+        }
+    })
+    .await
+    .is_ok();
+
+    if !drained {
+        // The grace period is a deadline, not a suggestion: a connection that will not finish must
+        // not hold the process open forever. `Stopped { drained: false }` is how the CLI learns to
+        // report `SHUTDOWN_TIMEOUT`.
+        for task in tasks {
+            task.abort();
+        }
     }
-    let _ = events.send(TunnelEvent::Stopped);
+
+    let _ = events.send(TunnelEvent::Stopped { drained });
 }
 
 /// Resolves once every connection has given up. Never resolves while any remain.
@@ -184,6 +252,7 @@ async fn supervise<C: Connector>(
     connector: Arc<C>,
     supervisor: Arc<Mutex<Supervisor>>,
     events: broadcast::Sender<TunnelEvent>,
+    shutdown: Shutdown,
 ) {
     // Wait for this index's turn. Connection 0 goes first; the rest are staggered behind it (§4).
     loop {
@@ -197,12 +266,28 @@ async fn supervise<C: Connector>(
         };
         match delay {
             Some(delay) => {
-                tokio::time::sleep(delay).await;
-                break;
+                // The staggered start (§4) is up to three seconds for the last index, and it has to
+                // be interruptible for the same reason the poll below is: the drain waits for every
+                // task, so an index asleep waiting its turn would burn the whole grace period doing
+                // nothing. Missing this was the second half of the same bug.
+                let mut waiting = shutdown.clone();
+                tokio::select! {
+                    () = tokio::time::sleep(delay) => break,
+                    () = waiting.requested() => return,
+                }
             }
             // Not yet cleared to start: the lead has not registered. Poll rather than signal,
             // because the wait is bounded by one registration and this costs nothing.
-            None => tokio::time::sleep(Duration::from_millis(25)).await,
+            //
+            // Shutdown has to be observable here too. An index still waiting its turn holds no
+            // connection, but the join below waits for *every* task — so without this, stopping a
+            // tunnel whose lead never came up would burn the whole grace period on nothing.
+            None => {
+                if *shutdown.0.borrow() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
         }
     }
 
@@ -224,8 +309,14 @@ async fn supervise<C: Connector>(
                         let _ = events.send(event);
                     }
                 }
-                // Serves until the connection ends. Not holding the lock here is the point.
-                connection.serve().await;
+                // Serves until the connection ends or the drain completes. Not holding the lock
+                // here is the point.
+                connection.serve(shutdown.clone()).await;
+                if *shutdown.0.borrow() {
+                    // Drained on purpose. Reconnecting now would re-register a connection the edge
+                    // has just been told to forget.
+                    return;
+                }
                 supervisor
                     .lock()
                     .expect("supervisor lock poisoned")
@@ -286,7 +377,7 @@ mod tests {
         fn colo(&self) -> String {
             "test01".to_owned()
         }
-        async fn serve(self) {}
+        async fn serve(self, _shutdown: Shutdown) {}
     }
 
     /// A connection that stays up until the test ends.
@@ -296,8 +387,30 @@ mod tests {
         fn colo(&self) -> String {
             "test01".to_owned()
         }
-        async fn serve(self) {
+        /// Serves until asked to stop, then "drains" instantly — a well-behaved connection.
+        async fn serve(self, mut shutdown: Shutdown) {
+            shutdown.requested().await;
+        }
+    }
+
+    /// Ignores the shutdown signal entirely, the way a wedged connection would.
+    struct Stuck;
+
+    impl Connection for Stuck {
+        fn colo(&self) -> String {
+            "test01".to_owned()
+        }
+        async fn serve(self, _shutdown: Shutdown) {
             std::future::pending::<()>().await;
+        }
+    }
+
+    struct NeverDrains;
+
+    impl Connector for NeverDrains {
+        type Conn = Stuck;
+        async fn connect(&self, _index: ConnectionIndex, _rotate: bool) -> Result<Stuck, RpcError> {
+            Ok(Stuck)
         }
     }
 
@@ -348,6 +461,9 @@ mod tests {
             local_port: 3000,
             subdomain: Some("test".to_owned()),
             backend: "https://api.nport.link".to_owned(),
+            // Milliseconds, not the deployed 30 seconds: these tests assert the deadline is honoured,
+            // and waiting half a minute to prove it would be its own kind of bug.
+            shutdown_grace: Duration::from_millis(300),
         }
     }
 
@@ -420,7 +536,10 @@ mod tests {
             }),
             "expected exhaustion, saw {seen:?}"
         );
-        assert!(seen.contains(&TunnelEvent::Stopped));
+        assert!(
+            seen.iter()
+                .any(|event| matches!(event, TunnelEvent::Stopped { .. }))
+        );
     }
 
     #[tokio::test]
@@ -443,6 +562,54 @@ mod tests {
                 .any(|event| matches!(event, TunnelEvent::ConnectionUp { .. }))
         );
         handle.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn a_graceful_shutdown_lets_connections_drain() {
+        // The bug this replaced: shutdown called `task.abort()`, cutting connections without
+        // `unregisterConnection`. That drops in-flight requests on the floor and leaves the edge
+        // routing to a connection that is gone (§12) — the exact thing `Transport::close`'s own docs
+        // say must never happen.
+        let handle = TunnelManager::spawn(config(), AlwaysUp);
+        let mut events = handle.events();
+        let _ = collect(handle.events(), 1).await;
+
+        handle.shutdown().await;
+
+        let mut stopped = None;
+        while let Ok(event) = events.try_recv() {
+            if let TunnelEvent::Stopped { drained } = event {
+                stopped = Some(drained);
+            }
+        }
+        assert_eq!(
+            stopped,
+            Some(true),
+            "a connection that observes the signal must drain within the grace period"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_connection_that_will_not_drain_does_not_hold_the_process_open() {
+        // The grace period is a deadline, not a suggestion. `drained: false` is how the CLI learns to
+        // report SHUTDOWN_TIMEOUT rather than claiming a clean stop.
+        let handle = TunnelManager::spawn(config(), NeverDrains);
+        let mut events = handle.events();
+        let _ = collect(handle.events(), 1).await;
+
+        let stopping = tokio::time::timeout(Duration::from_secs(5), handle.shutdown()).await;
+        assert!(
+            stopping.is_ok(),
+            "shutdown must not hang on a wedged connection"
+        );
+
+        let mut stopped = None;
+        while let Ok(event) = events.try_recv() {
+            if let TunnelEvent::Stopped { drained } = event {
+                stopped = Some(drained);
+            }
+        }
+        assert_eq!(stopped, Some(false));
     }
 
     #[test]

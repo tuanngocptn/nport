@@ -87,7 +87,12 @@ pub enum TunnelEvent {
     ShuttingDown { reason: ShutdownReason },
 
     /// The tunnel is fully torn down. Always the last event; the stream ends after it.
-    Stopped,
+    ///
+    /// `drained` says whether in-flight requests finished within the grace period. `false` means the
+    /// connections were cut with work still on them — `docs/PROTOCOL.md` §12's drain did not complete,
+    /// and the CLI should report `SHUTDOWN_TIMEOUT`. Carried rather than assumed, because a shutdown
+    /// that silently dropped requests looks identical to a clean one from outside.
+    Stopped { drained: bool },
 }
 
 /// Why a tunnel is stopping.
