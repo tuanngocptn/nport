@@ -14,7 +14,15 @@ const COMPLETE = {
   MAX_ACTIVE_TUNNELS: 1000,
   MIN_CLIENT_VERSION: "3.0.0",
   POW_DIFFICULTY_BITS: 20,
-} as const
+  POW_MAX_DIFFICULTY_BITS: 26,
+  MAX_CONCURRENT_PER_SOURCE: 3,
+  MAX_CREATES_PER_HOUR_PER_SOURCE: 20,
+  // Object bindings. Presence is all that is checked, so a marker suffices.
+  SUBDOMAIN_LEASE: {},
+  REGISTRY: {},
+  SOURCE_QUOTA: {},
+  RATE_LIMITER: {},
+} as unknown as Parameters<typeof missingBindings>[0]
 
 describe("missingBindings", () => {
   it("reports nothing for a complete environment", () => {
@@ -58,8 +66,15 @@ describe("missingBindings", () => {
     expect(missingBindings(rest)).toContain("CF_API_TOKEN")
   })
 
+  it("catches an absent object binding, not just the string ones", () => {
+    // A `wrangler.jsonc` that does not declare a class the code exports fails at the first line that
+    // touches the namespace, with `Cannot read properties of undefined` and no clue which one.
+    const { SOURCE_QUOTA: _omitted, ...rest } = COMPLETE as Record<string, unknown>
+    expect(missingBindings(rest as Parameters<typeof missingBindings>[0])).toContain("SOURCE_QUOTA")
+  })
+
   it("lists every missing binding, not just the first", () => {
-    // An operator fixing one at a time is a slow way to learn there were eleven.
-    expect(missingBindings({}).length).toBe(11)
+    // An operator fixing one at a time is a slow way to learn there were eighteen.
+    expect(missingBindings({}).length).toBe(18)
   })
 })

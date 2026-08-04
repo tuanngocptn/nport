@@ -6,14 +6,15 @@
  * driving the API — and **no module-level mutable state**, because an isolate is shared across
  * callers and module scope is not per-request.
  *
- * **Phase 2a.** The stateless half plus the lease lifecycle. Still to land: per-source rate limits
- * and caps, dynamic proof-of-work difficulty, the reconciliation cron, and the legacy v2 shim.
+ * **Phase 2a.** The lease lifecycle and the abuse controls. Still to land: the reconciliation cron and
+ * the legacy v2 shim.
  */
 
 import { Hono } from "hono"
 
 import { ApiError, envelope } from "./errors"
 import { clientGate } from "./middleware/client-gate"
+import { rateLimit } from "./middleware/rate-limit"
 import { requestId } from "./middleware/request-id"
 import { requireBindings } from "./middleware/require-bindings"
 import { challengeRoute } from "./routes/challenge"
@@ -23,6 +24,7 @@ import { tunnelsRoute } from "./routes/tunnels"
 import type { Env, Variables } from "./types"
 
 export { Registry } from "./do/registry"
+export { SourceQuota } from "./do/source-quota"
 export { SubdomainLease } from "./do/subdomain-lease"
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>()
@@ -41,6 +43,15 @@ app.use("/v1/tunnels/*", requireBindings)
 // The gate runs on `/v1/*` only: `GET /` is a redirect for humans who typed the API host into a
 // browser, and `/v1/health` is for monitoring, which sends no NPort client headers.
 app.use("/v1/*", clientGate)
+
+// After the client gate, so a request that never identified itself is refused before it costs a
+// platform call — and before every route that reads storage, since the whole point of the outermost
+// layer is to be the cheapest one. Health is excluded: an uptime monitor polls on a fixed schedule and
+// must not be able to rate-limit itself out of existence, and it reads nothing.
+app.use("/v1/challenge", rateLimit)
+app.use("/v1/meta", rateLimit)
+app.use("/v1/tunnels", rateLimit)
+app.use("/v1/tunnels/*", rateLimit)
 
 app.route("/v1/challenge", challengeRoute)
 app.route("/v1/meta", metaRoute)

@@ -35,6 +35,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0025 | A purpose-built Rust emitter instead of `typify` | Accepted |
 | 0026 | Derived tunnel names are the saga's idempotency key | Accepted |
 | 0027 | Redeemed proof-of-work challenges are recorded | Accepted |
+| 0028 | Proof-of-work difficulty escalates per source, not globally | Accepted |
 
 ---
 
@@ -468,3 +469,28 @@ But it was load-bearing for a claim it does not actually support. A challenge is
 - The ledger is on the create path only, so its cost scales with creates rather than with heartbeats.
 
 **Rejected.** *A nonce range bound to the challenge* — it limits how many solutions exist, not how many times one is presented. *Making the challenge single-use by encoding a counter* — stateless verification cannot know whether a counter was already used. *Accepting the replay* — the alternative to a ledger is that difficulty is not a lever, and difficulty is the documented response to an abuse event (`docs/OPERATIONS.md`).
+
+## ADR-0028 — Proof-of-work difficulty escalates per source, not globally
+
+**Date.** 2026-08-04. **Status.** Accepted. **Amends** ADR-0027 and the abuse-control design in `docs/ARCHITECTURE.md` §7.
+
+**Context.** §7 says difficulty is "raised dynamically under load", and `docs/OPERATIONS.md` calls it the lever to pull during an abuse event. Both readings imply a **global** load signal — and a global signal is a problem for the endpoint that would have to read it.
+
+`GET /v1/challenge` is designed to be the cheapest thing in the system: one HMAC, nothing stored, so it cannot be exhausted. Reading a global load figure means reading the singleton `Registry` on every challenge, which does two unwanted things. It puts a shared serialization point on the cheapest path, and it hands an attacker a way to make us do Durable Object work for free — the exact property the stateless design was protecting.
+
+There is also a fairness problem with a global dial. Under attack it raises the price for *everyone*, so the first-time user trying one tunnel pays for the botnet.
+
+**Decision.** Difficulty escalates **per source**, from the source's own recent create attempts, held in that source's `SourceQuota` object. `GET /v1/challenge` reads its own caller's object: one Durable Object read, sharded by source. Every four attempts in the trailing hour adds one bit — a doubling — capped by `POW_MAX_DIFFICULTY_BITS`.
+
+The **global** lever remains manual: raise `POW_DIFFICULTY_BITS` and deploy. `docs/OPERATIONS.md` already documents that as the incident response.
+
+**Consequences.**
+
+- A first-time caller pays the ~100 ms floor. A source on its twentieth tunnel in an hour pays roughly 32x that. The price lands on whoever is generating the load.
+- Hammering `/v1/challenge` now loads only the attacker's own object and raises only the attacker's own price. The endpoint is no longer strictly "nothing stored" — it is one read — but it is *more* self-defending than before, not less.
+- Escalation is committed to inside the challenge's MAC, so it cannot be negotiated down. There is a test that tampers with the difficulty and expects `bad-signature`.
+- `GET /v1/meta` advertises the **floor**, not what the next challenge will cost. A client sizes its solver from the floor and reads the actual difficulty off each challenge.
+- The ceiling exists because unbounded escalation would eventually price out a legitimate heavy user permanently, and with no accounts there is nobody for them to appeal to.
+- Escalation counts **attempts**, not successes, so failing on purpose does not dodge it.
+
+**Rejected.** *A global signal read per challenge* — a hot singleton on the cheapest path, and free Durable Object work for an attacker. *Caching the difficulty in the isolate* — module-level mutable state, which rule 10 forbids and which is per-isolate rather than per-anything-meaningful. *Escalating on challenge issuance rather than on creates* — it would make issuing a write, which is the property worth keeping; the rate limiter already bounds issuance. *Leaving difficulty static* — then it is not a lever, and §7's claim about it is false.

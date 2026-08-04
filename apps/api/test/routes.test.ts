@@ -138,16 +138,45 @@ describe("GET /v1/challenge", () => {
       expiresAt: number
     }
 
+    // A first-time source pays the floor. Difficulty rises per source with recent creates, so this
+    // asserts the floor rather than a fixed number (ADR-0028).
     expect(body.difficulty).toBe(Number(env.POW_DIFFICULTY_BITS))
     expect(body.expiresAt).toBeGreaterThan(Date.now())
 
-    // Solve at a low difficulty: the deployed floor is 20 bits, which is ~100 ms for a user but
-    // slow enough to make a test flaky on a loaded runner. The signature path is what matters here.
-    const cheap = await solveChallenge(body.challenge, 8)
-    const result = await verifyChallenge(String(env.POW_SECRET), body.challenge, cheap, Date.now())
-    // The challenge commits to 20 bits, so an 8-bit solution is correctly insufficient — proving
-    // the difficulty travelled intact rather than being taken from the request.
-    expect(result).toEqual({ ok: false, reason: "insufficient-work" })
+    const solution = await solveChallenge(body.challenge, body.difficulty)
+    const accepted = await verifyChallenge(
+      String(env.POW_SECRET),
+      body.challenge,
+      solution,
+      Date.now(),
+    )
+    expect(accepted).toEqual({ ok: true, bits: body.difficulty })
+  })
+
+  it("commits to the difficulty, so a client cannot negotiate it down", async () => {
+    // The property that makes per-source escalation binding rather than advisory. Asserted by
+    // tampering rather than by solving at a lower difficulty, which would be probabilistic: a nonce
+    // found for 1 bit satisfies 4 bits one time in eight, and a flaky security test is worse than none.
+    const body = (await (await get("/v1/challenge")).json()) as { challenge: string }
+    const [encoded, mac] = body.challenge.split(".") as [string, string]
+
+    const payload = JSON.parse(atob(encoded.replaceAll("-", "+").replaceAll("_", "/"))) as {
+      exp: number
+      bits: number
+      salt: string
+    }
+    expect(payload.bits).toBe(Number(env.POW_DIFFICULTY_BITS))
+
+    // Re-encode with the difficulty lowered, keeping the original MAC.
+    const forged = btoa(JSON.stringify({ ...payload, bits: 1 }))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replaceAll("=", "")
+    const tampered = `${forged}.${mac}`
+
+    const solution = await solveChallenge(tampered, 1)
+    const result = await verifyChallenge(String(env.POW_SECRET), tampered, solution, Date.now())
+    expect(result).toEqual({ ok: false, reason: "bad-signature" })
   })
 
   it("never issues the same challenge twice", async () => {

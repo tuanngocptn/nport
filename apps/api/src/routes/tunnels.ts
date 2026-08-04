@@ -19,9 +19,9 @@ import {
 import { Hono } from "hono"
 
 import type { Registry } from "../do/registry"
+import type { SourceQuota } from "../do/source-quota"
 import type { ClaimResult, SubdomainLease } from "../do/subdomain-lease"
 import { generateSubdomain } from "../domain/generated-name"
-import { sourceHash } from "../domain/ip-hash"
 import { hashOwnerToken, mintOwnerToken } from "../domain/owner-token"
 import { CHALLENGE_TTL_MS, verifyChallenge } from "../domain/pow"
 import { ApiError } from "../errors"
@@ -38,6 +38,25 @@ const GENERATE_ATTEMPTS = 3
 
 /** Seconds to suggest when the global cap is hit. Short, because capacity frees up as leases expire. */
 const CAPACITY_RETRY_AFTER = 30
+
+/**
+ * A placeholder holding a concurrency slot while a generated name is being claimed.
+ *
+ * A generated name is not known until the claim succeeds, but the slot has to be taken *before* the
+ * claim or the cap would not bound anything. The placeholder is moved onto the real name on success and
+ * released on failure.
+ *
+ * **Unique per request, and that is load-bearing.** A single shared placeholder made the per-source cap
+ * evadable: `reserve` treats a name it already holds as not needing a new slot — which is right for a
+ * client retrying the same explicit subdomain — so every simultaneous generated-name create saw the one
+ * placeholder already held and passed the check. Five concurrent requests produced five tunnels against
+ * a cap of three. With a unique name each, every request takes its own slot.
+ *
+ * `nport-` is a reserved prefix, so this can never collide with a subdomain a user could claim.
+ */
+function pendingName(): string {
+  return `nport-pending-${crypto.randomUUID()}`
+}
 
 /**
  * How long a redeemed challenge stays in the ledger.
@@ -125,16 +144,37 @@ export const tunnelsRoute = new Hono<App>()
         chosen = check.subdomain
       }
 
-      const registry = registryStub(env)
+      // The source's identity, computed once by the rate-limit middleware. Reusing it rather than
+      // re-hashing keeps the limiter, the quota, and the lease's stored `ip_hash` on one identity.
+      const ipHash = context.get("sourceHash")
+      const quota = quotaStub(env, ipHash)
 
-      if ((await registry.activeCount()) >= Number(env.MAX_ACTIVE_TUNNELS)) {
-        throw new ApiError("CAPACITY_EXHAUSTED", { retryAfter: CAPACITY_RETRY_AFTER })
+      // Per-source caps before the global one: they are what actually bound a single abuser, and they
+      // live on a per-source object, so checking them first keeps the shared `Registry` off the path
+      // for a request that is going to be refused anyway.
+      const pending = chosen ?? pendingName()
+      const reserved = await quota.reserve(pending, {
+        maxConcurrent: Number(env.MAX_CONCURRENT_PER_SOURCE),
+        maxPerHour: Number(env.MAX_CREATES_PER_HOUR_PER_SOURCE),
+      })
+      if (!reserved.ok) {
+        throw new ApiError(reserved.code, reserved.details)
       }
 
-      // Spent last among the cheap checks, and only once the request is otherwise acceptable. The MAC
-      // is the challenge's signature half: unique per issuance, and shorter than the whole.
+      // Global cap and the challenge ledger, atomically and in one round trip. Capacity is checked
+      // first inside, so a 503 never burns the caller's solved challenge. The MAC is the challenge's
+      // signature half: unique per issuance, and shorter than the whole.
       const mac = request.challenge.split(".")[1] ?? request.challenge
-      if (!(await registry.spendChallenge(mac, Date.now() + CHALLENGE_LEDGER_MS))) {
+      const admitted = await registryStub(env).admitCreate(
+        mac,
+        Date.now() + CHALLENGE_LEDGER_MS,
+        Number(env.MAX_ACTIVE_TUNNELS),
+      )
+      if (!admitted.ok) {
+        await releaseQuietly(quota, pending)
+        if (admitted.reason === "capacity") {
+          throw new ApiError("CAPACITY_EXHAUSTED", { retryAfter: CAPACITY_RETRY_AFTER })
+        }
         throw new ApiError("POW_INVALID", { reason: "challenge already used" })
       }
 
@@ -142,17 +182,11 @@ export const tunnelsRoute = new Hono<App>()
       // ever holds the token itself (`docs/ARCHITECTURE.md` §7).
       const ownerToken = mintOwnerToken()
       const ownerTokenHash = await hashOwnerToken(ownerToken)
-      const ipHash = await sourceHash(
-        env.IP_HASH_SECRET,
-        context.req.header("cf-connecting-ip") ?? "unknown",
-        // `cf` is typed `unknown` on the global `Request` that Hono exposes, so the shape of
-        // `IncomingRequestCfProperties` is not visible here. `asn` is a number when present.
-        context.req.raw.cf?.asn as number | undefined,
-      )
       const clientVersion = context.req.header("user-agent") ?? ""
 
       const attempts = requested === undefined ? GENERATE_ATTEMPTS : 1
       let result: ClaimResult = { ok: false, code: "PROVISION_FAILED" }
+      let claimedName = pending
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         const candidate = chosen ?? generateSubdomain()
         const claimed = await leaseStub(env, candidate).claim({
@@ -162,6 +196,7 @@ export const tunnelsRoute = new Hono<App>()
           clientVersion,
         })
         result = claimed
+        claimedName = candidate
         // Only a name collision is worth a second try, and only when we chose the name.
         if (result.ok || result.code !== "SUBDOMAIN_IN_USE") {
           break
@@ -169,7 +204,19 @@ export const tunnelsRoute = new Hono<App>()
       }
 
       if (!result.ok) {
+        // Hand the slot back immediately rather than waiting for the reservation to lapse. The hourly
+        // create count is deliberately *not* refunded: this attempt reached Cloudflare and cost real
+        // work, and refunding failures would let anyone with a reliable way to fail create endlessly.
+        await releaseQuietly(quota, pending)
         throw new ApiError(result.code, result.details)
+      }
+
+      // Move the slot from the placeholder onto the real name, or teardown would never find it to
+      // release. Confirm before releasing: the reverse order would drop the source's hold count for a
+      // round trip, and a concurrent create could slip past the cap in that window.
+      if (chosen === undefined) {
+        await quota.confirm(claimedName, result.expiresAt)
+        await releaseQuietly(quota, pending)
       }
 
       return context.json(
@@ -292,4 +339,23 @@ function leaseStub(env: Env, subdomain: string): DurableObjectStub<SubdomainLeas
 
 function registryStub(env: Env): DurableObjectStub<Registry> {
   return env.REGISTRY.get(env.REGISTRY.idFromName("global"))
+}
+
+function quotaStub(env: Env, sourceHash: string): DurableObjectStub<SourceQuota> {
+  return env.SOURCE_QUOTA.get(env.SOURCE_QUOTA.idFromName(sourceHash))
+}
+
+/**
+ * Releases a slot without letting the attempt fail over bookkeeping.
+ *
+ * Every caller is already on an error path or has already succeeded, so throwing here would replace a
+ * meaningful response with an opaque 500. An unreleased slot lapses on its own within the reservation
+ * window anyway.
+ */
+async function releaseQuietly(quota: DurableObjectStub<SourceQuota>, name: string): Promise<void> {
+  try {
+    await quota.release(name)
+  } catch (error) {
+    console.error("could not release a reserved quota slot", { error: String(error) })
+  }
 }

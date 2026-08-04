@@ -42,7 +42,19 @@ const REQUIRED_VARS = [
   "MAX_ACTIVE_TUNNELS",
   "MIN_CLIENT_VERSION",
   "POW_DIFFICULTY_BITS",
+  "POW_MAX_DIFFICULTY_BITS",
+  "MAX_CONCURRENT_PER_SOURCE",
+  "MAX_CREATES_PER_HOUR_PER_SOURCE",
 ] as const
+
+/**
+ * Bindings that are objects rather than strings: the Durable Object namespaces and the rate limiter.
+ *
+ * Checked by presence, not by shape. A missing one is a `wrangler.jsonc` that does not match the code
+ * — the same class of misconfiguration as an unset secret, and just as opaque without this: the first
+ * symptom would be `Cannot read properties of undefined` from whichever line touched it first.
+ */
+const REQUIRED_BINDINGS = ["SUBDOMAIN_LEASE", "REGISTRY", "SOURCE_QUOTA", "RATE_LIMITER"] as const
 
 /** Names of bindings that are missing or empty. Empty array means the Worker is configured. */
 export function missingBindings(env: Partial<Env>): string[] {
@@ -66,6 +78,12 @@ export function missingBindings(env: Partial<Env>): string[] {
     // Numeric vars must actually parse. Workers vars arrive as strings or numbers depending on how
     // they were declared, and `Number("")` is 0 — which would silently mean a zero-second lease.
     if (name !== "MIN_CLIENT_VERSION" && !Number.isFinite(Number(value))) {
+      missing.push(name)
+    }
+  }
+
+  for (const name of REQUIRED_BINDINGS) {
+    if (env[name] === undefined || env[name] === null) {
       missing.push(name)
     }
   }

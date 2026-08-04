@@ -36,6 +36,9 @@ export default defineConfig({
           CF_ZONE_ID: "test-zone",
           // `.test` is reserved by RFC 2606, so a leaked request cannot resolve to anything real.
           CF_DOMAIN: "nport.test",
+          // Loosened from the deployed floor of 20 bits: 4 bits exercises the identical code path but
+          // does not make every create-path test hostage to a loaded CI runner's CPU.
+          POW_DIFFICULTY_BITS: 4,
         },
       },
     }),

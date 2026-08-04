@@ -31,7 +31,12 @@ interface Vars {
   HEARTBEAT_GRACE_SECONDS: number
   MAX_ACTIVE_TUNNELS: number
   MIN_CLIENT_VERSION: string
+  /** The floor every caller pays. `SourceQuota` raises it per source from here. */
   POW_DIFFICULTY_BITS: number
+  /** The ceiling on automatic escalation. */
+  POW_MAX_DIFFICULTY_BITS: number
+  MAX_CONCURRENT_PER_SOURCE: number
+  MAX_CREATES_PER_HOUR_PER_SOURCE: number
 }
 
 export interface Env extends Secrets, Vars {
@@ -41,9 +46,25 @@ export interface Env extends Secrets, Vars {
   // `Env` from here — a type-only inline import is erased, so the cycle never exists at runtime.
   SUBDOMAIN_LEASE: DurableObjectNamespace<import("./do/subdomain-lease").SubdomainLease>
   REGISTRY: DurableObjectNamespace<import("./do/registry").Registry>
+  SOURCE_QUOTA: DurableObjectNamespace<import("./do/source-quota").SourceQuota>
+  /**
+   * Cloudflare's per-key request-rate limiter, declared in `wrangler.jsonc` § ratelimits.
+   *
+   * Hand-typed for the same reason `Env` is: `wrangler types` would be a second generated artifact to
+   * drift-gate, and this is the whole surface.
+   */
+  RATE_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> }
 }
 
 export interface Variables {
   /** Echoed in every error envelope so a user can quote one thing in a bug report. */
   requestId: string
+  /**
+   * `HMAC(ip, IP_HASH_SECRET)` over the address and ASN, set by the rate-limit middleware.
+   *
+   * Computed once per request and shared, so the limiter and the per-source quota address the same
+   * identity. Two independent hashings would be two chances to diverge and give one caller two
+   * identities — which is a cap that does not cap.
+   */
+  sourceHash: string
 }

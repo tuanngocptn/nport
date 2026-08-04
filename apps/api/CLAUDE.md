@@ -6,17 +6,17 @@ The control plane at `api.nport.link`. Hono on Cloudflare Workers. Validates req
 
 **Not responsible for:** carrying tunnel traffic (it never touches the data path), user identity (there is none), or the connector protocol.
 
-**Status: partly implemented.** Phase 2a — the lease lifecycle works; rate limiting, the reconciliation cron, and the legacy v2 shim do not exist yet (`docs/ROADMAP.md`).
+**Status: partly implemented.** Phase 2a — the lease lifecycle and the abuse controls work; the reconciliation cron and the legacy v2 shim do not exist yet (`docs/ROADMAP.md`).
 
 ## Layout
 
 ```
-src/index.ts            Hono app; exports { fetch, scheduled } + both DO classes
+src/index.ts            Hono app; exports { fetch, scheduled } + all three DO classes
 src/routes/             tunnels, challenge, health, meta
-src/middleware/         request-id, client-gate, require-bindings
-                        (rate-limit — needs the Workers rate-limit binding, next slice)
+src/middleware/         request-id, client-gate, require-bindings, rate-limit
 src/do/subdomain-lease.ts   DO per subdomain: atomic claim, saga journal, expiry alarm
-src/do/registry.ts          singleton DO: global index, counters, challenge ledger
+src/do/registry.ts          singleton DO: global index, cap, challenge ledger
+src/do/source-quota.ts      DO per source: concurrency, hourly quota, PoW difficulty
 src/cloudflare/client.ts    the only place this Worker calls Cloudflare
 src/domain/             pow, ip-hash, owner-token, generated-name — pure logic, unit-tested
                         (subdomain validation lives in packages/contract, not here)
@@ -60,12 +60,15 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 
 **Change a limit** — `wrangler.jsonc` `vars`, surface it in `GET /v1/meta` so clients discover rather than hardcode it, and note the value in `docs/OPERATIONS.md`.
 
-**Add a reserved subdomain** — `src/domain/reserved.ts` plus a unit test. The sweeper shares this list, so a name added here is also protected from cleanup.
+**Add a reserved subdomain** — `packages/contract/src/subdomain.ts` plus a fixture case. The sweeper shares this list, so a name added here is also protected from cleanup.
+
+**Change an abuse limit** — `wrangler.jsonc` § vars, then confirm `GET /v1/meta` still reports it (clients discover limits rather than hardcoding them) and that `test/abuse-controls.test.ts` reads the var instead of the number.
 
 ## Gotchas
 
 - **DO alarms are at-least-once.** A handler that deletes on second delivery must tolerate the record already being gone.
 - **Durable Object state leaks between tests.** `vitest-pool-workers` 0.20 removed `isolatedStorage`, and passing it is *silently ignored* — so a suite that writes any DO state must call `reset()` from `cloudflare:test` in an `afterEach`, or you get failures that depend on test order.
+- **The four abuse controls are layered, and a test that spends its requests on the outer one is not testing the inner one.** The rate limiter allows 60 requests per minute per source, and a create costs two (challenge, then create) — so anything needing more than ~30 creates from one address must drive `SourceQuota` directly or use a different `cf-connecting-ip`.
 - **`idFromName(subdomain)` requires the *normalized* subdomain.** Normalizing after deriving the ID gives two DOs for one logical name, and the whole atomicity guarantee evaporates. Normalize first, always.
 - **A `wrangler rollback` reverts code, not DO schema.** Migrations are forward-only; deploy schema changes in two compatible steps (`docs/RELEASE.md`).
 - **The legacy v2 shim must keep working** until the sunset date. It deliberately does *not* reproduce v2's subdomain-takeover or unauthenticated-delete behaviour — those were the bugs.

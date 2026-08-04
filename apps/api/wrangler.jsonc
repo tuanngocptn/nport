@@ -15,16 +15,41 @@
   "durable_objects": {
     "bindings": [
       { "name": "SUBDOMAIN_LEASE", "class_name": "SubdomainLease" },
-      { "name": "REGISTRY", "class_name": "Registry" }
+      { "name": "REGISTRY", "class_name": "Registry" },
+      { "name": "SOURCE_QUOTA", "class_name": "SourceQuota" }
     ]
   },
 
   // SQLite-backed, so free-plan eligible (ADR-0011). Migrations are forward-only:
-  // `wrangler rollback` reverts code, not schema (docs/RELEASE.md).
+  // `wrangler rollback` reverts code, not schema (docs/RELEASE.md). A new class gets a
+  // new tag rather than being appended to an existing one — v1 has never been applied
+  // anywhere, so amending it would work, but immutable-once-committed is the habit that
+  // stays correct after the first deploy.
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["SubdomainLease", "Registry"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["SourceQuota"]
+    }
+  ],
+
+  // Per-source request limiting, keyed on HMAC(ip, secret) + ASN — never a raw IP
+  // (docs/ARCHITECTURE.md §7). `namespace_id` is ours to choose; it only separates one
+  // counter from another. `period` accepts **10 or 60 and nothing else**, which is a
+  // property of the platform, not a choice: the schema in the pinned wrangler enumerates
+  // exactly those two values.
+  //
+  // This is the outermost of the layered controls and the cheapest to evaluate. It does
+  // not replace the per-source caps below: it bounds request *rate*, while the caps bound
+  // how many tunnels a source can hold and create.
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 60, "period": 60 }
     }
   ],
 
@@ -39,11 +64,17 @@
     "HEARTBEAT_GRACE_SECONDS": 120,
     "MAX_ACTIVE_TUNNELS": 1000,
     "MIN_CLIENT_VERSION": "3.0.0",
-    // Floor only. The DO raises difficulty dynamically under load, because a var
-    // change needs a deploy (docs/OPERATIONS.md § Mass abuse).
-    "POW_DIFFICULTY_BITS": 20
+    // The floor every caller pays: ~100 ms of work for a first tunnel. A source that
+    // keeps creating pays more, automatically, up to POW_MAX_DIFFICULTY_BITS.
+    "POW_DIFFICULTY_BITS": 20,
+    // The ceiling on automatic escalation. 26 bits is ~64x the floor — expensive enough
+    // to stop a script, still finite for someone with a legitimate reason to hold many
+    // tunnels. Raising the *floor* is the manual lever during an incident
+    // (docs/OPERATIONS.md § Mass abuse).
+    "POW_MAX_DIFFICULTY_BITS": 26,
+    // Per-source caps. Surfaced by GET /v1/meta so clients discover them rather than
+    // hardcoding them — v2's CLI hardcoded its one limit and was wrong about it (R6).
+    "MAX_CONCURRENT_PER_SOURCE": 3,
+    "MAX_CREATES_PER_HOUR_PER_SOURCE": 20
   }
-
-  // The Workers rate-limit binding lands in Phase 2a with the middleware that uses it,
-  // so its shape can be verified against the pinned wrangler version rather than guessed.
 }

@@ -12,6 +12,7 @@ import {
 import { hashesMatch } from "../domain/owner-token"
 import type { Env } from "../types"
 import type { Registry } from "./registry"
+import type { SourceQuota } from "./source-quota"
 
 /**
  * One Durable Object per **normalized** subdomain: atomic claim, saga journal, expiry alarm.
@@ -455,8 +456,12 @@ export class SubdomainLease extends DurableObject<Env> {
     // could release it and the name would sit until its heartbeat grace period expired.
     try {
       await this.#registry().record(row.subdomain, final.expires_at)
+      // Promotes the caller's reservation to the lease's own lifetime. Until this runs the slot is
+      // held on a one-minute reservation, so a saga that dies here costs the caller a minute rather
+      // than four hours.
+      await this.#quota(row.ip_hash).confirm(row.subdomain, final.expires_at)
     } catch (error) {
-      console.error("registry record failed; lease is active but unindexed", {
+      console.error("post-activation bookkeeping failed; lease is active but unindexed", {
         subdomain: row.subdomain,
         error: String(error),
       })
@@ -632,6 +637,19 @@ export class SubdomainLease extends DurableObject<Env> {
   async #clearLease(row: LeaseRow): Promise<void> {
     await this.ctx.storage.deleteAlarm()
     await this.#registry().forget(row.subdomain)
+    // Frees the caller's concurrency slot. Placed here, before the delete, for the reason above: the
+    // row must still exist across every await in this method. An unreleased slot would expire on its
+    // own, but only after the lease's full lifetime, so a user who closed a tunnel would wait hours
+    // to reuse the slot.
+    try {
+      await this.#quota(row.ip_hash).release(row.subdomain)
+    } catch (error) {
+      // Never fail a teardown over bookkeeping: the slot expires with the lease regardless.
+      console.error("could not release the source's quota slot", {
+        subdomain: row.subdomain,
+        error: String(error),
+      })
+    }
     this.ctx.storage.sql.exec("DELETE FROM lease")
   }
 
@@ -755,6 +773,16 @@ export class SubdomainLease extends DurableObject<Env> {
 
   #registry(): DurableObjectStub<Registry> {
     return this.env.REGISTRY.get(this.env.REGISTRY.idFromName("global"))
+  }
+
+  /**
+   * The quota object for the source that created this lease.
+   *
+   * Addressed by the stored `ip_hash`, which is already `HMAC(ip, secret)` — this object has never
+   * seen an address and cannot produce one (rule 11).
+   */
+  #quota(ipHash: string): DurableObjectStub<SourceQuota> {
+    return this.env.SOURCE_QUOTA.get(this.env.SOURCE_QUOTA.idFromName(ipHash))
   }
 
   /**

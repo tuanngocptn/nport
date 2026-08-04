@@ -42,18 +42,43 @@ export class Registry extends DurableObject<Env> {
   }
 
   /**
-   * Live leases, for the global cap.
+   * The global cap and the challenge-replay ledger, in one round trip.
    *
-   * Prunes expired rows first, so a lost `forget` — a Durable Object destroyed, a compensation that
-   * never ran — costs at most one lease's worth of headroom until its expiry passes, rather than
-   * permanently inflating the count until someone notices NPort reporting capacity it has.
+   * Both facts belong to this object and both gate the same request. Asking separately cost two
+   * subrequests and left a gap in which a challenge could be spent for a create the cap then refused,
+   * so they are one call with no `await` between the checks.
+   *
+   * Order matters: capacity **before** the ledger. A `503` is our fault and retryable, so it must not
+   * burn a solved challenge; a replay is the caller's fault and must.
+   *
+   * ## Why a ledger at all
+   *
+   * Without it, one solved challenge creates unlimited tunnels inside its two-minute validity window,
+   * and the control `docs/ARCHITECTURE.md` §7 calls load-bearing carries no load (ADR-0027). It does
+   * not contradict the "nothing stored" property of `GET /v1/challenge`: that is about *issuing*, and
+   * issuing stays unexhaustible because no row is written until a caller has already paid for a solve.
    */
-  async activeCount(): Promise<number> {
-    this.#prune(Date.now())
-    const row = this.ctx.storage.sql
+  async admitCreate(
+    mac: string,
+    ledgerExpiresAt: number,
+    maxActive: number,
+  ): Promise<
+    { readonly ok: true } | { readonly ok: false; readonly reason: "capacity" | "replay" }
+  > {
+    const now = Date.now()
+    this.#prune(now)
+
+    const active = this.ctx.storage.sql
       .exec<{ count: number }>("SELECT COUNT(*) AS count FROM lease_index")
-      .one()
-    return row.count
+      .one().count
+    if (active >= maxActive) {
+      return { ok: false, reason: "capacity" }
+    }
+
+    if (!this.#spend(mac, ledgerExpiresAt)) {
+      return { ok: false, reason: "replay" }
+    }
+    return { ok: true }
   }
 
   /** Called by a lease when it becomes `ACTIVE`. Idempotent: the same name records once. */
@@ -73,23 +98,13 @@ export class Registry extends DurableObject<Env> {
   }
 
   /**
-   * Redeems a solved challenge, once.
+   * Synchronous, so it composes into `admitCreate` without introducing an await.
    *
-   * Returns `false` if this challenge has already been used — the replay guard that makes the
-   * proof-of-work cost *per tunnel* rather than *per two minutes*. Without it, one solved challenge
-   * creates unlimited tunnels inside its validity window, and the control `docs/ARCHITECTURE.md` §7
-   * calls load-bearing carries no load at all.
-   *
-   * This does not contradict the "nothing is stored server-side" property of `GET /v1/challenge`.
-   * That property is about *issuing*: issuing stays free and unexhaustible because nothing is written
-   * until a caller has already paid the work. A row here costs an attacker a full solve.
+   * Check-then-insert is safe for the same reason it is in `SubdomainLease.claim`: there is no `await`
+   * between the two statements, and `ctx.storage.sql` is synchronous, so two concurrent redemptions of
+   * one challenge cannot both observe it unspent.
    */
-  async spendChallenge(mac: string, expiresAt: number): Promise<boolean> {
-    const now = Date.now()
-    this.#prune(now)
-    // Check-then-insert is safe here for the same reason it is in `SubdomainLease.claim`: there is no
-    // `await` between the two statements, and `ctx.storage.sql` is synchronous, so two concurrent
-    // redemptions of one challenge cannot both observe it unspent.
+  #spend(mac: string, expiresAt: number): boolean {
     const seen = this.ctx.storage.sql
       .exec<{ count: number }>("SELECT COUNT(*) AS count FROM spent_challenge WHERE mac = ?", mac)
       .one()

@@ -97,20 +97,23 @@ The one deliverable outstanding is the tag, which needs a remote. Everything Pha
 - [x] `SubdomainLease` and `Registry` DOs; the journaled provisioning saga with compensations
 - [x] `POST /v1/tunnels`, heartbeat, delete, status
 - [x] alarm-driven expiry, including the heartbeat-timeout and abandoned-saga paths
-- [x] 123 tests in real `workerd`
-- [ ] rate limiting and per-source caps; dynamic PoW difficulty
+- [x] rate limiting, per-source caps, and per-source PoW escalation (ADR-0028)
+- [x] 142 tests in real `workerd`
 - [ ] the reconciliation cron, and the `Registry` sweep cursor it walks
 - [ ] the legacy v2 method-dispatch shim
 
-Closed here: **R3** (the saga journals every step before its side effect and compensates in reverse), **R4** (one DO per normalized name, and the read-check-journal sequence holds no `await`, so concurrent claims cannot both win), **R6** (`expires_at` is server-owned and a heartbeat does not extend it), and **R7** (a lease cannot be taken while live, and no DNS record is deleted unless it is a `CNAME` whose content is exactly `<tunnel_id>.cfargotunnel.com`). Also **R5**, **R10**, **R11**, and the create half of **R9**.
+Closed here: **R3** (the saga journals every step before its side effect and compensates in reverse), **R4** (one DO per normalized name, and the read-check-journal sequence holds no `await`, so concurrent claims cannot both win), **R6** (`expires_at` is server-owned and a heartbeat does not extend it), **R7** (a lease cannot be taken while live, and no DNS record is deleted unless it is a `CNAME` whose content is exactly `<tunnel_id>.cfargotunnel.com`), and **R9** — all five layers: zone limiting is a dashboard setting, the Workers rate limiter is keyed on `HMAC(ip, secret)` + ASN, `SourceQuota` bounds concurrent and hourly creates per source, proof of work escalates per source, and the global cap returns 503. Also **R5**, **R10**, and **R11**.
 
 Three things worth knowing before this deploys:
 
 - **The Cloudflare API paths are unverified.** v2 used the legacy `/accounts/{id}/tunnels`; this uses the current `cfd_tunnel` name for the same resource. Nothing here has run against the live API, so the first deploy has to confirm it — everything else in 2a is exercised against `test/fake-cloudflare.ts`.
-- **The global cap is soft.** `MAX_ACTIVE_TUNNELS` is checked before the claim, so a burst of simultaneous creates can overshoot by roughly its own concurrency. It is a capacity guard, not a security boundary; the per-source caps in the next slice are what bound a single abuser.
+- **The global cap is soft.** `MAX_ACTIVE_TUNNELS` is checked before the claim, so a burst of simultaneous creates can overshoot by roughly its own concurrency. It is a capacity guard, not a security boundary — the per-source caps are what bound a single abuser, and those *are* hard: `SourceQuota.reserve` takes the slot and records the attempt in one synchronous, await-free step.
+- **Zone-level rate limiting is a dashboard setting, not code.** `docs/ARCHITECTURE.md` §7's outermost layer lives in the Cloudflare dashboard for `api.nport.link` and has not been configured, because nothing is deployed. `docs/OPERATIONS.md` owns it.
 - **A permanently failing teardown holds its name.** Deliberate — the alternative is issuing a URL that points at a tunnel we could not confirm is gone. The watchdog alarm retries, and the reconciliation cron is the backstop that does not exist yet.
 
-The saga's concurrency has now had two review passes, each of which found a reachable bug in code that had already passed the full gate — an absent-row window across an outbound RPC, and a mid-saga lease being reclaimed on a wall-clock check that never verified the saga was actually dead. Both are fixed and tested. The pattern in both is the same: **an `await` inside a state transition**, and the surrounding comment asserting an invariant the code did not check. Treat any new `await` in `subdomain-lease.ts` as needing the same scrutiny, and note that the passing test suite did not catch either one — they were found by reading.
+The concurrency in this track has now had three review passes, each of which found a reachable bug in code that had already passed the full gate — an absent-row window across an outbound RPC, and a mid-saga lease being reclaimed on a wall-clock check that never verified the saga was actually dead. — an absent-row window across an outbound RPC, a mid-saga lease reclaimed on a wall-clock check that never verified the saga was dead, and a shared placeholder that let simultaneous generated-name creates pass the per-source cap on one slot. All three are fixed and tested.
+
+The pattern is the same every time: **a check and the state change it guards, separated by an `await`** — or in the third case, a check keyed on something two requests could share. In each case the surrounding comment asserted an invariant the code did not enforce. Treat any new `await` between a check and its write as needing that scrutiny, and note that the passing suite caught none of the three; all were found by reading, then reproduced with a test written afterwards.
 
 ### 2b · `crates/core` + `crates/cli`
 
