@@ -88,7 +88,7 @@ The one deliverable outstanding is the tag, which needs a remote. Everything Pha
 
 ### 2a · `apps/api`
 
-**In progress.** The lease lifecycle works end to end against a fake Cloudflare; abuse controls and reconciliation are next.
+**In progress.** The lease lifecycle and all five abuse-control layers work end to end against a fake Cloudflare. Reconciliation and the legacy shim are what remain.
 
 - [x] Hono app, `ApiError` → envelope error handler, request-id from `cf-ray`
 - [x] client gate with the minimum-version floor
@@ -98,8 +98,8 @@ The one deliverable outstanding is the tag, which needs a remote. Everything Pha
 - [x] `POST /v1/tunnels`, heartbeat, delete, status
 - [x] alarm-driven expiry, including the heartbeat-timeout and abandoned-saga paths
 - [x] rate limiting, per-source caps, and per-source PoW escalation (ADR-0028)
-- [x] 143 tests in real `workerd`
-- [ ] the reconciliation cron, and the `Registry` sweep cursor it walks
+- [x] the reconciliation cron and the `Registry` sweep cursor it walks
+- [x] 159 tests in real `workerd`
 - [ ] the legacy v2 method-dispatch shim
 
 Closed here: **R3** (the saga journals every step before its side effect and compensates in reverse), **R4** (one DO per normalized name, and the read-check-journal sequence holds no `await`, so concurrent claims cannot both win), **R6** (`expires_at` is server-owned and a heartbeat does not extend it), **R7** (a lease cannot be taken while live, and no DNS record is deleted unless it is a `CNAME` whose content is exactly `<tunnel_id>.cfargotunnel.com`), and **R9** — all five layers: zone limiting is a dashboard setting, the Workers rate limiter is keyed on `HMAC(ip, secret)` + ASN, `SourceQuota` bounds concurrent and hourly creates per source, proof of work escalates per source, and the global cap returns 503. Also **R5**, **R10**, and **R11**.
@@ -109,11 +109,20 @@ Three things worth knowing before this deploys:
 - **The Cloudflare API paths are unverified.** v2 used the legacy `/accounts/{id}/tunnels`; this uses the current `cfd_tunnel` name for the same resource. Nothing here has run against the live API, so the first deploy has to confirm it — everything else in 2a is exercised against `test/fake-cloudflare.ts`.
 - **The global cap is soft.** `MAX_ACTIVE_TUNNELS` is checked before the claim, so a burst of simultaneous creates can overshoot by roughly its own concurrency. It is a capacity guard, not a security boundary — the per-source caps are what bound a single abuser, and those *are* hard: `SourceQuota.reserve` takes the slot and records the attempt in one synchronous, await-free step.
 - **Zone-level rate limiting is a dashboard setting, not code.** `docs/ARCHITECTURE.md` §7's outermost layer lives in the Cloudflare dashboard for `api.nport.link` and has not been configured, because nothing is deployed. `docs/OPERATIONS.md` owns it.
-- **A permanently failing teardown holds its name.** Deliberate — the alternative is issuing a URL that points at a tunnel we could not confirm is gone. The watchdog alarm retries, and the reconciliation cron is the backstop that does not exist yet.
+- **A permanently failing teardown holds its name.** Deliberate — the alternative is issuing a URL that points at a tunnel we could not confirm is gone. The watchdog alarm retries, and the reconciliation cron now backs it up.
+- **The sweep will not delete a DNS record it cannot prove it owns, and therefore leaves some orphans behind.** An orphan has no lease to say what its record should point at, so the proof used instead is the orphan tunnel's own ID — which means the record is deleted *before* the tunnel, while the proof still exists. A record pointing anywhere else is logged and left for a human (`docs/OPERATIONS.md`). Closing that gap automatically would mean deleting records on weaker evidence than invariant 8 allows, which is v2's takeover defect.
 
-The concurrency in this track has now had three review passes, each of which found a reachable bug in code that had already passed the full gate — an absent-row window across an outbound RPC, and a mid-saga lease being reclaimed on a wall-clock check that never verified the saga was actually dead. — an absent-row window across an outbound RPC, a mid-saga lease reclaimed on a wall-clock check that never verified the saga was dead, and a shared placeholder that let simultaneous generated-name creates pass the per-source cap on one slot. All three are fixed and tested.
+**Every review pass of this track's concurrency and cleanup has found a reachable bug in code that had already passed the full gate.** Five so far, all fixed and tested:
 
-The pattern is the same every time: **a check and the state change it guards, separated by an `await`** — or in the third case, a check keyed on something two requests could share. In each case the surrounding comment asserted an invariant the code did not enforce. Treat any new `await` between a check and its write as needing that scrutiny, and note that the passing suite caught none of the three; all were found by reading, then reproduced with a test written afterwards.
+1. An absent-row window across an outbound RPC, letting a second claim start a saga on a name still being torn down.
+2. A mid-saga lease reclaimed on a wall-clock check that never verified the saga was actually dead — which left a live tunnel with no lease, so nothing would reap it.
+3. A shared placeholder that let simultaneous generated-name creates pass the per-source cap on one slot: five tunnels against a cap of three.
+4. `reserve` overwriting a *confirmed* hold's expiry, and the failure path then deleting it — so a source at its cap could re-request a name it already held, take the correct `409`, and come away one slot lighter. Repeatable per lease, which defeated the concurrency cap entirely, bounded only by the hourly quota.
+5. The sweep cursor advancing only after a clean run, so a single undeletable orphan would pin reconciliation to its page and starve every other page — R8 again, through a door nobody was watching.
+
+The shape is nearly the same each time: **a check separated from the state change it guards** — by an `await` in the first two, by a key two requests could share in the next two, and by a failure path in the fifth. In every case a comment nearby asserted the invariant the code failed to enforce, which is the most reliable place to look. The passing suite caught none of them; each was found by reading, then reproduced with a test written afterwards. The prediction that a fifth existed was correct, so assume a sixth.
+
+One flaky test came out of the same work, worth recording for what it was asserting: the "refuses an unsolved challenge" case used a hardcoded `nonce: "0"`, which satisfies the 4-bit difficulty these tests run at one time in sixteen. A 6%-flaky test claiming proof of work is enforced is the worst possible thing to be flaky about. It now searches for a nonce verified *not* to satisfy the difficulty.
 
 ### 2b · `crates/core` + `crates/cli`
 

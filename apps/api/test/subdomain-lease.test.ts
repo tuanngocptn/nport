@@ -207,7 +207,11 @@ describe("the saga watchdog", () => {
     // Rebuild the Cloudflare-side state the previous fake was holding.
     const row = await readRow("stubborn")
     const tunnelId = String(row?.tunnel_id)
-    cloudflare.tunnels.set(tunnelId, { id: tunnelId, name: "nport-stubborn" })
+    cloudflare.tunnels.set(tunnelId, {
+      id: tunnelId,
+      name: "nport-stubborn",
+      created_at: new Date().toISOString(),
+    })
     cloudflare.seedDns(`stubborn.${env.CF_DOMAIN}`, "CNAME", `${tunnelId}.cfargotunnel.com`)
 
     expect(await runDurableObjectAlarm(lease("stubborn"))).toBe(true)

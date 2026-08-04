@@ -6,7 +6,7 @@ The control plane at `api.nport.link`. Hono on Cloudflare Workers. Validates req
 
 **Not responsible for:** carrying tunnel traffic (it never touches the data path), user identity (there is none), or the connector protocol.
 
-**Status: partly implemented.** Phase 2a — the lease lifecycle and the abuse controls work; the reconciliation cron and the legacy v2 shim do not exist yet (`docs/ROADMAP.md`).
+**Status: partly implemented.** Phase 2a — the lease lifecycle, the abuse controls, and the reconciliation cron work; the legacy v2 shim does not exist yet (`docs/ROADMAP.md`).
 
 ## Layout
 
@@ -17,6 +17,7 @@ src/middleware/         request-id, client-gate, require-bindings, rate-limit
 src/do/subdomain-lease.ts   DO per subdomain: atomic claim, saga journal, expiry alarm
 src/do/registry.ts          singleton DO: global index, cap, challenge ledger
 src/do/source-quota.ts      DO per source: concurrency, hourly quota, PoW difficulty
+src/reconcile.ts        the cron sweep: orphan tunnels only, and what it may delete
 src/cloudflare/client.ts    the only place this Worker calls Cloudflare
 src/domain/             pow, ip-hash, owner-token, generated-name — pure logic, unit-tested
                         (subdomain validation lives in packages/contract, not here)
@@ -67,6 +68,7 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 ## Gotchas
 
 - **DO alarms are at-least-once.** A handler that deletes on second delivery must tolerate the record already being gone.
+- **The sweep advances its cursor *before* doing the work, not after.** Advancing only on success looks tidier and lets one undeletable orphan pin the sweep to its page forever, starving every other page — v2's defect R8 through a different door.
 - **Durable Object state leaks between tests.** `vitest-pool-workers` 0.20 removed `isolatedStorage`, and passing it is *silently ignored* — so a suite that writes any DO state must call `reset()` from `cloudflare:test` in an `afterEach`, or you get failures that depend on test order.
 - **The four abuse controls are layered, and a test that spends its requests on the outer one is not testing the inner one.** The rate limiter allows 60 requests per minute per source, and a create costs two (challenge, then create) — so anything needing more than ~30 creates from one address must drive `SourceQuota` directly or use a different `cf-connecting-ip`.
 - **`idFromName(subdomain)` requires the *normalized* subdomain.** Normalizing after deriving the ID gives two DOs for one logical name, and the whole atomicity guarantee evaporates. Normalize first, always.

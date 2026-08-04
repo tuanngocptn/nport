@@ -38,6 +38,16 @@ export class Registry extends DurableObject<Env> {
           expires_at INTEGER NOT NULL
         )
       `)
+      // The reconciliation cursor: a single row, so the sweep resumes where the last run stopped.
+      // This is the whole fix for v2's cleanup ceiling — its cron handled ~10 tunnels per invocation
+      // with no ordering, so the oldest could starve forever (defect R8).
+      ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS sweep (
+          id         INTEGER PRIMARY KEY CHECK (id = 1),
+          page       INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `)
     })
   }
 
@@ -79,6 +89,50 @@ export class Registry extends DurableObject<Env> {
       return { ok: false, reason: "replay" }
     }
     return { ok: true }
+  }
+
+  /** The page the next sweep should read. Starts at 1 and wraps when the account runs out. */
+  async sweepPage(): Promise<number> {
+    const row = this.ctx.storage.sql
+      .exec<{ page: number }>("SELECT page FROM sweep WHERE id = 1")
+      .toArray()[0]
+    return row?.page ?? 1
+  }
+
+  /**
+   * Advances the cursor, wrapping to page 1 when the last page has been read.
+   *
+   * Wrapping rather than stopping, because reconciliation is a standing safety net: an orphan can
+   * appear at any time, so the sweep has to keep going round. Bounded per run, unbounded over time.
+   */
+  async advanceSweep(page: number, hadMore: boolean): Promise<void> {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO sweep (id, page, updated_at) VALUES (1, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET page = excluded.page, updated_at = excluded.updated_at`,
+      hadMore ? page + 1 : 1,
+      Date.now(),
+    )
+  }
+
+  /**
+   * Which of these subdomains have **no** live index entry — the sweep's candidate orphans.
+   *
+   * A cheap first filter, one call for a whole page instead of one Durable Object hop per tunnel. It is
+   * deliberately *not* the decision: the index is a derived view that can be stale or lost, and acting
+   * on it alone would let a missing index row get a live tunnel deleted. The caller confirms every
+   * candidate against the authoritative `SubdomainLease` before touching anything.
+   */
+  async withoutLease(subdomains: readonly string[]): Promise<string[]> {
+    this.#prune(Date.now())
+    return subdomains.filter((subdomain) => {
+      const found = this.ctx.storage.sql
+        .exec<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM lease_index WHERE subdomain = ?",
+          subdomain,
+        )
+        .one().count
+      return found === 0
+    })
   }
 
   /** Called by a lease when it becomes `ACTIVE`. Idempotent: the same name records once. */

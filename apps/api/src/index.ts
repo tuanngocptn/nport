@@ -6,8 +6,8 @@
  * driving the API — and **no module-level mutable state**, because an isolate is shared across
  * callers and module scope is not per-request.
  *
- * **Phase 2a.** The lease lifecycle and the abuse controls. Still to land: the reconciliation cron and
- * the legacy v2 shim.
+ * **Phase 2a.** The lease lifecycle, the abuse controls, and the reconciliation cron. Still to land:
+ * the legacy v2 method-dispatch shim.
  */
 
 import { Hono } from "hono"
@@ -17,6 +17,7 @@ import { clientGate } from "./middleware/client-gate"
 import { rateLimit } from "./middleware/rate-limit"
 import { requestId } from "./middleware/request-id"
 import { requireBindings } from "./middleware/require-bindings"
+import { runScheduled } from "./reconcile"
 import { challengeRoute } from "./routes/challenge"
 import { healthRoute } from "./routes/health"
 import { metaRoute } from "./routes/meta"
@@ -94,14 +95,13 @@ export default {
   fetch: app.fetch,
 
   /**
-   * Reconciliation only — orphaned tunnels and DNS records with no lease. Expiry is driven by each
-   * lease's own DO alarm, so throughput scales with tunnel count instead of with cron frequency
-   * (v2 capped at ~10 per 30-minute run, defect R8).
+   * Reconciliation only — orphaned tunnels with no lease. Expiry is driven by each lease's own alarm,
+   * so throughput scales with tunnel count rather than with cron frequency (v2 capped at ~10 per
+   * 30-minute run, defect R8).
    *
-   * Lands with the Registry DO in the next slice.
+   * `src/reconcile.ts` holds the logic and the reasoning about what may be deleted.
    */
-  async scheduled(_event: ScheduledController, _env: Env, _ctx: ExecutionContext): Promise<void> {
-    // Deliberately empty rather than absent: `wrangler.jsonc` declares the cron trigger, and a
-    // missing handler is a deploy-time error rather than a no-op.
+  async scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    await runScheduled(env)
   },
 }

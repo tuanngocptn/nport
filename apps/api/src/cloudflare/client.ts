@@ -84,6 +84,14 @@ export interface CreatedTunnel {
 export interface TunnelSummary {
   readonly id: string
   readonly name: string
+  /** ISO 8601, from Cloudflare. Reconciliation needs it to avoid racing a live saga. */
+  readonly created_at?: string
+}
+
+export interface TunnelPage {
+  readonly tunnels: readonly TunnelSummary[]
+  /** Whether another page exists, so the sweep cursor knows when to wrap. */
+  readonly hasMore: boolean
 }
 
 export interface DnsRecord {
@@ -97,6 +105,8 @@ interface CloudflareEnvelope<T> {
   readonly success: boolean
   readonly result: T
   readonly errors?: readonly { readonly code: number; readonly message: string }[]
+  /** Present on list endpoints. `total_pages` is what tells the sweep when it has wrapped. */
+  readonly result_info?: { readonly page?: number; readonly total_pages?: number }
 }
 
 /**
@@ -186,6 +196,32 @@ export class CloudflareClient {
   }
 
   /**
+   * One page of the account's tunnels, for reconciliation.
+   *
+   * Paginated because the sweep is deliberately bounded per invocation: a Worker has 50 subrequests on
+   * the free plan, and an unbounded list would spend them all before deleting anything. The cursor
+   * lives in the `Registry` (`docs/ARCHITECTURE.md` §3f), so each run resumes where the last stopped —
+   * bounded per run, unbounded over time, which is the fix for v2's starving cleanup (defect R8).
+   *
+   * Cloudflare offers no prefix filter, only exact `name`, so the caller filters `nport-` itself.
+   */
+  async listTunnels(page: number, perPage: number): Promise<TunnelPage> {
+    const query = new URLSearchParams({
+      is_deleted: "false",
+      page: String(page),
+      per_page: String(perPage),
+    })
+    const { result, info } = await this.#callWithInfo<TunnelSummary[] | null>(
+      "list-tunnels",
+      "GET",
+      `/accounts/${this.#config.accountId}/cfd_tunnel?${query}`,
+      null,
+    )
+    const totalPages = info?.total_pages ?? 1
+    return { tunnels: result ?? [], hasMore: page < totalPages }
+  }
+
+  /**
    * Deletes a tunnel, clearing its connections first.
    *
    * Cloudflare refuses to delete a tunnel that still has registered connections, and a connector
@@ -262,6 +298,21 @@ export class CloudflareClient {
     path: string,
     body: object | null,
   ): Promise<T> {
+    return (await this.#callWithInfo<T>(operation, method, path, body)).result
+  }
+
+  /**
+   * As `#call`, but keeps the envelope's `result_info`.
+   *
+   * Only the list endpoints have pagination metadata, and only reconciliation needs it, so the common
+   * path stays free of a field almost nobody reads.
+   */
+  async #callWithInfo<T>(
+    operation: string,
+    method: "GET" | "POST" | "DELETE",
+    path: string,
+    body: object | null,
+  ): Promise<{ result: T; info: CloudflareEnvelope<T>["result_info"] }> {
     let lastError: CloudflareError | undefined
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
@@ -298,7 +349,7 @@ export class CloudflareClient {
       }
 
       if (response.ok && envelope?.success === true) {
-        return envelope.result
+        return { result: envelope.result, info: envelope.result_info }
       }
 
       const codes = (envelope?.errors ?? []).map((error) => error.code)

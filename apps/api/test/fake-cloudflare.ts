@@ -31,6 +31,7 @@ export type Operation =
 interface FakeTunnel {
   id: string
   name: string
+  created_at: string
 }
 
 interface FakeDnsRecord {
@@ -79,6 +80,19 @@ export class FakeCloudflare {
    */
   slow(operation: Operation, ms: number): void {
     this.#delays.set(operation, ms)
+  }
+
+  /**
+   * A tunnel that already exists, for the reconciliation paths.
+   *
+   * `ageMs` backdates it, because the sweep refuses to touch anything younger than its minimum orphan
+   * age — which is the guard that stops it racing a live saga.
+   */
+  seedTunnel(name: string, ageMs = 0): FakeTunnel {
+    const id = `tunnel-${this.#nextId++}`
+    const tunnel = { id, name, created_at: new Date(Date.now() - ageMs).toISOString() }
+    this.tunnels.set(id, tunnel)
+    return tunnel
   }
 
   /** Pre-existing DNS record, for the conflict paths. */
@@ -141,14 +155,31 @@ export class FakeCloudflare {
       case "create-tunnel": {
         const id = `tunnel-${this.#nextId++}`
         const name = String(payload.name)
-        this.tunnels.set(id, { id, name })
+        this.tunnels.set(id, { id, name, created_at: new Date().toISOString() })
         // A token shaped like the real thing, so nothing accidentally depends on its contents.
         return json(200, { success: true, result: { id, token: `token-for-${id}` } })
       }
       case "find-tunnel": {
         const name = url.searchParams.get("name")
-        const found = [...this.tunnels.values()].filter((tunnel) => tunnel.name === name)
-        return json(200, { success: true, result: found })
+        const all = [...this.tunnels.values()]
+        if (name !== null) {
+          return json(200, { success: true, result: all.filter((tunnel) => tunnel.name === name) })
+        }
+        // No `name` means a paginated list — the reconciliation path. Cloudflare reports pagination in
+        // `result_info`, and `total_pages` is what tells the sweep cursor when it has wrapped.
+        const perPage = Number(url.searchParams.get("per_page") ?? "50")
+        const page = Number(url.searchParams.get("page") ?? "1")
+        const start = (page - 1) * perPage
+        return json(200, {
+          success: true,
+          result: all.slice(start, start + perPage),
+          result_info: {
+            page,
+            per_page: perPage,
+            count: all.length,
+            total_pages: Math.max(1, Math.ceil(all.length / perPage)),
+          },
+        })
       }
       case "clear-connections":
         return json(200, { success: true, result: null })
