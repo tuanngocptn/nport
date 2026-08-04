@@ -16,7 +16,7 @@ src/routes/             tunnels, challenge, health, meta
 src/middleware/         request-id, client-gate, rate-limit, pow, error-handler
 src/do/subdomain-lease.ts   DO per subdomain: atomic claim, saga journal, expiry alarm
 src/do/registry.ts          singleton DO: global index, sweep cursor, counters
-src/cloudflare/         typed CF API client with retry, backoff, idempotency
+                        (src/cloudflare/ — typed CF API client, next slice of Phase 2a)
 src/domain/             subdomain, reserved, pow, ip-hash — pure logic, heavily unit-tested
 src/errors.ts           ErrorCode → HTTP status; codes imported from @nport/contract
 test/

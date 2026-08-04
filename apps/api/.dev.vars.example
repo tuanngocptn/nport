@@ -1,0 +1,13 @@
+# Local development secrets for `pnpm dev:api`. Copy to `.dev.vars`, which is gitignored.
+#
+#   cp apps/api/.dev.vars.example apps/api/.dev.vars
+#
+# These are NOT the production values and must never be. Production secrets are set with
+# `wrangler secret put <NAME>` and never pass through this file, the repository, or CI
+# (docs/OPERATIONS.md § Secrets).
+#
+# Without them, `GET /v1/challenge` fails: an empty HMAC key is rejected by WebCrypto, which
+# is why the Worker now refuses the request up front with a log line naming the binding.
+
+POW_SECRET="local-development-pow-secret-not-for-production"
+IP_HASH_SECRET="local-development-ip-hash-secret-not-for-production"

@@ -23,10 +23,10 @@ src/lib.rs        Transport trait; both transports implement it
 src/token.rs      tunnel token: parse, redact, zeroize
 src/edge.rs       SRV / DoT / A-AAAA discovery, address pool, per-index rotation
 src/quic.rs       QUIC transport (primary)
-src/h2.rs         HTTP/2 transport (ADR-0017 Fallback 1)
+                  (src/h2.rs — ADR-0017 Fallback 1, NOT YET WRITTEN, Phase 2b)
 src/connect.rs    stream signatures, version byte, ConnectRequest/Response codecs
-src/datagram.rs   stub — out of scope for 3.0 (ADR-0020)
-src/rpc/          Cap'n Proto registration RPC
+                  (src/datagram.rs — out of scope for 3.0, ADR-0020, not written)
+src/rpc.rs        Cap'n Proto registration RPC
 schema/*.capnp    VENDORED from cloudflared at the pinned commit — do not edit
 tests/            codec, handshake, fixtures/, snapshots/, live/
 build.rs          capnpc codegen

@@ -16,6 +16,7 @@ import { Hono } from "hono"
 import { ApiError, envelope } from "./errors"
 import { clientGate } from "./middleware/client-gate"
 import { requestId } from "./middleware/request-id"
+import { requireBindings } from "./middleware/require-bindings"
 import { challengeRoute } from "./routes/challenge"
 import { healthRoute } from "./routes/health"
 import { metaRoute } from "./routes/meta"
@@ -27,6 +28,15 @@ export { SubdomainLease } from "./do/subdomain-lease"
 const app = new Hono<{ Bindings: Env; Variables: Variables }>()
 
 app.use("*", requestId)
+
+// Bindings are checked before anything reads one, so a misconfiguration is a single clear log
+// line rather than an opaque failure inside whichever primitive needed the value first. Health is
+// excluded deliberately: an uptime monitor should still distinguish a running-but-misconfigured
+// Worker from a dead one.
+app.use("/v1/challenge", requireBindings)
+app.use("/v1/meta", requireBindings)
+app.use("/v1/tunnels", requireBindings)
+app.use("/v1/tunnels/*", requireBindings)
 
 // The gate runs on `/v1/*` only: `GET /` is a redirect for humans who typed the API host into a
 // browser, and `/v1/health` is for monitoring, which sends no NPort client headers.

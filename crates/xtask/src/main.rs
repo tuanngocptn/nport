@@ -12,6 +12,7 @@
 use std::process::ExitCode;
 
 mod codegen;
+mod verify_docs;
 
 const USAGE: &str = "\
 usage: cargo xtask <command>
@@ -37,7 +38,14 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        "fixtures" | "npm-packages" | "verify-docs" => {
+        "verify-docs" => match verify_docs::run() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("xtask verify-docs: {error}");
+                ExitCode::FAILURE
+            }
+        },
+        "fixtures" | "npm-packages" => {
             eprintln!("xtask {command}: not implemented yet — see docs/ROADMAP.md");
             ExitCode::SUCCESS
         }

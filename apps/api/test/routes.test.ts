@@ -201,3 +201,40 @@ describe("errors", () => {
     expect(body.error.requestId).toBe("abc123-HKG")
   })
 })
+
+describe("binding validation", () => {
+  it("refuses a request when a required secret is missing", async () => {
+    // The regression test for a 500 that was very hard to read: with POW_SECRET absent, an empty
+    // HMAC key reached WebCrypto and failed as `DataError: Imported HMAC key length (0)...`.
+    // `wrangler dev` hits this by default because secrets are not in wrangler.jsonc.
+    const original = env.POW_SECRET
+    try {
+      // @ts-expect-error deliberately simulating an unset secret
+      env.POW_SECRET = ""
+      const response = await get("/v1/challenge")
+      expect(response.status).toBe(500)
+      const body = (await response.json()) as { error: { code: string; message: string } }
+      expect(body.error.code).toBe("INTERNAL")
+      // The response must not name the binding. Telling an anonymous caller which secret is
+      // missing is free reconnaissance; the operator gets it from the log instead.
+      expect(body.error.message).not.toContain("POW_SECRET")
+      expect(JSON.stringify(body)).not.toContain("POW_SECRET")
+    } finally {
+      // @ts-expect-error restoring
+      env.POW_SECRET = original
+    }
+  })
+
+  it("still answers health when misconfigured, so a monitor can tell it apart from a dead worker", async () => {
+    const original = env.POW_SECRET
+    try {
+      // @ts-expect-error deliberately simulating an unset secret
+      env.POW_SECRET = ""
+      const response = await SELF.fetch("https://api.nport.link/v1/health")
+      expect(response.status).toBe(200)
+    } finally {
+      // @ts-expect-error restoring
+      env.POW_SECRET = original
+    }
+  })
+})

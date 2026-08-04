@@ -79,7 +79,7 @@ fn rustfmt(path: &Path) -> Result<(), String> {
     }
 }
 
-fn repo_root() -> Result<PathBuf, String> {
+pub fn repo_root() -> Result<PathBuf, String> {
     // CARGO_MANIFEST_DIR is crates/xtask, so the root is two levels up. Deliberately not
     // `git rev-parse`: codegen must work in a source tarball with no git directory.
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
