@@ -137,6 +137,8 @@ One flaky test came out of the same work, worth recording for what it was assert
 - [x] `core::supervisor` — the pool's decisions: start order, reconnect, rotation, give-up
 - [x] `core::local_runtime` — ADR-0024's `!Send` thread boundary, implemented
 - [x] `TunnelManager` — the supervision tasks, event broadcast, and shutdown
+- [ ] **`rpc::Session`** — hold the control stream open and expose `unregisterConnection` (§12). Blocks the connector
+- [ ] **`LocalRuntime`: a long-lived-object API** — `run` is run-to-completion, which cannot host a session. Blocks the above
 - [ ] the QUIC `Connector`: edge discovery, dial, register, serve — wiring the manager to a real edge
 - [ ] `core::inspector` behind an optional sink
 - [ ] the API client over `crates/contract`
@@ -172,7 +174,13 @@ The spike put all four supervisors on one shared `LocalSet`, which the ADR calls
 
 **Shutdown drains rather than aborts**, which it did not at first. The manager stopped by calling `task.abort()` — cutting connections without `unregisterConnection`, which drops in-flight requests on the floor and leaves the edge routing to a connection that is gone. `Transport::close`'s own documentation says exactly that this must never happen (§12), so the code contradicted a comment three files away. It now signals, waits for each connection to unregister and drain, and only cuts if the grace period expires — reporting `Stopped { drained: false }` so the CLI can say `SHUTDOWN_TIMEOUT` instead of claiming a clean stop.
 
-Fixing it exposed a second half: two of the waits inside a connection task ignored the signal — the poll for the lead to register, and the staggered start sleep, which is up to three seconds for the last index. Since the drain waits for *every* task, an index asleep waiting its turn would burn the whole grace period doing nothing. A test caught it as `drained: false` when it should have been `true`.
+**The connector is blocked on something neither crate can do yet, found while starting it.** `Connection::serve`'s contract says an implementation must unregister and drain, not just close. It cannot: `crates/protocol` has no `unregister_connection` at all, and `register_connection` drops its `RpcSystem` when it returns, which resets the control stream. `docs/PROTOCOL.md` records that the edge *tolerates* this — connections served for 30 minutes with the stream closed — so Phase 1 was right not to care. §12's graceful shutdown is a different question, and it needs the stream held open for the connection's whole life.
+
+That implies a second gap one layer down. `LocalRuntime::run` is run-to-completion: a closure goes over, a `Send` value comes back. A session is a **long-lived `!Send` object** that must stay on that thread and be called again later, which the current API cannot express. So the order is `LocalRuntime` actor API → `rpc::Session` → QUIC connector, and doing the connector first would mean writing a shutdown path that silently cannot work.
+
+Worth noting what this does *not* block: the manager already treats a connection that returns from `serve` as safe to cut, so the only thing missing is the unregister call itself. The drain, the deadline, and the `Stopped { drained }` reporting are all in place and tested.
+
+Fixing the abort exposed a second half: two of the waits inside a connection task ignored the signal — the poll for the lead to register, and the staggered start sleep, which is up to three seconds for the last index. Since the drain waits for *every* task, an index asleep waiting its turn would burn the whole grace period doing nothing. A test caught it as `drained: false` when it should have been `true`.
 
 Writing its tests found a real design hole. `Supervisor::exhausted` only reported "every connection gave up" — but §4 gates indices 1..N-1 on connection 0 registering, so a lead that dies *before ever registering* leaves the rest in `Waiting` forever and that condition is never true. The tunnel would hang, healthy-looking, having never carried a byte. Worse than failing: a CLI would sit there instead of exiting non-zero. A lead that gives up having never registered is now terminal, and a lead that dies *after* registering still is not, because by then the others are serving.
 

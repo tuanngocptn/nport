@@ -30,9 +30,14 @@ use crate::supervisor::{Action, CONNECTIONS, Supervisor};
 
 /// How long connections get to unregister and drain before they are cut.
 ///
-/// cloudflared: `--grace-period`, default 30s. `docs/PROTOCOL.md` §12 — graceful shutdown is
-/// `unregisterConnection`, then hold the connection open so in-flight requests finish, then close.
-/// Overridable per tunnel because tests need milliseconds, not half a minute.
+/// cloudflared: `--grace-period`, default 30s, hard maximum 3 min. `docs/PROTOCOL.md` §12 — graceful
+/// shutdown is `unregisterConnection`, then hold the connection open so in-flight requests finish,
+/// then close.
+///
+/// **The CLI should pass something shorter**, and §12 says so explicitly: a developer pressing Ctrl+C
+/// expects a prompt exit, not half a minute of apparent hang. This constant matches upstream so the
+/// library default is unsurprising; choosing the user-facing number is `crates/cli`'s job, which is
+/// why §12 also says core must make this a config value rather than a constant.
 pub const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(30);
 
 /// How many events are buffered for a slow consumer before the oldest are dropped.
