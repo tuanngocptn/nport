@@ -143,6 +143,7 @@ One flaky test came out of the same work, worth recording for what it was assert
 - [x] **the QUIC `Connector`**: edge discovery, dial, register, serve — the manager wired to a real edge
 - [x] `core::exchange` — one edge-initiated request, from the framing to the origin and back
 - [x] `core::inspector` behind an optional sink — the record, the ring, and the wiring
+- [x] **`core::tunnel`** — the lifecycle the other pieces were missing: provision, heartbeat, teardown
 - [x] the API client over `crates/contract` — the five endpoints, the proof of work, and typed refusals
 - [ ] the CLI — `clap` parsing, terminal rendering, `~/.nport/config.toml`, i18n (en/vi/es, auto-detected), signal handling and graceful shutdown
 
@@ -201,6 +202,14 @@ Two things in it are load-bearing rather than incidental. **`POST /v1/tunnels` i
 And **a refusal is read for its code even when the envelope is incomplete.** The full envelope requires `requestId` and `docsUrl`; the code is the only field anything branches on. Failing to recognise `SUBDOMAIN_IN_USE` because a proxy stripped a documentation link would be exactly the brittleness ADR-0018 exists to remove, so the code is parsed on its own before the body is given up on — and a body that is not JSON at all still becomes a refusal carrying its status, because reporting "malformed" would hide a real `503` behind a parse error.
 
 The proof-of-work solver runs on a blocking thread. It is a hash loop with no I/O, a 20-bit solve is around 100 ms, and the runtime it would otherwise block is the one serving the tunnel. Difficulty is counted in **bits, not hex digits** — the server's own dial moves one bit at a time under load (ADR-0028), and a hex-digit check could only express multiples of four.
+
+**`core::tunnel` was a gap nobody had listed.** `TunnelManager` supervises connections, the connector makes them real, and the API client claims leases — and until this, nothing joined them. The root `CLAUDE.md` had been pointing "tunnel lifecycle logic" at `crates/core/src/tunnel.rs` for a file that did not exist. Without it the CLI would have had to provision, heartbeat, and release for itself, which is lifecycle policy in the layer whose only job is rendering.
+
+**Provisioning is a `Result`, not an event.** A caller that cannot claim a subdomain has nothing to render and should say so and exit; making it an event would force every consumer to implement "wait for either the URL or the failure". Everything after that *is* an event, because from then on a consumer can only display what happens.
+
+**A heartbeat failure is not fatal; a missing lease is.** The server allows 120 s of silence and the interval is 30 s, so a blip costs nothing and retrying on the normal schedule is the whole response. What ends the tunnel is the server saying the lease no longer exists — no number of retries brings it back, and a client still beating at a tunnel nobody can reach is R1's "looks healthy, serves nothing" state exactly.
+
+**The teardown gets one attempt and no retry.** Releasing the lease is idempotent and skipping it is safe, because the lease expires on its own — so a shutdown path that waited on the network would hang precisely when the network is what failed, and a user pressing Ctrl+C is entitled to a prompt exit. The one place it *is* worth doing eagerly is a lease that was claimed and then could not be connected to: releasing it there returns the name immediately instead of holding a hand-picked subdomain for its full duration.
 
 **`TunnelManager` owns sockets and timers and no rules.** Every decision comes from `core::supervisor`; this layer only carries them out. It is generic over a `Connector`, so the whole supervision loop — backoff, rotation, giving up, the pool surviving one dead index — is tested against fakes with no edge at all. `TunnelHandle::shutdown` **consumes the handle**, so v2's double-Ctrl+C double-delete (defect R19) does not compile rather than being guarded at runtime.
 
