@@ -73,6 +73,7 @@ pnpm codegen       cargo xtask codegen   # regenerate; must leave the tree clean
 
 | If the task is… | Read, in this order |
 | --- | --- |
+| Running the whole thing locally | `docs/CONTRIBUTING.md` § Dev loop |
 | Anything touching the connector wire format | `docs/PROTOCOL.md` → `crates/protocol/CLAUDE.md` |
 | Add or change an API endpoint | `docs/API.md` → `packages/contract/` → `apps/api/CLAUDE.md` |
 | Add or change an error | `docs/ERRORS.md` → `packages/contract/src/errors.ts`, then regenerate |

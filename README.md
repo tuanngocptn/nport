@@ -49,7 +49,7 @@ User documentation lives at [nport.link](https://nport.link). This repository's 
 | [DECISIONS](docs/DECISIONS.md) | why it is built this way |
 | [mockup](docs/mockup/README.md) | the approved UI design for the site and the desktop app |
 | [ROADMAP](docs/ROADMAP.md) · [FEATURES](docs/FEATURES.md) | phases and gates; the feature inventory they schedule |
-| [CONTRIBUTING](docs/CONTRIBUTING.md) · [TESTING](docs/TESTING.md) | how to help |
+| [CONTRIBUTING](docs/CONTRIBUTING.md) · [TESTING](docs/TESTING.md) | prerequisites, **running the whole stack locally**, and how to help |
 | [SELF_HOSTING](docs/SELF_HOSTING.md) | run your own control plane on your own domain |
 | [OPERATIONS](docs/OPERATIONS.md) · [RELEASE](docs/RELEASE.md) | running and shipping it |
 
@@ -59,7 +59,13 @@ Node 24 and [rustup](https://rustup.rs) — full prerequisites and dev loop in [
 
 ```bash
 corepack enable && pnpm install    # dependencies and the git hooks
+pnpm dev                           # api :8787 · site :3000 · desktop window
+pnpm dev:cli                       # second terminal: tunnel the site through the local api
 ```
+
+**No Cloudflare account is needed to run the stack.** `pnpm dev` provisions against an in-memory
+Cloudflare, so everything up to the edge works offline — what that covers and where it stops is in
+[CONTRIBUTING](docs/CONTRIBUTING.md#dev-loop).
 
 Most of these currently run against stubs; the phase in brackets is when each becomes meaningful.
 
