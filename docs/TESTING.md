@@ -47,6 +47,14 @@ This looks like the thing "Deliberately untested" rules out for `crates/protocol
 
 What it therefore does **not** prove is that the request shapes are right. That gap is real and recorded in `docs/ROADMAP.md` §2a: the Cloudflare API paths have never run against the live API. A stub returning canned replies would have hidden it just as well while feeling safer.
 
+#### There is a second fake, and it must never be the one under test
+
+`apps/api/src/cloudflare/dev-fake.ts` is a *different* in-memory Cloudflare, for `wrangler dev`. It exists so `pnpm dev` can provision without credentials (`docs/CONTRIBUTING.md`), it has no failure injection, and it lives in `src/` rather than `test/` because it ships in the dev bundle.
+
+The two can collide, and did. `@cloudflare/vitest-pool-workers` reads `apps/api/.dev.vars` alongside `wrangler.jsonc`, so the `FAKE_CLOUDFLARE=1` that every local dev session sets also reached the test isolate — routing the saga through the dev fake and straight past `test/fake-cloudflare.ts`. Thirty-six tests failed, and every one of them pointed at the saga rather than at the configuration.
+
+The fix is the rule: **anything the suite's meaning depends on is set explicitly in `vitest.config.ts`**, never inherited from whatever is on a contributor's machine. `FAKE_CLOUDFLARE` and `MIN_CLIENT_VERSION` are pinned there now for exactly that reason. When a test starts behaving differently on CI than locally, that block is the first place to look.
+
 ## Golden byte fixtures
 
 The regression net for `crates/protocol`. Byte-exact captures of real frames, asserted unchanged.

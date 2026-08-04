@@ -42,6 +42,12 @@ Unlike v2, both custom domains are declared in `wrangler.jsonc` `routes` with `c
 
 Never in CI: the Worker runtime secrets above. They are set with `wrangler secret put` and never pass through Actions.
 
+### Two names that must never be set on a deployed Worker
+
+`FAKE_CLOUDFLARE` and a lowered `MIN_CLIENT_VERSION` exist only in `apps/api/.dev.vars`, which `wrangler dev` reads and `wrangler deploy` does not upload (`docs/CONTRIBUTING.md`). Neither can reach production by accident. **`wrangler secret put FAKE_CLOUDFLARE` would be the accident** — a control plane answering `201 Created` while provisioning nothing, handing out URLs for tunnels that do not exist. The code refuses to activate the fake when `CF_API_TOKEN` looks real, so the blast radius of a mistake is bounded, but that guard is a backstop and not a licence to test it.
+
+If `POST /v1/tunnels` starts succeeding with no matching tunnel in the Cloudflare dashboard, check for these two before anything else.
+
 ### Rotating `CF_API_TOKEN` with no downtime
 
 1. Create a new token with identical scopes.

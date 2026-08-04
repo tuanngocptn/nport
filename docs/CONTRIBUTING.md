@@ -13,7 +13,7 @@ Thanks for helping. NPort is MIT-licensed and maintained by [Nick Pham](https://
 | Rust | pinned in `rust-toolchain.toml` | CLI, connector, desktop backend |
 | `capnp` | 1.x, from your package manager | `crates/protocol` generates from the vendored schemas at build time |
 | wrangler | via pnpm | Workers dev and deploy |
-| Tauri prerequisites | per [tauri.app](https://tauri.app/start/prerequisites/) | only for `apps/desktop` |
+| Tauri prerequisites | per [tauri.app](https://tauri.app/start/prerequisites/) | `apps/desktop`, and therefore `pnpm dev` |
 
 ```bash
 corepack enable
@@ -28,17 +28,39 @@ sudo apt-get install -y capnproto         # Debian/Ubuntu
 choco install capnproto                   # Windows
 ```
 
-You do **not** need a Cloudflare account to work on most of the repo. You do for `apps/api` deploys and for live-edge protocol tests.
+macOS and Windows carry a WebView in the OS. **Linux does not**, and `apps/desktop/src-tauri` is a workspace member, so a plain `cargo clippy` at the repo root builds it and fails without the headers — as a `pkg-config` error from `gobject-sys`, several hundred lines into a normal-looking build:
+
+```bash
+sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+  libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+```
+
+You do **not** need a Cloudflare account to work on most of the repo, including running the whole stack locally — see the dev loop below. You do for `apps/api` deploys, for a genuine end-to-end tunnel, and for live-edge protocol tests.
 
 ## Dev loop
 
 ```bash
-pnpm dev:api                        # wrangler dev, local DOs
-pnpm dev:web                        # next dev with Worker bindings
-pnpm dev:desktop                    # tauri dev
-cargo run -p nport -- 3000 -s test  # the CLI
-cargo run -p nport -- 3000 -s test --backend http://localhost:8787   # against local API
+pnpm dev        # the control plane, the site, and the desktop window, together
+pnpm dev:cli    # in a second terminal: tunnel the local site through the local API
 ```
+
+`pnpm dev` puts `apps/api` on **8787**, `apps/web` on **3000**, and opens the `apps/desktop` window against Vite on **1420**. Each is also startable alone — `pnpm dev:api`, `dev:web`, `dev:desktop` — which is usually what you want, because the first `tauri dev` compiles several hundred Rust crates and everything else is ready in under a second.
+
+A preflight runs first. It creates `apps/api/.dev.vars` if it is missing, says which ports are already taken, and prints what is starting. It never refuses to start the stack: a preflight that blocks on a warning is one people route around, and then they lose the warnings too.
+
+**`apps/web` and `apps/desktop` are scaffolds.** One page and one window respectively, existing so the whole stack comes up together. The site is Phase 2c and the app is Phase 4 (`docs/ROADMAP.md`); each says so on itself, so nobody mistakes the placeholder for the product.
+
+### Provisioning without a Cloudflare account
+
+`apps/api/.dev.vars` is created from `.dev.vars.example` on first run. It is gitignored, it holds no real secret, and `wrangler deploy` never uploads it — which is what makes it the right place for two settings that must never exist in production.
+
+**`FAKE_CLOUDFLARE="1"`** routes the four Cloudflare calls to an in-memory fake (`apps/api/src/cloudflare/dev-fake.ts`), so `POST /v1/tunnels` succeeds with no credentials. What that buys is most of the system: proof of work, the subdomain claim, the provisioning saga, the `ownerToken`, the lease, the heartbeat, and a correctly-shaped URL are all real and all exercised. What it does not buy is a tunnel — the connector token is a fake, so the CLI provisions, prints its URL, and then stops at `EDGE_PROTOCOL_ERROR` because no QUIC session can open with it. That error is the expected end of a fake run, not a bug to report.
+
+**`MIN_CLIENT_VERSION="3.0.0-dev"`** lowers the client-version floor to what the workspace builds. `wrangler.jsonc` sets `3.0.0` for production and `crates/cli` is `3.0.0-dev`, which semver orders *below* it — so without this the local CLI is refused by the local control plane with `CLIENT_TOO_OLD`. **Do not "fix" that in `src/middleware/client-gate.ts`.** The ordering is deliberate: it is what stops every `3.0.0-beta.N` client sailing through once the floor moves to `3.0.0`. `3.0.0-dev` rather than `0.0.0`, so the gate still runs and a real 2.x client is still refused.
+
+For an **actual** tunnel, put a real scoped token in `.dev.vars` — Account → Cloudflare Tunnel → Edit, Zone → DNS → Edit, against a zone you own, and never a production one. The fake stands down on its own when `CF_API_TOKEN` looks real, so there is nothing else to switch off.
+
+If gated routes start answering `INTERNAL` while `/v1/health` stays green, your `.dev.vars` is **stale** rather than missing — it predates a key the example has since gained, so nothing recreated it. The preflight diffs the two and names what is absent. It reports rather than merges, because appending to a file that might hold your real token is not a thing a script should do unasked.
 
 Before pushing:
 
