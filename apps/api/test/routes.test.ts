@@ -209,7 +209,6 @@ describe("binding validation", () => {
     // `wrangler dev` hits this by default because secrets are not in wrangler.jsonc.
     const original = env.POW_SECRET
     try {
-      // @ts-expect-error deliberately simulating an unset secret
       env.POW_SECRET = ""
       const response = await get("/v1/challenge")
       expect(response.status).toBe(500)
@@ -220,7 +219,6 @@ describe("binding validation", () => {
       expect(body.error.message).not.toContain("POW_SECRET")
       expect(JSON.stringify(body)).not.toContain("POW_SECRET")
     } finally {
-      // @ts-expect-error restoring
       env.POW_SECRET = original
     }
   })
@@ -228,12 +226,10 @@ describe("binding validation", () => {
   it("still answers health when misconfigured, so a monitor can tell it apart from a dead worker", async () => {
     const original = env.POW_SECRET
     try {
-      // @ts-expect-error deliberately simulating an unset secret
       env.POW_SECRET = ""
       const response = await SELF.fetch("https://api.nport.link/v1/health")
       expect(response.status).toBe(200)
     } finally {
-      // @ts-expect-error restoring
       env.POW_SECRET = original
     }
   })
