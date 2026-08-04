@@ -18,7 +18,12 @@
       "!schema/*.json",
       "!**/worker-configuration.d.ts",
       // Vendored shadcn/ui source — upstream formatting is left alone (ADR-0021).
-      "!apps/desktop/src/components/ui"
+      "!apps/desktop/src/components/ui",
+      // The approved UI mockup, exported from Claude Design (docs/mockup/README.md). It is a
+      // reference artifact, not source: nothing imports it, nothing ships from it, and it is
+      // re-exported wholesale whenever the design changes. Linting it produced 160 errors and 16
+      // warnings — every one of them a note about someone else's generated bundle.
+      "!docs/mockup"
     ]
   },
   "formatter": {

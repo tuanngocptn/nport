@@ -6,6 +6,8 @@ Tauri v2 desktop app: a GUI for people who would rather not use a terminal, plus
 
 **Not responsible for:** any tunnel logic. All of it lives in `crates/core`; this app is a view over `TunnelEvent`s plus a few commands.
 
+**The approved design is `docs/mockup/NPort Desktop.dc.html`**, with the layout flattened to plain markup in `docs/mockup/handoff/desktop/index.html`. Read `docs/mockup/README.md` before building or changing anything visual. It is reference only: never imported, never hand-edited, excluded from every check.
+
 **Status: not implemented.** Phase 4 — deliberately last, so it consumes a stable `core` API instead of churning it.
 
 ## Layout
@@ -25,6 +27,8 @@ index.html vite.config.ts components.json postcss.config.mjs
 ```
 
 UI stack: React + Vite + Tailwind v4 + shadcn/ui (Radix) + TanStack Virtual (ADR-0021).
+
+The mockup draws seven surfaces where the layout above lists four views: *Tunnels*, *New tunnel*, *Inspector*, *History*, *Settings*, a first-run overlay, and a menu-bar popover. `history` and `logs` are the same screen under two names, and *New tunnel* has no view yet. Reconcile the two before writing components, and update whichever is wrong.
 
 ## Commands
 
@@ -65,7 +69,7 @@ pnpm codegen                           # regenerates src/generated/bindings.ts
 
 - **The inspector must be bounded.** `core::inspector` is a ring buffer behind an optional sink; the desktop app enables it, the CLI does not. An unbounded buffer will eat memory on a busy tunnel — and bodies must be truncated, not stored whole.
 - **WebView differences are the main source of platform bugs**: WKWebView on macOS, WebView2 on Windows, WebKitGTK on Linux. Test all three before a release; CSS and font rendering diverge most.
-- **WebKitGTK is the oldest engine we ship against**, so check very recent CSS on Linux before relying on it. This is the class of bug that reaches you as a Linux user's screenshot rather than a failing test.
+- **WebKitGTK is the oldest engine we ship against**, so check very recent CSS on Linux before relying on it. This is the class of bug that reaches you as a Linux user's screenshot rather than a failing test. The design is built on `backdrop-filter` — every surface in `docs/mockup/handoff/shared/tokens.css` is a translucent glass layer — which is exactly the property that degrades worst here. Decide what the app looks like when it is unsupported or too slow, rather than discovering it in a screenshot.
 - **`cargo` commands from the repo root include `src-tauri`.** A `cargo clippy` failure here can surprise you when you thought you were only touching `crates/`.
 - **Enabling `core::inspector` changes `core`'s hot path.** Keep the sink cheap and non-blocking, or the GUI makes tunnels measurably slower than the CLI.
 - **Signing and notarization are required**, not optional — an unsigned build triggers Gatekeeper and SmartScreen warnings and generates support load. `docs/RELEASE.md`.

@@ -8,6 +8,8 @@ The public site at `nport.link`: marketing page, user documentation, and generat
 
 **This is the only place user-facing documentation lives** — `apps/web/src/content/docs/*.mdx`. `docs/` at the repo root is contributor-only.
 
+**The approved design is `docs/mockup/NPort Site.dc.html`.** Read `docs/mockup/README.md` before building or changing anything visual — that file is what UI, UX, and behaviour are checked against. It is reference only: never imported, never hand-edited, excluded from every check.
+
 **Status: not implemented.** Phase 2c.
 
 ## Layout
@@ -35,7 +37,7 @@ pnpm --filter @nport/web deploy       # normally CI does this
 
 ## Rules
 
-1. **Section order is fixed**, carried from v2 because it converts: navbar → hero → how-it-works → features → powered-by → CTA → footer. Reordering needs a reason beyond taste.
+1. **Section order is fixed**, carried from v2 because it converts: navbar → hero → how-it-works → features → powered-by → CTA → footer. Reordering needs a reason beyond taste. The mockup adds a sixth section the v2 order has no slot for — `#compare`, an ngrok comparison table, sitting between features and download. Placing it is an open decision for whoever builds 2c, not a licence to reshuffle the rest.
 2. **All four JSON-LD blocks are required** and built in `src/lib/seo.ts`: `WebSite`, `SoftwareApplication`, `HowTo`, `FAQPage`. This was v2's most deliberate SEO investment and the site's discovery depends on it.
 3. **No raw hex colours in components.** Everything comes from `packages/design-tokens` via Tailwind utilities (ADR-0014).
 4. **Server-first.** `"use client"` needs a justification in review — the page's job is fast delivery, and v2 shipped its entire interaction budget in ~40 lines of vanilla JS.

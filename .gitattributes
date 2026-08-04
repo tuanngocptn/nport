@@ -23,6 +23,7 @@
 *.png     -text
 *.ico     -text
 *.woff2   -text
+*.webp    -text
 
 # Generated, and reviewed by diffing rather than by reading. Marked so GitHub collapses them
 # in a pull request without hiding them from `git diff`.
@@ -30,3 +31,10 @@ schema/*.json                     linguist-generated=true
 crates/contract/src/generated.rs  linguist-generated=true
 docs/ERRORS.md                    linguist-generated=true
 pnpm-lock.yaml                    linguist-generated=true
+
+# The UI mockup exported from Claude Design (docs/mockup/README.md). Vendored, not authored here:
+# marked so it stays out of GitHub's language statistics — a megabyte of design export would
+# otherwise report this as an HTML repository — and collapses in a pull request. `.thumbnail` is a
+# WebP with no extension, so `text=auto` has to be told to keep its hands off.
+docs/mockup/**                    linguist-vendored=true
+docs/mockup/.thumbnail            -text

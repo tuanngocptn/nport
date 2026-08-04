@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NPort — Desktop App</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../shared/tokens.css" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- Simulated desktop wallpaper. In the real Electron/Tauri app this layer
+     does not exist — the OS wallpaper shows through the window's vibrancy. -->
+<div class="stage">
+  <div class="wallpaper" aria-hidden="true"></div>
+
+  <!-- Demo-only controls. Not part of the product UI. -->
+  <div class="demo-bar">
+    <div class="demo-brand">
+      <img src="../assets/nport-logo-dark.png" alt="" width="18" height="18" />
+      <span>NPort for Mac</span>
+    </div>
+    <div class="segmented" role="radiogroup" aria-label="Theme">
+      <button type="button" class="seg is-on" data-theme-set="dark" role="radio" aria-checked="true">Dark</button>
+      <button type="button" class="seg" data-theme-set="light" role="radio" aria-checked="false">Light</button>
+    </div>
+    <button type="button" class="demo-btn" data-action="toggle-tray">Menu bar</button>
+    <button type="button" class="demo-btn" data-action="toggle-onboarding">First run</button>
+  </div>
+
+  <div class="window-wrap">
+
+    <!-- ================= APPLICATION WINDOW ================= -->
+    <div class="window" id="app" data-theme="dark">
+
+      <!-- ---------- Sidebar ---------- -->
+      <aside class="sidebar">
+        <div class="traffic-lights" aria-hidden="true">
+          <span class="tl tl--red"></span>
+          <span class="tl tl--yellow"></span>
+          <span class="tl tl--green"></span>
+        </div>
+
+        <button type="button" class="btn btn--primary btn--block" data-nav="new">
+          <span class="btn__glyph">＋</span> New Tunnel
+        </button>
+
+        <nav class="nav" aria-label="Sections">
+          <button type="button" class="nav__item is-active" data-nav="tunnels">
+            <span class="nav__icon">◉</span> Tunnels
+            <span class="nav__count" data-bind="activeCount">2</span>
+          </button>
+          <button type="button" class="nav__item" data-nav="inspector">
+            <span class="nav__icon">◫</span> Inspector
+            <span class="nav__count" data-bind="reqCount">9</span>
+          </button>
+          <button type="button" class="nav__item" data-nav="history">
+            <span class="nav__icon">◷</span> History
+          </button>
+          <button type="button" class="nav__item" data-nav="settings">
+            <span class="nav__icon">⚙</span> Settings
+          </button>
+        </nav>
+
+        <a class="donate-card" href="https://buymeacoffee.com/tuanngocptn" target="_blank" rel="noopener">
+          <span class="donate-card__head">
+            <img src="../assets/buy-me-a-coffee.png" alt="" width="13" height="19" />
+            <span>Buy me a coffee</span>
+          </span>
+          <span class="donate-card__body">NPort is free. Your support pays for the servers that keep it running.</span>
+          <span class="donate-card__cta">Support the project →</span>
+        </a>
+
+        <div class="slots">
+          <div class="slots__head">
+            <span>Tunnel slots</span>
+            <span class="mono" data-bind="slotLabel">2 of 3</span>
+          </div>
+          <div class="slots__bar" data-bind="slotBars">
+            <i class="is-on"></i><i class="is-on"></i><i></i>
+          </div>
+          <p class="slots__note">Running on your own Cloudflare account.</p>
+        </div>
+
+        <div class="version">
+          <img class="logo logo--dark" src="../assets/nport-logo-dark.png" alt="" width="24" height="24" />
+          <img class="logo logo--light" src="../assets/nport-logo-light.png" alt="" width="24" height="24" />
+          <div class="version__text">
+            <span class="version__num">Version 3.0.2</span>
+            <span class="version__sub">Up to date</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ---------- Content ---------- -->
+      <main class="content">
+
+        <header class="toolbar">
+          <h1 class="toolbar__title" data-bind="title">Tunnels</h1>
+          <p class="toolbar__sub" data-bind="subtitle">Up to three at once · auto-cleanup after 4 hours</p>
+          <div class="toolbar__right">
+            <a class="btn btn--coffee" href="https://buymeacoffee.com/tuanngocptn" target="_blank" rel="noopener">
+              <img src="../assets/buy-me-a-coffee.png" alt="" width="12" height="17" /> Buy me a coffee
+            </a>
+            <span class="chip chip--live">
+              <i class="dot dot--live"></i><span class="mono" data-bind="liveCount">2 live</span>
+            </span>
+          </div>
+        </header>
+
+        <!-- ===== Screen: Tunnels ===== -->
+        <section class="screen is-active" data-screen="tunnels">
+          <div class="scroll stack">
+            <div class="tunnel-list" data-bind="tunnelList"></div>
+
+            <button type="button" class="empty-slot" data-nav="new" data-bind="emptySlot">
+              <span class="empty-slot__title">Start another tunnel</span>
+              <span class="empty-slot__sub mono">1 slot free</span>
+            </button>
+
+            <div class="stat-grid">
+              <div class="stat"><span class="stat__k">Requests today</span><span class="stat__v mono">1,284</span></div>
+              <div class="stat"><span class="stat__k">Median latency</span><span class="stat__v mono">38 ms</span></div>
+              <div class="stat"><span class="stat__k">Edge region</span><span class="stat__v mono">FRA</span></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Screen: New tunnel ===== -->
+        <section class="screen" data-screen="new">
+          <div class="split">
+            <div class="scroll form">
+              <div class="field">
+                <label class="label" for="port">Local port</label>
+                <div class="row">
+                  <input class="input input--port mono" id="port" type="text" inputmode="numeric" value="3000" />
+                  <button type="button" class="chip chip--btn mono" data-port="3000">:3000</button>
+                  <button type="button" class="chip chip--btn mono" data-port="5173">:5173</button>
+                  <button type="button" class="chip chip--btn mono" data-port="8080">:8080</button>
+                  <button type="button" class="chip chip--btn mono" data-port="4000">:4000</button>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="label" for="sub">Public subdomain</label>
+                <div class="input-group">
+                  <input class="input mono" id="sub" type="text" value="northloop" placeholder="auto-generated" />
+                  <span class="input-group__suffix mono">.nport.link</span>
+                </div>
+                <p class="hint" data-bind="availability">
+                  <i class="dot"></i><span>northloop.nport.link is available</span>
+                </p>
+              </div>
+
+              <div class="field">
+                <span class="label">Options</span>
+                <div class="option-list">
+                  <button type="button" class="option" data-option="inspector" aria-pressed="true">
+                    <span class="option__text">
+                      <span class="option__title">Open inspector on start</span>
+                      <span class="option__desc">Jump straight to live traffic.</span>
+                    </span>
+                    <span class="switch"><i></i></span>
+                  </button>
+                  <button type="button" class="option" data-option="auth" aria-pressed="false">
+                    <span class="option__text">
+                      <span class="option__title">Require basic auth</span>
+                      <span class="option__desc">Ask visitors for a username and password.</span>
+                    </span>
+                    <span class="switch"><i></i></span>
+                  </button>
+                  <button type="button" class="option" data-option="clipboard" aria-pressed="true">
+                    <span class="option__text">
+                      <span class="option__title">Copy URL to clipboard</span>
+                      <span class="option__desc">Ready to paste into Stripe or GitHub.</span>
+                    </span>
+                    <span class="switch"><i></i></span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="row">
+                <button type="button" class="btn btn--primary" data-action="start">Start Tunnel</button>
+                <button type="button" class="btn btn--secondary" data-nav="tunnels">Cancel</button>
+              </div>
+            </div>
+
+            <aside class="mirror">
+              <span class="eyebrow">Equivalent command</span>
+              <pre class="code"><span class="code__prompt">$</span> <span data-bind="cli">nport 3000 -s northloop</span></pre>
+              <p class="mirror__note">Every control maps to a CLI flag. Copy this into CI, a Makefile, or a teammate's terminal.</p>
+              <hr class="rule" />
+              <span class="eyebrow">Connection</span>
+              <ol class="steps" data-bind="steps">
+                <li><i></i><span>Authenticating with Cloudflare</span></li>
+                <li><i></i><span>Creating tunnel</span></li>
+                <li><i></i><span>Publishing DNS record</span></li>
+                <li><i></i><span>Connection established</span></li>
+              </ol>
+            </aside>
+          </div>
+        </section>
+
+        <!-- ===== Screen: Inspector ===== -->
+        <section class="screen" data-screen="inspector">
+          <div class="inspector">
+            <div class="inspector__bar">
+              <div class="segmented" role="radiogroup" aria-label="Filter">
+                <button type="button" class="seg is-on" data-filter="All" role="radio" aria-checked="true">All</button>
+                <button type="button" class="seg" data-filter="API" role="radio" aria-checked="false">API</button>
+                <button type="button" class="seg" data-filter="Errors" role="radio" aria-checked="false">Errors</button>
+                <button type="button" class="seg" data-filter="Mutations" role="radio" aria-checked="false">Mutations</button>
+              </div>
+              <button type="button" class="chip chip--btn" data-action="toggle-live">
+                <i class="dot dot--live"></i><span data-bind="liveLabel">Live</span>
+              </button>
+            </div>
+
+            <div class="inspector__body">
+              <ol class="req-list" data-bind="reqList"></ol>
+
+              <div class="req-detail">
+                <div class="req-detail__head">
+                  <div class="row">
+                    <span class="method-tag" data-bind="selMethod">POST</span>
+                    <span class="req-detail__path mono" data-bind="selPath">/api/webhooks/stripe</span>
+                    <button type="button" class="btn btn--replay" data-action="replay">Replay</button>
+                  </div>
+                  <div class="meta mono" data-bind="selMeta"></div>
+                  <div class="segmented" role="tablist">
+                    <button type="button" class="seg is-on" data-tab="Request" role="tab" aria-selected="true">Request</button>
+                    <button type="button" class="seg" data-tab="Response" role="tab" aria-selected="false">Response</button>
+                    <button type="button" class="seg" data-tab="Timing" role="tab" aria-selected="false">Timing</button>
+                  </div>
+                </div>
+                <div class="scroll req-detail__body">
+                  <dl class="kv" data-bind="detailRows"></dl>
+                  <pre class="code code--block" data-bind="detailBody"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Screen: History ===== -->
+        <section class="screen" data-screen="history">
+          <div class="scroll stack">
+            <div class="group">
+              <span class="eyebrow">Pinned presets</span>
+              <div class="preset-grid" data-bind="presets"></div>
+            </div>
+            <div class="group">
+              <span class="eyebrow">Recent</span>
+              <div class="table" data-bind="history"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Screen: Settings ===== -->
+        <section class="screen" data-screen="settings">
+          <div class="scroll stack stack--narrow">
+            <div class="group">
+              <label class="eyebrow" for="backend">Backend</label>
+              <input class="input input--block mono" id="backend" type="url" value="https://api.nport.link" />
+              <p class="hint hint--plain">Point this at your own Cloudflare Worker to run every tunnel on infrastructure you control. Saved to <code>~/.nport/config.json</code>.</p>
+            </div>
+
+            <div class="group">
+              <span class="eyebrow">Preferences</span>
+              <div class="option-list">
+                <button type="button" class="option option--rev" data-pref="login" aria-pressed="true">
+                  <span class="option__text">
+                    <span class="option__title">Launch at login</span>
+                    <span class="option__desc">Start NPort in the menu bar when you log in.</span>
+                  </span>
+                  <span class="switch"><i></i></span>
+                </button>
+                <button type="button" class="option option--rev" data-pref="menubar" aria-pressed="true">
+                  <span class="option__text">
+                    <span class="option__title">Keep the menu bar icon</span>
+                    <span class="option__desc">Close the window without stopping tunnels.</span>
+                  </span>
+                  <span class="switch"><i></i></span>
+                </button>
+                <button type="button" class="option option--rev" data-pref="analytics" aria-pressed="false">
+                  <span class="option__text">
+                    <span class="option__title">Anonymous analytics</span>
+                    <span class="option__desc">Equivalent to NPORT_ANALYTICS in the CLI.</span>
+                  </span>
+                  <span class="switch"><i></i></span>
+                </button>
+                <button type="button" class="option option--rev" data-pref="notify" aria-pressed="true">
+                  <span class="option__text">
+                    <span class="option__title">Notify before auto-cleanup</span>
+                    <span class="option__desc">Warn 10 minutes before the 4-hour limit.</span>
+                  </span>
+                  <span class="switch"><i></i></span>
+                </button>
+              </div>
+            </div>
+
+            <div class="group">
+              <span class="eyebrow">Support</span>
+              <div class="support">
+                <div class="support__text">
+                  <span class="support__title">NPort is free and open source</span>
+                  <span class="support__desc">Maintained by one developer, paid for out of pocket. A coffee keeps it going.</span>
+                </div>
+                <div class="row">
+                  <a class="btn btn--coffee" href="https://buymeacoffee.com/tuanngocptn" target="_blank" rel="noopener">
+                    <img src="../assets/buy-me-a-coffee.png" alt="" width="13" height="19" /> Buy me a coffee
+                  </a>
+                  <a class="btn btn--ghost" href="https://github.com/tuanngocptn/nport" target="_blank" rel="noopener">
+                    <span class="star">★</span> Star on GitHub
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <div class="group">
+              <span class="eyebrow">Language</span>
+              <div class="segmented segmented--start" role="radiogroup" aria-label="Language">
+                <button type="button" class="seg is-on" data-lang="English" role="radio" aria-checked="true">English</button>
+                <button type="button" class="seg" data-lang="Tiếng Việt" role="radio" aria-checked="false">Tiếng Việt</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== Overlay: first run ===== -->
+        <div class="onboarding" data-el="onboarding" hidden>
+          <div class="onboarding__head">
+            <img class="logo logo--dark onboarding__mark" src="../assets/nport-logo-dark.png" alt="" width="64" height="64" />
+            <img class="logo logo--light onboarding__mark" src="../assets/nport-logo-light.png" alt="" width="64" height="64" />
+            <h2>Your tunnels, your Cloudflare</h2>
+            <p>NPort runs on Cloudflare's edge. Use the shared backend to start in seconds, or connect your own account and own every hop.</p>
+          </div>
+          <div class="onboarding__choices">
+            <button type="button" class="choice choice--primary" data-action="finish-onboarding">
+              <span class="choice__title">Use the shared backend</span>
+              <span class="choice__desc">Free, no account. Tunnels expire after 4 hours.</span>
+            </button>
+            <button type="button" class="choice" data-action="finish-onboarding">
+              <span class="choice__title">Connect my Cloudflare</span>
+              <span class="choice__desc">Your domain, your DNS, no expiry.</span>
+            </button>
+          </div>
+          <button type="button" class="link-btn" data-action="finish-onboarding">Skip for now</button>
+        </div>
+
+      </main>
+    </div>
+
+    <!-- ---------- Menu bar popover ---------- -->
+    <div class="tray" data-el="tray" hidden>
+      <div class="tray__head">
+        <i class="dot dot--live"></i>
+        <span data-bind="trayCount">2 tunnels running</span>
+        <button type="button" class="tray__close" data-action="toggle-tray" aria-label="Close">×</button>
+      </div>
+      <div data-bind="trayList"></div>
+      <div class="tray__foot">
+        <button type="button" class="link-btn link-btn--strong" data-nav="new">New tunnel</button>
+        <button type="button" class="link-btn" data-nav="inspector">Open inspector</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="platforms mono">macOS 26 Tahoe · Windows 11 · Linux<span>·</span>MIT licensed</p>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

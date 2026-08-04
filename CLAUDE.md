@@ -46,6 +46,8 @@ packages/design-tokens/  tokens.css, shared by web + desktop
 packages/tsconfig/ shared tsconfig bases
 schema/            GENERATED OpenAPI document
 docs/              contributor docs (user docs live in apps/web/src/content/docs)
+docs/mockup/       the approved UI design — check web and desktop against it. Reference only:
+                   never edited by hand, never imported, excluded from every check
 ```
 
 Dependency direction is one-way: `protocol → core → {cli, desktop}`, and `contract → core`. A `core → cli` edge is the most likely architectural regression — don't introduce one.
@@ -74,8 +76,8 @@ pnpm codegen       cargo xtask codegen   # regenerate; must leave the tree clean
 | Add or change an error | `docs/ERRORS.md` → `packages/contract/src/errors.ts`, then regenerate |
 | CLI flags, output, i18n | `crates/CLAUDE.md` → `crates/cli/src/` |
 | Tunnel lifecycle logic | `docs/ARCHITECTURE.md` §3 → `crates/core/src/tunnel.rs` |
-| Website content, SEO, styling | `apps/web/CLAUDE.md` → `packages/design-tokens/` |
-| Desktop UI or IPC | `apps/desktop/CLAUDE.md` |
+| Website content, SEO, styling | `docs/mockup/README.md` → `apps/web/CLAUDE.md` → `packages/design-tokens/` |
+| Desktop UI or IPC | `docs/mockup/README.md` → `apps/desktop/CLAUDE.md` |
 | Storage, leases, expiry, abuse | `docs/ARCHITECTURE.md` §4–§7 → `apps/api/src/do/` |
 | "Why is it built this way?" | `docs/DECISIONS.md` |
 | Tests | `docs/TESTING.md` |

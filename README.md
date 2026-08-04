@@ -47,6 +47,7 @@ User documentation lives at [nport.link](https://nport.link). This repository's 
 | [PROTOCOL](docs/PROTOCOL.md) | the connector wire specification |
 | [API](docs/API.md) · [ERRORS](docs/ERRORS.md) | control-plane contract and error registry |
 | [DECISIONS](docs/DECISIONS.md) | why it is built this way |
+| [mockup](docs/mockup/README.md) | the approved UI design for the site and the desktop app |
 | [ROADMAP](docs/ROADMAP.md) | phases and gates |
 | [CONTRIBUTING](docs/CONTRIBUTING.md) · [TESTING](docs/TESTING.md) | how to help |
 | [SELF_HOSTING](docs/SELF_HOSTING.md) | run your own control plane on your own domain |

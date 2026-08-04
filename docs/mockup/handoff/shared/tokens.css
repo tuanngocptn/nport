@@ -1,0 +1,162 @@
+/* ==========================================================================
+   NPort — design tokens
+   Shared by the marketing site and the desktop app.
+   Aesthetic: macOS 26 "Tahoe" / Liquid Glass.
+   ========================================================================== */
+
+:root {
+  /* --- Brand / system accents (Apple system palette) ------------------- */
+  --np-green:  #30D158;   /* primary accent, success, live state          */
+  --np-green-hi: #3ADB63; /* gradient top stop for filled buttons         */
+  --np-green-lo: #28B84C; /* gradient bottom stop                         */
+  --np-blue:   #0A84FF;   /* POST method, info                            */
+  --np-orange: #FF9F0A;   /* PUT method, 4xx status                       */
+  --np-red:    #FF453A;   /* DELETE method, 5xx status, destructive       */
+  --np-purple: #BF5AF2;   /* PATCH method, wallpaper bloom                */
+  --np-yellow: #FFDD00;   /* Buy Me a Coffee brand yellow                 */
+  --np-yellow-ink: #E0B400; /* readable yellow on dark surfaces           */
+  --np-star:   #FFD60A;   /* GitHub star glyph                            */
+
+  /* --- Window controls -------------------------------------------------- */
+  --np-tl-red:    #FF5F57;
+  --np-tl-yellow: #FEBC2E;
+  --np-tl-green:  #28C840;
+
+  /* --- Radii (concentric: outer 26 → 18 → 14 → 11 → 9) ------------------ */
+  --np-r-window: 26px;
+  --np-r-xl: 18px;
+  --np-r-lg: 14px;
+  --np-r-md: 11px;
+  --np-r-sm: 9px;
+  --np-r-xs: 7px;
+  --np-r-pill: 999px;
+
+  /* --- Spacing scale (4px base) ----------------------------------------- */
+  --np-s-1: 4px;
+  --np-s-2: 8px;
+  --np-s-3: 12px;
+  --np-s-4: 16px;
+  --np-s-5: 20px;
+  --np-s-6: 24px;
+  --np-s-8: 32px;
+  --np-s-10: 40px;
+  --np-s-13: 52px;
+  --np-s-18: 72px;
+  --np-s-26: 104px;
+
+  /* --- Type ------------------------------------------------------------- */
+  --np-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Geist", system-ui, sans-serif;
+  --np-font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Geist", system-ui, sans-serif;
+  --np-font-mono: "SF Mono", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* SF Pro uses 510 / 590 rather than 500 / 600 — these read as the true
+     "Medium" and "Semibold" optical weights and are worth preserving. */
+  --np-w-regular: 400;
+  --np-w-medium: 510;
+  --np-w-semibold: 590;
+
+  /* --- Motion ----------------------------------------------------------- */
+  --np-ease: cubic-bezier(.32, .72, 0, 1);  /* the macOS spring-ish curve   */
+  --np-t-fast: .18s;
+  --np-t-base: .22s;
+  --np-t-slow: .35s;
+
+  /* --- Glass: DARK ------------------------------------------------------ */
+  --np-window:  rgba(30, 30, 34, .62);
+  --np-sidebar: rgba(255, 255, 255, .045);
+  --np-content: rgba(20, 20, 24, .40);
+  --np-detail:  rgba(255, 255, 255, .035);
+  --np-toolbar: rgba(255, 255, 255, .05);
+  --np-card:    rgba(255, 255, 255, .07);
+  --np-field:   rgba(0, 0, 0, .26);
+  --np-chip:    rgba(120, 120, 128, .22);
+  --np-seg:     rgba(0, 0, 0, .24);
+  --np-hair:    rgba(255, 255, 255, .11);
+  --np-rim:     rgba(255, 255, 255, .18);
+  --np-spec:    rgba(255, 255, 255, .22);
+  --np-dash:    rgba(255, 255, 255, .18);
+  --np-sheet:   rgba(24, 24, 28, .88);
+  --np-tray:    rgba(34, 34, 38, .72);
+  --np-idle:    rgba(255, 255, 255, .12);
+
+  --np-text: rgba(255, 255, 255, .94);
+  --np-muted: rgba(235, 235, 245, .54);
+
+  /* --- Blur recipes ----------------------------------------------------- */
+  --np-blur-window: blur(64px) saturate(190%);
+  --np-blur-panel:  blur(50px) saturate(180%);
+  --np-blur-bar:    blur(40px) saturate(180%);
+  --np-blur-chip:   blur(30px) saturate(180%);
+
+  /* --- Elevation -------------------------------------------------------- */
+  --np-sh-window: inset 0 1px 0 0 var(--np-spec), 0 44px 100px -24px rgba(0,0,0,.72), 0 0 0 .5px rgba(0,0,0,.35);
+  --np-sh-popover: inset 0 .5px 0 var(--np-spec), 0 30px 70px -18px rgba(0,0,0,.75);
+  --np-sh-card: inset 0 .5px 0 var(--np-spec), 0 1px 3px rgba(0,0,0,.14);
+  --np-sh-card-hover: inset 0 .5px 0 rgba(255,255,255,.3), 0 12px 28px -10px rgba(0,0,0,.4);
+  --np-sh-inset: inset 0 1px 2px rgba(0,0,0,.10);
+  --np-sh-knob: inset 0 .5px 0 rgba(255,255,255,.24), 0 1px 3px rgba(0,0,0,.4);
+  --np-sh-green: inset 0 1px 0 rgba(255,255,255,.32), 0 4px 14px -4px rgba(40,184,76,.7);
+  --np-sh-yellow: inset 0 1px 0 rgba(255,255,255,.5), 0 3px 10px -3px rgba(255,221,0,.7);
+  --np-focus-ring: 0 0 0 3.5px rgba(48, 209, 88, .28);
+}
+
+/* --- Glass: LIGHT ------------------------------------------------------- */
+/* Applied by setting data-theme="light" on the app root element.           */
+[data-theme="light"] {
+  --np-window:  rgba(250, 250, 252, .70);
+  --np-sidebar: rgba(255, 255, 255, .34);
+  --np-content: rgba(255, 255, 255, .55);
+  --np-detail:  rgba(255, 255, 255, .42);
+  --np-toolbar: rgba(255, 255, 255, .50);
+  --np-card:    rgba(255, 255, 255, .72);
+  --np-field:   rgba(255, 255, 255, .90);
+  --np-chip:    rgba(120, 120, 128, .14);
+  --np-seg:     rgba(120, 120, 128, .14);
+  --np-hair:    rgba(0, 0, 0, .10);
+  --np-rim:     rgba(255, 255, 255, .65);
+  --np-spec:    rgba(255, 255, 255, .85);
+  --np-dash:    rgba(0, 0, 0, .18);
+  --np-sheet:   rgba(248, 248, 250, .92);
+  --np-tray:    rgba(252, 252, 254, .80);
+  --np-idle:    rgba(0, 0, 0, .14);
+
+  --np-text: rgba(0, 0, 0, .88);
+  --np-muted: rgba(60, 60, 67, .58);
+
+  --np-sh-knob: 0 1px 3px rgba(0,0,0,.16), 0 0 0 .5px rgba(0,0,0,.05);
+  --np-sh-inset: inset 0 1px 2px rgba(0,0,0,.06);
+}
+
+/* --- Shared keyframes ---------------------------------------------------- */
+@keyframes np-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%      { opacity: .30; transform: scale(.75); }
+}
+@keyframes np-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(48, 209, 88, .5); }
+  100% { box-shadow: 0 0 0 16px rgba(48, 209, 88, 0); }
+}
+@keyframes np-in {
+  from { opacity: 0; transform: translateY(6px) scale(.995); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes np-row {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes np-tray {
+  from { opacity: 0; transform: translateY(-12px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes np-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(2%, -2%, 0) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}

@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Cookie&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin:0; padding:0; background:#0a0a0c; -webkit-font-smoothing:antialiased; }
+  a { color:#0A84FF; text-decoration:none; }
+  a:hover { color:#409CFF; }
+  ::-webkit-scrollbar { width:9px; height:9px; }
+  ::-webkit-scrollbar-thumb { background:rgba(128,128,128,.38); border-radius:9px; border:2px solid transparent; background-clip:content-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  input, button, textarea { font-family:inherit; }
+  @keyframes np-pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.3; transform:scale(.75); } }
+  @keyframes np-ring { 0% { box-shadow:0 0 0 0 rgba(48,209,88,.5); } 100% { box-shadow:0 0 0 16px rgba(48,209,88,0); } }
+  @keyframes np-in { from { opacity:0; transform:translateY(6px) scale(.995); } to { opacity:1; transform:none; } }
+  @keyframes np-row { from { opacity:0; transform:translateX(-8px); } to { opacity:1; transform:none; } }
+  @keyframes np-tray { from { opacity:0; transform:translateY(-12px) scale(.96); } to { opacity:1; transform:none; } }
+  @keyframes np-drift { 0%,100% { transform:translate3d(0,0,0) scale(1); } 50% { transform:translate3d(2%,-2%,0) scale(1.08); } }
+  :root, [data-theme="dark"] {
+    --np-hover-fill: rgba(255,255,255,.18);
+    --np-hover-strong: rgba(255,255,255,.2);
+    --np-hover-row: rgba(255,255,255,.08);
+    --np-hover-spec: inset 0 .5px 0 rgba(255,255,255,.32);
+    --np-hover-row-spec: inset 0 .5px 0 rgba(255,255,255,.2);
+    --np-hover-text: rgba(255,255,255,.98);
+    --np-hover-dash: rgba(255,255,255,.36);
+    --np-hover-dash-fill: rgba(255,255,255,.08);
+    --np-hover-danger: rgba(255,69,58,.24);
+    --np-hover-danger-text: #FF9A90;
+  }
+  [data-theme="light"] {
+    --np-hover-fill: rgba(120,120,128,.26);
+    --np-hover-strong: rgba(120,120,128,.32);
+    --np-hover-row: rgba(0,0,0,.05);
+    --np-hover-spec: inset 0 .5px 0 rgba(255,255,255,.6);
+    --np-hover-row-spec: none;
+    --np-hover-text: rgba(0,0,0,.92);
+    --np-hover-dash: rgba(0,0,0,.32);
+    --np-hover-dash-fill: rgba(0,0,0,.04);
+    --np-hover-danger: rgba(255,69,58,.16);
+    --np-hover-danger-text: #C8281C;
+  }
+</style>
+</helmet>
+
+<div data-theme="{{ themeAttr }}" style="--w:1200px;position:relative;min-height:{{ stageMinH }};padding:{{ stagePad }};box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:26px;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Geist',sans-serif;overflow:hidden;background:#07070a;">
+
+  <div style="display:{{ chromeShow }};position:absolute;inset:-15%;z-index:0;pointer-events:none;background:radial-gradient(58% 48% at 22% 18%, rgba(0,122,255,.55), transparent 62%), radial-gradient(52% 46% at 82% 12%, rgba(191,90,242,.45), transparent 64%), radial-gradient(64% 52% at 68% 88%, rgba(48,209,88,.34), transparent 66%), radial-gradient(50% 44% at 12% 82%, rgba(255,159,10,.28), transparent 64%), linear-gradient(160deg,#12121a,#07070a 60%);filter:blur(18px);animation:np-drift 26s ease-in-out infinite;"></div>
+
+  <div style="position:relative;z-index:1;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;display:{{ chromeShow }};">
+    <div style="display:flex;align-items:center;gap:9px;padding:6px 14px 6px 8px;border-radius:999px;background:rgba(255,255,255,.1);backdrop-filter:blur(30px) saturate(180%);-webkit-backdrop-filter:blur(30px) saturate(180%);border:.5px solid rgba(255,255,255,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.25);">
+      <img src="./assets/nport-logo-dark.png" alt="NPort" style="width:18px;height:18px;object-fit:contain;display:block;" />
+      <span style="font:590 12px/1 -apple-system,'SF Pro Text','Geist',sans-serif;letter-spacing:-.01em;color:rgba(255,255,255,.92);">NPort for Mac</span>
+    </div>
+    <div style="display:flex;gap:2px;padding:2px;border-radius:999px;background:rgba(255,255,255,.09);backdrop-filter:blur(30px) saturate(180%);-webkit-backdrop-filter:blur(30px) saturate(180%);border:.5px solid rgba(255,255,255,.18);">
+      <button onClick="{{ setDark }}" style="border:0;cursor:pointer;padding:6px 15px;border-radius:999px;font:510 12px/1 -apple-system,'Geist',sans-serif;transition:all .22s cubic-bezier(.32,.72,0,1);background:{{ darkBtn.bg }};color:{{ darkBtn.fg }};box-shadow:{{ darkBtn.sh }};">Dark</button>
+      <button onClick="{{ setLight }}" style="border:0;cursor:pointer;padding:6px 15px;border-radius:999px;font:510 12px/1 -apple-system,'Geist',sans-serif;transition:all .22s cubic-bezier(.32,.72,0,1);background:{{ lightBtn.bg }};color:{{ lightBtn.fg }};box-shadow:{{ lightBtn.sh }};">Light</button>
+    </div>
+    <button onClick="{{ toggleTray }}" style="border:.5px solid rgba(255,255,255,.18);cursor:pointer;padding:7px 15px;border-radius:999px;font:510 12px/1 -apple-system,'Geist',sans-serif;color:rgba(255,255,255,.82);background:rgba(255,255,255,.09);backdrop-filter:blur(30px) saturate(180%);-webkit-backdrop-filter:blur(30px) saturate(180%);transition:background .2s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);">Menu bar</button>
+    <button onClick="{{ toggleOnboard }}" style="border:.5px solid rgba(255,255,255,.18);cursor:pointer;padding:7px 15px;border-radius:999px;font:510 12px/1 -apple-system,'Geist',sans-serif;color:rgba(255,255,255,.82);background:rgba(255,255,255,.09);backdrop-filter:blur(30px) saturate(180%);-webkit-backdrop-filter:blur(30px) saturate(180%);transition:background .2s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);">First run</button>
+  </div>
+
+  <div style="position:relative;z-index:1;width:1200px;max-width:100%;">
+
+    <sc-if value="{{ windowVisible }}" hint-placeholder-val="{{ true }}">
+    <div style="border-radius:26px;overflow:hidden;position:relative;background:{{ glass.window }};backdrop-filter:blur(64px) saturate(190%);-webkit-backdrop-filter:blur(64px) saturate(190%);border:.5px solid {{ glass.rim }};box-shadow:0 1px 0 0 {{ glass.spec }} inset, 0 44px 100px -24px rgba(0,0,0,.72), 0 0 0 .5px rgba(0,0,0,.35);transition:background .35s ease, border-color .35s ease;">
+
+      <div style="display:flex;height:756px;position:relative;">
+
+        <div style="width:224px;flex:none;display:flex;flex-direction:column;padding:14px 12px 14px;gap:16px;background:{{ glass.sidebar }};border-right:.5px solid {{ glass.hair }};transition:background .35s ease;">
+
+          <div style="height:24px;display:flex;align-items:center;gap:8px;padding-left:2px;">
+            <button onClick="{{ closeWindow }}" title="Close" style="width:12px;height:12px;padding:0;border:0;border-radius:50%;background:#FF5F57;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16);cursor:pointer;"></button>
+            <div style="width:12px;height:12px;border-radius:50%;background:#FEBC2E;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16);"></div>
+            <div style="width:12px;height:12px;border-radius:50%;background:#28C840;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.16);"></div>
+          </div>
+
+          <button onClick="{{ goNew }}" style="display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:9px;border:0;border-radius:11px;background:linear-gradient(180deg,#3ADB63,#28B84C);color:#fff;font:590 13px/1 -apple-system,'Geist',sans-serif;letter-spacing:-.01em;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.32), 0 2px 8px -2px rgba(40,184,76,.6);transition:transform .18s cubic-bezier(.32,.72,0,1), filter .18s ease;" style-hover="transform:translateY(-1px);filter:brightness(1.07);" style-active="transform:scale(.985);">
+            <span style="font-size:15px;line-height:1;margin-top:-1px;">＋</span> New Tunnel
+          </button>
+
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <button onClick="{{ goTunnels }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;border-radius:9px;cursor:pointer;font:510 13px/1 -apple-system,'Geist',sans-serif;letter-spacing:-.01em;text-align:left;transition:background .2s ease,color .2s ease;background:{{ navTunnels.bg }};color:{{ navTunnels.fg }};box-shadow:{{ navTunnels.sh }};">
+              <span style="width:16px;text-align:center;font-size:12px;opacity:.85;">◉</span> Tunnels
+              <span style="margin-left:auto;font:500 11px/1 'SF Mono','Geist Mono',monospace;opacity:.6;">{{ activeCount }}</span>
+            </button>
+            <button onClick="{{ goInspector }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;border-radius:9px;cursor:pointer;font:510 13px/1 -apple-system,'Geist',sans-serif;letter-spacing:-.01em;text-align:left;transition:background .2s ease,color .2s ease;background:{{ navInspector.bg }};color:{{ navInspector.fg }};box-shadow:{{ navInspector.sh }};">
+              <span style="width:16px;text-align:center;font-size:12px;opacity:.85;">◫</span> Inspector
+              <span style="margin-left:auto;font:500 11px/1 'SF Mono','Geist Mono',monospace;opacity:.6;">{{ reqCount }}</span>
+            </button>
+            <button onClick="{{ goHistory }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;border-radius:9px;cursor:pointer;font:510 13px/1 -apple-system,'Geist',sans-serif;letter-spacing:-.01em;text-align:left;transition:background .2s ease,color .2s ease;background:{{ navHistory.bg }};color:{{ navHistory.fg }};box-shadow:{{ navHistory.sh }};">
+              <span style="width:16px;text-align:center;font-size:12px;opacity:.85;">◷</span> History
+            </button>
+            <button onClick="{{ goSettings }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;border-radius:9px;cursor:pointer;font:510 13px/1 -apple-system,'Geist',sans-serif;letter-spacing:-.01em;text-align:left;transition:background .2s ease,color .2s ease;background:{{ navSettings.bg }};color:{{ navSettings.fg }};box-shadow:{{ navSettings.sh }};">
+              <span style="width:16px;text-align:center;font-size:12px;opacity:.85;">⚙</span> Settings
+            </button>
+          </div>
+
+          <a href="https://buymeacoffee.com/tuanngocptn" style="margin-top:auto;flex-direction:column;gap:9px;padding:13px;display:{{ monetiseShow }};border-radius:14px;background:#FFDD00;box-shadow:inset 0 1px 0 rgba(255,255,255,.5), 0 2px 8px -3px rgba(255,221,0,.5);color:#0B0C0A;transition:transform .2s cubic-bezier(.32,.72,0,1), box-shadow .2s ease;" style-hover="transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.55), 0 10px 24px -10px rgba(255,221,0,.75);color:#0B0C0A;">
+            <div style="display:flex;align-items:center;gap:9px;">
+              <img src="./assets/buy-me-a-coffee.png" alt="" style="width:14px;height:20px;object-fit:contain;display:block;flex:none;" />
+              <span style="font:400 21px/1 'Cookie',cursive;color:#0B0C0A;">Buy me a coffee</span>
+            </div>
+            <span style="font:400 10.5px/1.45 -apple-system,'Geist',sans-serif;color:rgba(0,0,0,.68);">NPort is free. Your support pays for the servers that keep it running.</span>
+            <span style="font:700 10.5px/1 -apple-system,'Geist',sans-serif;color:rgba(0,0,0,.82);">Support the project →</span>
+          </a>
+
+          <div style="margin-top:{{ slotsTop }};display:flex;flex-direction:column;gap:9px;padding:12px;border-radius:14px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};transition:background .35s ease;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;">
+              <span style="font:510 11px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Tunnel slots</span>
+              <span style="font:590 11px/1 'SF Mono','Geist Mono',monospace;color:{{ c.tx }};">{{ activeCount }} of {{ maxTunnels }}</span>
+            </div>
+            <div style="display:flex;gap:4px;">
+              <div style="height:5px;flex:1;border-radius:3px;background:{{ slot1 }};transition:background .35s ease;"></div>
+              <div style="height:5px;flex:1;border-radius:3px;background:{{ slot2 }};transition:background .35s ease;"></div>
+              <div style="height:5px;flex:1;border-radius:3px;background:{{ slot3 }};transition:background .35s ease;"></div>
+            </div>
+            <div style="font:400 10.5px/1.45 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Three tunnels at a time — a Cloudflare account quota, not a paywall.</div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:9px;padding:0 2px;">
+            <img src="./assets/nport-logo-dark.png" alt="NPort" style="width:24px;height:24px;object-fit:contain;flex:none;display:{{ logoDark }};" /><img src="./assets/nport-logo-light.png" alt="NPort" style="width:24px;height:24px;object-fit:contain;flex:none;display:{{ logoLight }};" />
+            <div style="display:flex;flex-direction:column;gap:2px;">
+              <span style="font:510 11.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Version 3.0.2</span>
+              <span style="font:400 10.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Up to date</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:{{ glass.content }};transition:background .35s ease;">
+
+          <div style="height:52px;flex:none;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:.5px solid {{ glass.hair }};background:{{ glass.toolbar }};backdrop-filter:blur(40px) saturate(180%);-webkit-backdrop-filter:blur(40px) saturate(180%);transition:background .35s ease;">
+            <span style="flex:none;white-space:nowrap;font:590 14px/1 -apple-system,'SF Pro Display','Geist',sans-serif;letter-spacing:-.015em;color:{{ c.tx }};">{{ windowTitle }}</span>
+            <span style="flex:1 1 auto;min-width:0;font:400 12px/1 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ windowSub }}</span>
+            <div style="margin-left:auto;flex:none;display:flex;align-items:center;gap:8px;">
+              <a href="https://github.com/tuanngocptn/nport" title="Star NPort on GitHub" style="flex:none;white-space:nowrap;align-items:center;gap:0;display:{{ monetiseShow }};border-radius:999px;overflow:hidden;border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ c.tx }};transition:background .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);color:{{ c.tx }};">
+                <span style="display:flex;align-items:center;gap:6px;padding:5px 10px;font:510 11.5px/1 -apple-system,'Geist',sans-serif;">
+                  <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true" style="display:block;flex:none;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span style="color:#FFD60A;font-size:11px;line-height:1;">★</span>Star
+                </span>
+                <span style="padding:5px 10px;border-left:.5px solid {{ glass.hair }};font:590 11.5px/1 'SF Mono','Geist Mono',monospace;">{{ starCount }}</span>
+              </a>
+              <div style="flex:none;white-space:nowrap;display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;background:{{ glass.chip }};border:.5px solid {{ glass.hair }};">
+                <div style="width:6px;height:6px;border-radius:50%;background:#30D158;animation:np-pulse 2s ease-in-out infinite;"></div>
+                <span style="font:510 11px/1 'SF Mono','Geist Mono',monospace;color:{{ c.tx }};">{{ activeCount }} live</span>
+              </div>
+            </div>
+          </div>
+
+          <sc-if value="{{ isTunnels }}" hint-placeholder-val="{{ true }}">
+            <div style="flex:1;min-height:0;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:14px;animation:np-in .32s cubic-bezier(.32,.72,0,1);">
+              <sc-for list="{{ tunnels }}" as="tn" hint-placeholder-count="2">
+                <div style="border-radius:16px;overflow:hidden;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }}, 0 1px 3px rgba(0,0,0,.14);transition:transform .22s cubic-bezier(.32,.72,0,1), box-shadow .22s ease;" style-hover="transform:translateY(-2px);box-shadow:inset 0 .5px 0 rgba(255,255,255,.3), 0 12px 28px -10px rgba(0,0,0,.4);">
+                  <div style="display:flex;align-items:center;gap:16px;padding:17px 18px;">
+                    <div style="width:9px;height:9px;border-radius:50%;flex:none;background:#30D158;box-shadow:0 0 8px rgba(48,209,88,.7);animation:np-pulse 2s ease-in-out infinite;"></div>
+                    <div style="display:flex;flex-direction:column;gap:7px;min-width:0;flex:1;">
+                      <div style="display:flex;align-items:center;gap:10px;">
+                        <span style="font:500 15px/1 'SF Mono','Geist Mono',monospace;letter-spacing:-.02em;color:{{ c.tx }};">{{ tn.url }}</span>
+                        <button onClick="{{ tn.copy }}" style="border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ c.mu }};border-radius:999px;padding:4px 10px;font:510 10.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:all .18s ease;" style-hover="background:var(--np-hover-strong);box-shadow:var(--np-hover-spec);color:var(--np-hover-text);">{{ tn.copyLabel }}</button>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:12px;font:400 11.5px/1 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};">
+                        <span>{{ tn.target }}</span><span style="opacity:.4;">·</span>
+                        <span>{{ tn.reqs }} requests</span><span style="opacity:.4;">·</span>
+                        <span>{{ tn.remaining }} left</span>
+                      </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;flex:none;">
+                      <button onClick="{{ goInspector }}" style="border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ c.tx }};border-radius:9px;padding:7px 14px;font:510 12px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:all .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);">Inspect</button>
+                      <button onClick="{{ tn.stop }}" style="border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ c.mu }};border-radius:9px;padding:7px 14px;font:510 12px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:all .18s ease;" style-hover="background:var(--np-hover-danger);box-shadow:var(--np-hover-spec);color:var(--np-hover-danger-text);">Stop</button>
+                    </div>
+                  </div>
+                  <div style="height:3px;background:rgba(120,120,128,.2);">
+                    <div style="height:3px;background:linear-gradient(90deg,rgba(48,209,88,.4),#30D158);width:{{ tn.pct }};transition:width 1s linear;"></div>
+                  </div>
+                </div>
+              </sc-for>
+
+              <sc-if value="{{ hasFreeSlot }}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{ goNew }}" style="border:1px dashed {{ glass.dash }};border-radius:16px;background:transparent;padding:24px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px;transition:all .22s ease;" style-hover="border-color:var(--np-hover-dash);background:var(--np-hover-dash-fill);box-shadow:var(--np-hover-row-spec);">
+                  <span style="font:510 13px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Start another tunnel</span>
+                  <span style="font:400 11.5px/1 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};">{{ freeSlots }}</span>
+                </button>
+              </sc-if>
+
+              <div style="margin-top:4px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+                <div style="border-radius:14px;padding:14px 16px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};display:flex;flex-direction:column;gap:6px;">
+                  <span style="font:400 11px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Requests today</span>
+                  <span style="font:590 21px/1 'SF Mono','Geist Mono',monospace;letter-spacing:-.02em;color:{{ c.tx }};">1,284</span>
+                </div>
+                <div style="border-radius:14px;padding:14px 16px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};display:flex;flex-direction:column;gap:6px;">
+                  <span style="font:400 11px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Median latency</span>
+                  <span style="font:590 21px/1 'SF Mono','Geist Mono',monospace;letter-spacing:-.02em;color:{{ c.tx }};">38 ms</span>
+                </div>
+                <div style="border-radius:14px;padding:14px 16px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};display:flex;flex-direction:column;gap:6px;">
+                  <span style="font:400 11px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Edge region</span>
+                  <span style="font:590 21px/1 'SF Mono','Geist Mono',monospace;letter-spacing:-.02em;color:{{ c.tx }};">FRA</span>
+                </div>
+              </div>
+
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isNew }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:0;display:flex;animation:np-in .32s cubic-bezier(.32,.72,0,1);">
+              <div style="flex:1 1 auto;min-width:0;padding:26px 26px 30px;display:flex;flex-direction:column;gap:24px;overflow-y:auto;">
+
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <label style="font:590 12px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Forward to</label>
+                  <div style="display:flex;align-items:center;width:100%;max-width:400px;min-width:0;align-self:flex-start;border-radius:10px;border:.5px solid {{ glass.hair }};background:{{ glass.field }};overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.1);">
+                    <input value="{{ host }}" onChange="{{ onHost }}" placeholder="localhost" style="flex:1 1 auto;min-width:0;padding:9px 13px;border:0;background:transparent;color:{{ c.tx }};font:500 15px/1.2 'SF Mono','Geist Mono',monospace;outline:none;" />
+                    <span style="flex:none;font:400 15px/1.2 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};">:</span>
+                    <input value="{{ port }}" onChange="{{ onPort }}" style="flex:none;width:78px;padding:9px 13px 9px 3px;border:0;background:transparent;color:{{ c.tx }};font:500 15px/1.2 'SF Mono','Geist Mono',monospace;outline:none;" />
+                  </div>
+                  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <sc-for list="{{ targetChips }}" as="p" hint-placeholder-count="4">
+                      <button onClick="{{ p.pick }}" title="{{ p.title }}" style="border:.5px solid {{ p.bd }};background:{{ glass.chip }};color:{{ p.fg }};border-radius:999px;padding:6px 12px;font:510 11.5px/1 'SF Mono','Geist Mono',monospace;cursor:pointer;transition:all .18s ease;" style-hover="background:var(--np-hover-strong);box-shadow:var(--np-hover-spec);color:var(--np-hover-text);">{{ p.label }}</button>
+                    </sc-for>
+                  </div>
+                  <span style="font:400 11.5px/1.45 -apple-system,'Geist',sans-serif;color:{{ hostHintColor }};text-wrap:pretty;">{{ hostHint }}</span>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <label style="font:590 12px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Public subdomain</label>
+                  <div style="display:flex;align-items:center;max-width:470px;min-width:0;border-radius:10px;border:.5px solid {{ glass.hair }};background:{{ glass.field }};overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.1);">
+                    <input value="{{ sub }}" onChange="{{ onSub }}" placeholder="auto-generated" style="flex:1;min-width:0;padding:9px 13px;border:0;background:transparent;color:{{ c.tx }};font:500 15px/1.2 'SF Mono','Geist Mono',monospace;outline:none;" />
+                    <span style="padding:9px 13px;font:400 15px/1.2 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};border-left:.5px solid {{ glass.hair }};">.nport.link</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:7px;font:400 11.5px/1 -apple-system,'Geist',sans-serif;color:{{ availColor }};transition:color .22s ease;">
+                    <span style="width:5px;height:5px;border-radius:50%;background:{{ availColor }};"></span>{{ availText }}
+                  </div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:9px;">
+                  <label style="font:590 12px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Options</label>
+                  <div style="display:flex;flex-direction:column;border-radius:14px;overflow:hidden;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};">
+                    <sc-for list="{{ options }}" as="o" hint-placeholder-count="3">
+                      <button onClick="{{ o.toggle }}" style="display:flex;align-items:center;gap:14px;padding:12px 15px;border:0;border-bottom:.5px solid {{ glass.hair }};background:transparent;cursor:pointer;text-align:left;transition:background .18s ease;" style-hover="background:var(--np-hover-row);box-shadow:var(--np-hover-row-spec);">
+                        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;">
+                          <span style="font:510 12.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">{{ o.title }}</span>
+                          <span style="font:400 11px/1.4 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">{{ o.desc }}</span>
+                        </div>
+                        <div style="width:38px;height:22px;border-radius:999px;flex:none;padding:2px;box-sizing:border-box;display:flex;transition:background .26s cubic-bezier(.32,.72,0,1);background:{{ o.track }};box-shadow:inset 0 1px 2px rgba(0,0,0,.12);">
+                          <div style="width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .26s cubic-bezier(.32,.72,0,1);transform:{{ o.shift }};"></div>
+                        </div>
+                      </button>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <button onClick="{{ startTunnel }}" style="border:0;border-radius:11px;padding:11px 22px;background:linear-gradient(180deg,#3ADB63,#28B84C);color:#fff;font:590 13.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:-.01em;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.32), 0 4px 14px -4px rgba(40,184,76,.7);transition:transform .18s cubic-bezier(.32,.72,0,1), filter .18s ease;" style-hover="transform:translateY(-1px);filter:brightness(1.07);" style-active="transform:scale(.985);">{{ startLabel }}</button>
+                  <button onClick="{{ goTunnels }}" style="border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ c.tx }};border-radius:11px;padding:11px 20px;font:510 13px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:background .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);">Cancel</button>
+                </div>
+              </div>
+
+              <sc-if value="{{ showCliMirror }}" hint-placeholder-val="{{ true }}">
+              <div style="flex:0 1 326px;min-width:0;border-left:.5px solid {{ glass.hair }};background:{{ glass.sidebar }};padding:26px 22px;display:flex;flex-direction:column;gap:16px;transition:background .35s ease;">
+                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Equivalent command</span>
+                <div style="border-radius:11px;background:{{ glass.field }};border:.5px solid {{ glass.hair }};padding:13px 15px;font:400 12.5px/1.7 'SF Mono','Geist Mono',monospace;color:{{ c.tx }};word-break:break-all;box-shadow:inset 0 1px 2px rgba(0,0,0,.1);">
+                  <span style="color:#30D158;">$</span> {{ cliCommand }}
+                </div>
+                <p style="margin:0;font:400 12px/1.6 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">Every control maps to a CLI flag. Copy this into CI, a Makefile, or a teammate's terminal.</p>
+                <div style="height:.5px;background:{{ glass.hair }};"></div>
+                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Connection</span>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                  <sc-for list="{{ steps }}" as="s" hint-placeholder-count="4">
+                    <div style="display:flex;align-items:center;gap:11px;">
+                      <div style="width:17px;height:17px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font:600 9px/1 -apple-system,sans-serif;color:#fff;transition:all .3s ease;background:{{ s.bg }};border:1px solid {{ s.bd }};">{{ s.mark }}</div>
+                      <span style="flex:1;min-width:0;font:400 12px/1.35 -apple-system,'Geist',sans-serif;transition:color .3s ease;color:{{ s.tx }};overflow-wrap:anywhere;">{{ s.label }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isInspector }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:0;display:flex;flex-direction:column;animation:np-in .32s cubic-bezier(.32,.72,0,1);">
+              <div style="flex:none;padding:12px 20px;display:flex;align-items:center;gap:12px;border-bottom:.5px solid {{ glass.hair }};">
+                <div style="display:flex;gap:2px;padding:2px;border-radius:999px;background:{{ glass.seg }};border:.5px solid {{ glass.hair }};">
+                  <sc-for list="{{ filters }}" as="f" hint-placeholder-count="4">
+                    <button onClick="{{ f.pick }}" style="border:0;cursor:pointer;padding:5px 13px;border-radius:999px;font:510 11.5px/1 -apple-system,'Geist',sans-serif;transition:all .22s cubic-bezier(.32,.72,0,1);background:{{ f.bg }};color:{{ f.fg }};box-shadow:{{ f.sh }};">{{ f.label }}</button>
+                  </sc-for>
+                </div>
+                <button onClick="{{ toggleLive }}" style="margin-left:auto;display:flex;align-items:center;gap:7px;border:.5px solid {{ glass.hair }};background:{{ glass.chip }};border-radius:999px;padding:6px 13px;cursor:pointer;transition:background .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);">
+                  <span style="width:6px;height:6px;border-radius:50%;background:{{ liveDot }};animation:{{ liveAnim }};"></span>
+                  <span style="font:510 11.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">{{ liveLabel }}</span>
+                </button>
+              </div>
+
+              <div style="flex:1;display:flex;min-height:0;">
+                <div style="flex:1 1 424px;max-width:424px;min-width:262px;border-right:.5px solid {{ glass.hair }};overflow-y:auto;">
+                  <sc-for list="{{ requests }}" as="r" hint-placeholder-count="8">
+                    <button onClick="{{ r.pick }}" style="width:100%;display:flex;align-items:center;gap:11px;padding:11px 16px;border:0;border-bottom:.5px solid {{ glass.hair }};cursor:pointer;text-align:left;animation:np-row .3s cubic-bezier(.32,.72,0,1);transition:background .16s ease;background:{{ r.bg }};box-shadow:{{ r.sh }};">
+                      <span style="width:48px;flex:none;font:600 10.5px/1 'SF Mono','Geist Mono',monospace;color:{{ r.mColor }};">{{ r.method }}</span>
+                      <span style="flex:1;min-width:0;font:400 12px/1.3 'SF Mono','Geist Mono',monospace;color:{{ r.pColor }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ r.path }}</span>
+                      <span style="flex:none;font:510 11px/1 'SF Mono','Geist Mono',monospace;color:{{ r.sColor }};">{{ r.status }}</span>
+                      <span style="width:48px;flex:none;text-align:right;font:400 11px/1 'SF Mono','Geist Mono',monospace;color:{{ r.tColor }};">{{ r.ms }}</span>
+                    </button>
+                  </sc-for>
+                </div>
+
+                <div style="flex:1 1 46%;min-width:330px;display:flex;flex-direction:column;background:{{ glass.detail }};transition:background .35s ease;">
+                  <div style="flex:none;padding:16px 20px 0;display:flex;flex-direction:column;gap:13px;">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                      <span style="font:600 11px/1 'SF Mono','Geist Mono',monospace;padding:5px 9px;border-radius:7px;background:{{ glass.chip }};color:{{ sel.mColor }};">{{ sel.method }}</span>
+                      <span style="flex:1;min-width:0;font:400 12.5px/1.3 'SF Mono','Geist Mono',monospace;color:{{ c.tx }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ sel.path }}</span>
+                      <button onClick="{{ replay }}" style="border:.5px solid rgba(48,209,88,.45);background:rgba(48,209,88,.14);color:#30D158;border-radius:999px;padding:6px 13px;font:510 11.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:background .18s ease;" style-hover="background:rgba(48,209,88,.26);box-shadow:inset 0 .5px 0 rgba(255,255,255,.32);">{{ replayLabel }}</button>
+                    </div>
+                    <div style="display:flex;gap:18px;font:400 11px/1 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};flex-wrap:wrap;">
+                      <span>{{ sel.status }} {{ sel.statusText }}</span><span>{{ sel.ms }}</span><span>{{ sel.size }}</span><span>{{ sel.ip }}</span><span>{{ sel.time }}</span>
+                    </div>
+                    <div style="display:flex;gap:2px;padding:2px;border-radius:999px;background:{{ glass.seg }};border:.5px solid {{ glass.hair }};align-self:flex-start;">
+                      <sc-for list="{{ tabs }}" as="tb" hint-placeholder-count="3">
+                        <button onClick="{{ tb.pick }}" style="border:0;cursor:pointer;padding:5px 15px;border-radius:999px;font:510 11.5px/1 -apple-system,'Geist',sans-serif;transition:all .22s cubic-bezier(.32,.72,0,1);background:{{ tb.bg }};color:{{ tb.fg }};box-shadow:{{ tb.sh }};">{{ tb.label }}</button>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <div style="flex:1;overflow-y:auto;padding:16px 20px 20px;display:flex;flex-direction:column;gap:14px;">
+                    <sc-for list="{{ detailRows }}" as="d" hint-placeholder-count="6">
+                      <div style="display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;">
+                        <span style="flex:0 1 130px;min-width:96px;font:400 11.5px/1.5 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};">{{ d.k }}</span>
+                        <span style="flex:1 1 150px;min-width:0;font:400 11.5px/1.5 'SF Mono','Geist Mono',monospace;color:{{ c.tx }};word-break:break-word;overflow-wrap:anywhere;">{{ d.v }}</span>
+                      </div>
+                    </sc-for>
+                    <div style="border-radius:12px;background:{{ glass.field }};border:.5px solid {{ glass.hair }};padding:14px 16px;box-shadow:inset 0 1px 2px rgba(0,0,0,.08);">
+                      <pre style="margin:0;font:400 11.5px/1.75 'SF Mono','Geist Mono',monospace;color:{{ c.tx }};white-space:pre-wrap;word-break:break-word;">{{ detailBody }}</pre>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:0;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:22px;animation:np-in .32s cubic-bezier(.32,.72,0,1);">
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Pinned presets</span>
+                <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+                  <sc-for list="{{ presets }}" as="ps" hint-placeholder-count="4">
+                    <div style="border-radius:14px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};padding:14px 16px;display:flex;align-items:center;gap:14px;transition:transform .2s cubic-bezier(.32,.72,0,1);" style-hover="transform:translateY(-2px);filter:brightness(1.06) saturate(1.05);">
+                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;">
+                        <span style="font:510 13px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">{{ ps.name }}</span>
+                        <span style="font:400 11.5px/1 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};">{{ ps.detail }}</span>
+                      </div>
+                      <button onClick="{{ ps.run }}" style="border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ c.tx }};border-radius:999px;padding:6px 14px;font:510 11.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:all .18s ease;" style-hover="background:var(--np-hover-strong);box-shadow:var(--np-hover-spec);color:var(--np-hover-text);">Start</button>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Recent</span>
+                <div style="border-radius:14px;overflow:hidden;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};">
+                  <sc-for list="{{ history }}" as="h" hint-placeholder-count="6">
+                    <div style="display:flex;align-items:center;gap:16px;padding:12px 16px;border-bottom:.5px solid {{ glass.hair }};transition:background .16s ease;" style-hover="background:var(--np-hover-row);box-shadow:var(--np-hover-row-spec);">
+                      <span style="flex:1;min-width:0;font:400 12.5px/1 'SF Mono','Geist Mono',monospace;color:{{ c.tx }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ h.url }}</span>
+                      <span style="width:70px;flex:none;font:400 11.5px/1 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};">:{{ h.port }}</span>
+                      <span style="width:92px;flex:none;font:400 11.5px/1 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};">{{ h.reqs }} reqs</span>
+                      <span style="width:104px;flex:none;font:400 11.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">{{ h.when }}</span>
+                      <button onClick="{{ h.run }}" style="border:0;background:transparent;color:#30D158;font:510 11.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;padding:4px;">Reopen</button>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:0;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:24px;max-width:760px;animation:np-in .32s cubic-bezier(.32,.72,0,1);">
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Backend</span>
+                <input value="{{ backend }}" onChange="{{ onBackend }}" style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:10px;border:.5px solid {{ glass.hair }};background:{{ glass.field }};color:{{ c.tx }};font:400 13px/1.2 'SF Mono','Geist Mono',monospace;outline:none;box-shadow:inset 0 1px 2px rgba(0,0,0,.1);transition:box-shadow .2s ease, border-color .2s ease;" style-focus="border-color:#30D158;box-shadow:0 0 0 3.5px rgba(48,209,88,.28);" />
+                <span style="font:400 11.5px/1.55 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">Point this at your own Cloudflare Worker to run every tunnel on infrastructure you control. Saved to ~/.nport/config.json.</span>
+              </div>
+
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Preferences</span>
+                <div style="border-radius:14px;overflow:hidden;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};">
+                  <sc-for list="{{ prefs }}" as="pf" hint-placeholder-count="4">
+                    <button onClick="{{ pf.toggle }}" style="width:100%;box-sizing:border-box;display:flex;align-items:center;gap:14px;padding:13px 16px;border:0;border-bottom:.5px solid {{ glass.hair }};background:transparent;cursor:pointer;text-align:left;transition:background .18s ease;" style-hover="background:var(--np-hover-row);box-shadow:var(--np-hover-row-spec);">
+                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;">
+                        <span style="font:510 13px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">{{ pf.title }}</span>
+                        <span style="font:400 11.5px/1.45 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">{{ pf.desc }}</span>
+                      </div>
+                      <div style="width:38px;height:22px;border-radius:999px;flex:none;padding:2px;box-sizing:border-box;display:flex;transition:background .26s cubic-bezier(.32,.72,0,1);background:{{ pf.track }};box-shadow:inset 0 1px 2px rgba(0,0,0,.12);">
+                        <div style="width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .26s cubic-bezier(.32,.72,0,1);transform:{{ pf.shift }};"></div>
+                      </div>
+                    </button>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="flex-direction:column;gap:10px;display:{{ monetiseCol }};">
+                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Supporter account</span>
+
+                <sc-if value="{{ authIsOut }}" hint-placeholder-val="{{ true }}">
+                  <div style="border-radius:14px;padding:16px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};display:flex;flex-direction:column;gap:12px;">
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                      <span style="font:510 13px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Already bought a coffee?</span>
+                      <span style="font:400 11.5px/1.45 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">Enter the email you donated with. We'll send a one-time code and hide sponsored cards on this machine. No password, no account to manage.</span>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                      <input value="{{ authEmail }}" onChange="{{ onAuthEmail }}" placeholder="you@example.com" type="email" style="flex:1 1 220px;min-width:0;padding:9px 13px;border-radius:10px;border:.5px solid {{ glass.hair }};background:{{ glass.field }};color:{{ c.tx }};font:400 13px/1.2 -apple-system,'Geist',sans-serif;outline:none;box-shadow:{{ glass.inset }};transition:box-shadow .2s ease, border-color .2s ease;" style-focus="border-color:#30D158;box-shadow:0 0 0 3.5px rgba(48,209,88,.28);" />
+                      <button onClick="{{ sendCode }}" style="flex:none;border:0;border-radius:10px;padding:9px 18px;background:linear-gradient(180deg,#3ADB63,#28B84C);color:#fff;font:590 12.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;opacity:{{ sendOpacity }};box-shadow:inset 0 1px 0 rgba(255,255,255,.32), 0 3px 12px -4px rgba(40,184,76,.7);transition:transform .18s cubic-bezier(.32,.72,0,1), filter .18s ease;" style-hover="transform:translateY(-1px);filter:brightness(1.07);">{{ sendLabel }}</button>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ authIsCode }}" hint-placeholder-val="{{ false }}">
+                  <div style="border-radius:14px;padding:16px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};display:flex;flex-direction:column;gap:13px;animation:np-in .3s cubic-bezier(.32,.72,0,1);">
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                      <span style="font:510 13px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Enter the 6-digit code</span>
+                      <span style="font:400 11.5px/1.45 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Sent to {{ authEmail }}. It expires in 10 minutes.</span>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                      <input value="{{ authCode }}" onChange="{{ onAuthCode }}" placeholder="000000" inputMode="numeric" style="width:150px;flex:none;padding:9px 13px;border-radius:10px;border:.5px solid {{ codeBorder }};background:{{ glass.field }};color:{{ c.tx }};font:500 17px/1.2 'SF Mono','Geist Mono',monospace;letter-spacing:.22em;outline:none;box-shadow:{{ glass.inset }};transition:box-shadow .2s ease, border-color .2s ease;" style-focus="border-color:#30D158;box-shadow:0 0 0 3.5px rgba(48,209,88,.28);" />
+                      <button onClick="{{ verifyCode }}" style="flex:none;border:0;border-radius:10px;padding:9px 18px;background:linear-gradient(180deg,#3ADB63,#28B84C);color:#fff;font:590 12.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.32), 0 3px 12px -4px rgba(40,184,76,.7);transition:transform .18s cubic-bezier(.32,.72,0,1), filter .18s ease;" style-hover="transform:translateY(-1px);filter:brightness(1.07);">{{ verifyLabel }}</button>
+                      <button onClick="{{ resetAuth }}" style="flex:none;border:0;background:transparent;color:{{ c.mu }};font:510 12px/1 -apple-system,'Geist',sans-serif;cursor:pointer;padding:9px 4px;">Use another email</button>
+                    </div>
+                    <span style="font:400 11.5px/1.45 -apple-system,'Geist',sans-serif;color:{{ authHintColor }};">{{ authHint }}</span>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ authIsIn }}" hint-placeholder-val="{{ false }}">
+                  <div style="border-radius:14px;padding:16px;background:linear-gradient(180deg,rgba(48,209,88,.18),rgba(48,209,88,.08));border:.5px solid rgba(48,209,88,.42);box-shadow:inset 0 .5px 0 {{ glass.spec }};display:flex;align-items:center;gap:14px;flex-wrap:wrap;animation:np-in .3s cubic-bezier(.32,.72,0,1);">
+                    <span style="width:34px;height:34px;flex:none;border-radius:11px;background:rgba(48,209,88,.9);display:flex;align-items:center;justify-content:center;font:700 15px/1 -apple-system,sans-serif;color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.35);">✓</span>
+                    <div style="flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:4px;">
+                      <span style="font:510 13px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Signed in as {{ authEmail }}</span>
+                      <span style="font:400 11.5px/1.45 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Supporter since {{ supporterSince }} · sponsored cards are hidden everywhere.</span>
+                    </div>
+                    <button onClick="{{ resetAuth }}" style="flex:none;border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ c.tx }};border-radius:999px;padding:7px 14px;font:510 11.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:background .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);">Sign out</button>
+                  </div>
+                </sc-if>
+              </div>
+
+              <div style="flex-direction:column;gap:10px;display:{{ monetiseCol }};">
+                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Support</span>
+                <div style="border-radius:14px;overflow:hidden;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};">
+
+                  <div style="padding:18px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;border-bottom:.5px solid {{ glass.hair }};">
+                    <div style="flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:6px;">
+                      <span style="font:590 13.5px/1.3 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">No paid tier. Coffees cover the server bill.</span>
+                      <span style="font:400 11.5px/1.5 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">One developer maintains NPort and pays for the infrastructure out of pocket. Buy a coffee and sponsored cards disappear for good — sign in above with the email you paid with.</span>
+                    </div>
+                    <a href="https://buymeacoffee.com/tuanngocptn" style="flex:none;display:flex;align-items:center;gap:9px;padding:8px 18px 8px 13px;border-radius:999px;background:#FFDD00;color:#0B0C0A;font:400 22px/1 'Cookie',cursive;box-shadow:inset 0 1px 0 rgba(255,255,255,.45), 0 4px 14px -6px rgba(255,221,0,.6);transition:transform .18s cubic-bezier(.32,.72,0,1);" style-hover="transform:translateY(-1px);color:#0B0C0A;">
+                      <img src="./assets/buy-me-a-coffee.png" alt="" style="width:14px;height:20px;object-fit:contain;display:block;" />Buy me a coffee
+                    </a>
+                  </div>
+
+                  <div style="padding:14px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <a href="https://github.com/tuanngocptn/nport" style="display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;background:{{ glass.chip }};border:.5px solid {{ glass.hair }};color:{{ c.tx }};font:510 12px/1 -apple-system,'Geist',sans-serif;transition:background .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);color:{{ c.tx }};"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true" style="display:block;flex:none;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg><span style="color:#FFD60A;">★</span> Star on GitHub<span style="padding-left:9px;margin-left:2px;border-left:.5px solid {{ glass.hair }};font:590 12px/1 'SF Mono','Geist Mono',monospace;">{{ starCount }}</span></a>
+                    <a href="https://www.npmjs.com/package/nport" style="display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;background:{{ glass.chip }};border:.5px solid {{ glass.hair }};color:{{ c.tx }};font:510 12px/1 -apple-system,'Geist',sans-serif;transition:background .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);color:{{ c.tx }};"><svg viewBox="0 0 27.23 27.23" width="14" height="14" fill="currentColor" aria-hidden="true" style="display:block;flex:none;"><path d="M0 0v27.23h27.23V0H0zm21.78 21.78h-2.72V8.16h-5.45v13.62H5.45V5.45h16.33v16.33z"/></svg>npm</a>
+                    <a href="https://github.com/tuanngocptn/nport/issues" style="display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;background:{{ glass.chip }};border:.5px solid {{ glass.hair }};color:{{ c.tx }};font:510 12px/1 -apple-system,'Geist',sans-serif;transition:background .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);color:{{ c.tx }};">Report an issue</a>
+                  </div>
+
+                  <div style="padding:12px 18px;display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;border-top:.5px solid {{ glass.hair }};font:400 11.5px/17px -apple-system,'Geist',sans-serif;color:{{ c.mu }};">
+                    <span style="display:flex;align-items:center;gap:7px;"><span style="color:#F6821F;display:flex;"><svg viewBox="0 0 256 116" width="16" height="16" fill="currentColor" aria-hidden="true" style="display:block;flex:none;"><path d="M202.36 49.31c-.86 0-1.72.02-2.57.07C198.24 21.7 175.36 0 147.4 0c-22.9 0-42.5 14.55-49.94 34.9a28.1 28.1 0 0 0-17.5-6.06c-15.2 0-27.6 12-28.3 27.03A34.3 34.3 0 0 0 0 89.05c0 3.2.44 6.3 1.26 9.24.3 1.08 1.3 1.82 2.42 1.82h195.4c.13 0 .25 0 .38-.02 16-1.36 28.54-14.9 28.54-31.24 0-11.06-5.74-20.78-14.4-26.36a31.9 31.9 0 0 0-11.24-3.18Zm38.8 12.34a29 29 0 0 0-3.32.2c-.55.06-1 .45-1.2.98l-3.13 10.82c-1.34 4.65-.85 8.94 1.4 12.1 2.07 2.94 5.5 4.66 9.66 4.86l11.6.7c.34.02.65.19.84.46.2.28.24.63.14.95a3.7 3.7 0 0 1-3.2 2.57l-12.05.7c-6.55.3-13.6 5.6-16.07 12.05l-.87 2.27c-.17.45.15.9.63.9h41.45a2.2 2.2 0 0 0 2.12-1.6 30.6 30.6 0 0 0 1.15-8.3c0-16.9-13.7-30.6-30.6-30.6h-.05Z"/></svg></span>Powered by Cloudflare</span>
+                    <span style="opacity:.5;">·</span>
+                    <span>MIT licensed</span>
+                    <span style="opacity:.5;">·</span>
+                    <span>Created by Nick — Ngoc Pham</span>
+                    <span style="opacity:.5;">·</span>
+                    <span>Made with ❤️ in Vietnam</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Language</span>
+                <div style="display:flex;gap:2px;padding:2px;border-radius:999px;background:{{ glass.seg }};border:.5px solid {{ glass.hair }};align-self:flex-start;">
+                  <sc-for list="{{ langs }}" as="lg" hint-placeholder-count="2">
+                    <button onClick="{{ lg.pick }}" style="border:0;cursor:pointer;padding:7px 18px;border-radius:999px;font:510 12.5px/1 -apple-system,'Geist',sans-serif;transition:all .22s cubic-bezier(.32,.72,0,1);background:{{ lg.bg }};color:{{ lg.fg }};box-shadow:{{ lg.sh }};">{{ lg.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ showAds }}" hint-placeholder-val="{{ true }}">
+            <div style="flex:none;margin:0 24px 20px;border-radius:14px;overflow:hidden;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};">
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px 7px 14px;border-bottom:.5px solid {{ glass.hair }};">
+                <span style="font:590 11px/1 -apple-system,'Geist',sans-serif;letter-spacing:.09em;text-transform:uppercase;color:{{ c.tx }};">Sponsored</span>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <button onClick="{{ goSettings }}" style="border:0;background:transparent;cursor:pointer;padding:0;font:510 10.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};transition:color .18s ease;" style-hover="color:#E0B400;">Already a supporter?</button>
+                  <a href="https://buymeacoffee.com/tuanngocptn" style="font:510 10.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};transition:color .18s ease;" style-hover="color:#E0B400;">Hide with a coffee</a>
+                  <button onClick="{{ dismissAd }}" title="Dismiss" style="border:0;background:transparent;color:{{ c.mu }};cursor:pointer;font:400 13px/1 -apple-system,sans-serif;padding:0 2px;transition:color .18s ease;" style-hover="color:var(--np-hover-text);">×</button>
+                </div>
+              </div>
+              <a href="{{ ad.href }}" style="display:flex;align-items:center;gap:14px;padding:14px 16px;color:inherit;transition:background .18s ease;" style-hover="background:var(--np-hover-row);box-shadow:var(--np-hover-row-spec);color:inherit;">
+                <div style="width:44px;height:44px;flex:none;border-radius:11px;background:{{ glass.chip }};border:.5px solid {{ glass.hair }};display:flex;align-items:center;justify-content:center;font:700 15px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">{{ ad.mark }}</div>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;">
+                  <span style="font:590 13px/1.3 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">{{ ad.title }}</span>
+                  <span style="font:400 11.5px/1.45 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">{{ ad.body }}</span>
+                </div>
+                <span style="flex:none;padding:7px 14px;border-radius:999px;background:{{ glass.chip }};border:.5px solid {{ glass.hair }};font:510 11.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};white-space:nowrap;">{{ ad.cta }}</span>
+              </a>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ showOnboard }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:32px;padding:60px;background:{{ glass.sheet }};backdrop-filter:blur(50px) saturate(180%);-webkit-backdrop-filter:blur(50px) saturate(180%);animation:np-in .35s cubic-bezier(.32,.72,0,1);">
+              <div style="display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;max-width:520px;">
+                <img src="./assets/nport-logo-dark.png" alt="NPort" style="width:64px;height:64px;object-fit:contain;animation:np-ring 2.4s ease-out infinite;border-radius:16px;display:{{ logoDark }};" /><img src="./assets/nport-logo-light.png" alt="NPort" style="width:64px;height:64px;object-fit:contain;animation:np-ring 2.4s ease-out infinite;border-radius:16px;display:{{ logoLight }};" />
+                <h1 style="margin:0;font:600 30px/1.12 -apple-system,'SF Pro Display','Geist',sans-serif;letter-spacing:-.03em;color:{{ c.tx }};">Your tunnels, your Cloudflare</h1>
+                <p style="margin:0;font:400 14px/1.6 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">NPort runs on Cloudflare's edge. Use the shared backend to start in seconds, or connect your own account and own every hop.</p>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;width:100%;max-width:620px;">
+                <button onClick="{{ finishOnboard }}" style="text-align:left;border:.5px solid rgba(48,209,88,.5);background:rgba(48,209,88,.12);border-radius:16px;padding:20px;cursor:pointer;display:flex;flex-direction:column;gap:7px;transition:all .22s cubic-bezier(.32,.72,0,1);" style-hover="background:rgba(48,209,88,.2);transform:translateY(-2px);">
+                  <span style="font:590 14px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Use the shared backend</span>
+                  <span style="font:400 12px/1.5 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Free, no account. Tunnels expire after 4 hours.</span>
+                </button>
+                <button onClick="{{ finishOnboard }}" style="text-align:left;border:.5px solid {{ glass.hair }};background:{{ glass.card }};border-radius:16px;padding:20px;cursor:pointer;display:flex;flex-direction:column;gap:7px;transition:all .22s cubic-bezier(.32,.72,0,1);" style-hover="transform:translateY(-2px);filter:brightness(1.06) saturate(1.05);">
+                  <span style="font:590 14px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Connect my Cloudflare</span>
+                  <span style="font:400 12px/1.5 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Your domain, your DNS, no expiry.</span>
+                </button>
+              </div>
+              <button onClick="{{ finishOnboard }}" style="border:0;background:transparent;color:{{ c.mu }};font:510 12px/1 -apple-system,'Geist',sans-serif;cursor:pointer;">Skip for now</button>
+            </div>
+          </sc-if>
+
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <sc-if value="{{ isHidden }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:0;animation:np-in .32s cubic-bezier(.32,.72,0,1);">
+        <div style="width:100%;height:30px;border-radius:12px 12px 0 0;display:flex;align-items:center;padding:0 14px;gap:18px;background:{{ glass.tray }};backdrop-filter:blur(40px) saturate(190%);-webkit-backdrop-filter:blur(40px) saturate(190%);border:.5px solid {{ glass.rim }};border-bottom:0;box-shadow:inset 0 .5px 0 {{ glass.spec }};box-sizing:border-box;">
+          <span style="font:590 12.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};"></span>
+          <span style="font:400 12.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Finder</span>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:14px;">
+            <button onClick="{{ toggleTray }}" title="NPort" style="display:flex;align-items:center;gap:5px;padding:3px 7px;border-radius:6px;border:0;cursor:pointer;background:{{ menuBarBg }};transition:background .18s ease;">
+              <img src="./assets/nport-logo-dark.png" alt="NPort" style="width:14px;height:14px;object-fit:contain;display:block;filter:{{ menuIconFilter }};" />
+              <span style="font:590 10.5px/1 'SF Mono','Geist Mono',monospace;color:#30D158;">{{ activeCount }}</span>
+            </button>
+            <span style="font:400 12px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">100%</span>
+            <span style="font:400 12px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Tue 14:22</span>
+          </div>
+        </div>
+
+        <div style="width:100%;box-sizing:border-box;border-radius:0 0 20px 20px;padding:44px 32px 40px;padding-right:{{ hiddenPadRight }};display:flex;flex-direction:column;align-items:center;gap:20px;background:{{ glass.window }};backdrop-filter:blur(64px) saturate(190%);-webkit-backdrop-filter:blur(64px) saturate(190%);border:.5px solid {{ glass.rim }};box-shadow:{{ glass.windowShadow }};">
+          <div style="display:flex;align-items:center;gap:9px;padding:6px 14px;border-radius:999px;background:rgba(48,209,88,.16);border:.5px solid rgba(48,209,88,.4);">
+            <span style="width:6px;height:6px;border-radius:50%;background:#30D158;animation:np-pulse 2s ease-in-out infinite;"></span>
+            <span style="font:510 12px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">{{ hiddenStatus }}</span>
+          </div>
+          <p style="margin:0;max-width:420px;text-align:center;font:400 13.5px/1.6 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">The window is closed but the tunnels are not. NPort keeps serving from the menu bar — click the icon above to copy a URL, or reopen the full window.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
+            <button onClick="{{ reopenWindow }}" style="border:0;border-radius:11px;padding:10px 20px;background:linear-gradient(180deg,#3ADB63,#28B84C);color:#fff;font:590 13px/1 -apple-system,'Geist',sans-serif;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.32), 0 4px 14px -4px rgba(40,184,76,.7);transition:transform .18s cubic-bezier(.32,.72,0,1);" style-hover="transform:translateY(-1px);filter:brightness(1.07);">Reopen window</button>
+            <button onClick="{{ quitAll }}" style="border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ c.tx }};border-radius:11px;padding:10px 18px;font:510 13px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:background .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);">Stop everything and quit</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ showClose }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ cancelClose }}" style="position:absolute;inset:0;z-index:35;border-radius:26px;background:rgba(0,0,0,.34);backdrop-filter:saturate(.7) brightness(.9);-webkit-backdrop-filter:saturate(.7) brightness(.9);animation:np-in .2s ease;"></div>
+      <div style="position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:40;width:420px;max-width:92%;border-radius:20px;overflow:hidden;background:{{ glass.sheet }};backdrop-filter:blur(50px) saturate(180%);-webkit-backdrop-filter:blur(50px) saturate(180%);border:.5px solid {{ glass.rim }};box-shadow:inset 0 .5px 0 {{ glass.spec }}, 0 40px 90px -20px rgba(0,0,0,.8);animation:np-tray .26s cubic-bezier(.32,.72,0,1);">
+        <div style="padding:26px 24px 20px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;">
+          <img src="./assets/nport-logo-dark.png" alt="" style="width:44px;height:44px;object-fit:contain;display:{{ logoDark }};" />
+          <img src="./assets/nport-logo-light.png" alt="" style="width:44px;height:44px;object-fit:contain;display:{{ logoLight }};" />
+          <h2 style="margin:0;font:590 16px/1.3 -apple-system,'SF Pro Display','Geist',sans-serif;letter-spacing:-.02em;color:{{ c.tx }};">Keep your tunnels running?</h2>
+          <p style="margin:0;font:400 12.5px/1.55 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">{{ closeBody }}</p>
+        </div>
+        <button onClick="{{ toggleAskAgain }}" style="width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:9px;padding:0 24px 18px;border:0;background:transparent;cursor:pointer;">
+          <span style="width:15px;height:15px;border-radius:4px;flex:none;display:flex;align-items:center;justify-content:center;font:700 9px/1 -apple-system,sans-serif;color:#fff;background:{{ askBg }};border:1px solid {{ askBd }};transition:all .2s ease;">{{ askMark }}</span>
+          <span style="font:400 12px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Don't ask me again</span>
+        </button>
+        <div style="display:flex;border-top:.5px solid {{ glass.hair }};">
+          <button onClick="{{ quitAll }}" style="flex:1;padding:13px;border:0;border-right:.5px solid {{ glass.hair }};background:transparent;color:{{ c.tx }};font:510 13px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:background .18s ease;" style-hover="background:var(--np-hover-row);box-shadow:var(--np-hover-row-spec);">{{ quitLabel }}</button>
+          <button onClick="{{ keepRunning }}" style="flex:1;padding:13px;border:0;background:transparent;color:#30D158;font:590 13px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:background .18s ease;" style-hover="background:var(--np-hover-row);box-shadow:var(--np-hover-row-spec);">Keep in menu bar</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ showTray }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;top:{{ trayTop }};right:{{ trayRight }};width:312px;border-radius:18px;overflow:hidden;z-index:20;background:{{ glass.tray }};backdrop-filter:blur(50px) saturate(190%);-webkit-backdrop-filter:blur(50px) saturate(190%);border:.5px solid {{ glass.rim }};box-shadow:inset 0 .5px 0 {{ glass.spec }}, 0 30px 70px -18px rgba(0,0,0,.75);animation:np-tray .26s cubic-bezier(.32,.72,0,1);">
+        <div style="padding:12px 15px;border-bottom:.5px solid {{ glass.hair }};display:flex;align-items:center;gap:9px;">
+          <div style="width:6px;height:6px;border-radius:50%;background:#30D158;animation:np-pulse 2s ease-in-out infinite;"></div>
+          <span style="font:510 12px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">{{ activeCount }} tunnels running</span>
+          <button onClick="{{ toggleTray }}" style="margin-left:auto;border:0;background:transparent;color:{{ c.mu }};cursor:pointer;font:400 15px/1 -apple-system,sans-serif;">×</button>
+        </div>
+        <sc-for list="{{ tunnels }}" as="tn" hint-placeholder-count="2">
+          <div style="padding:10px 15px;border-bottom:.5px solid {{ glass.hair }};display:flex;align-items:center;gap:10px;transition:background .16s ease;" style-hover="background:var(--np-hover-row);box-shadow:var(--np-hover-row-spec);">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;">
+              <span style="font:500 11.5px/1 'SF Mono','Geist Mono',monospace;color:{{ c.tx }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ tn.url }}</span>
+              <span style="font:400 10.5px/1 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};">:{{ tn.port }} · {{ tn.remaining }} left</span>
+            </div>
+            <button onClick="{{ tn.copy }}" style="border:0;background:transparent;color:#30D158;font:510 10.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;">{{ tn.copyLabel }}</button>
+          </div>
+        </sc-for>
+        <div style="padding:11px 15px;display:flex;gap:16px;">
+          <button onClick="{{ goNew }}" style="border:0;background:transparent;color:{{ c.tx }};font:510 11.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;padding:0;">New tunnel</button>
+          <button onClick="{{ goInspector }}" style="border:0;background:transparent;color:{{ c.mu }};font:510 11.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;padding:0;">Open inspector</button>
+        </div>
+      </div>
+    </sc-if>
+
+  </div>
+
+  <div style="position:relative;z-index:1;gap:18px;font:400 11.5px/1 'SF Mono','Geist Mono',monospace;color:rgba(255,255,255,.42);flex-wrap:wrap;justify-content:center;display:{{ chromeShow }};">
+    <span>macOS 26 Tahoe · Windows 11 · Linux</span><span style="opacity:.5;">·</span><span>MIT licensed</span>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#30D158&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#30D158&quot;,&quot;#0A84FF&quot;,&quot;#BF5AF2&quot;,&quot;#FF9F0A&quot;],&quot;section&quot;:&quot;Appearance&quot;},&quot;embed&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;maxTunnels&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:3,&quot;min&quot;:1,&quot;max&quot;:6,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Behavior&quot;},&quot;showCliMirror&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behavior&quot;},&quot;showAds&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behavior&quot;}}">
+const GREEN = '#30D158', BLUE = '#0A84FF', ORANGE = '#FF9F0A', RED = '#FF453A', PURPLE = '#BF5AF2';
+
+const REQS = [
+  { method:'POST', path:'/api/webhooks/stripe', status:200, statusText:'OK', ms:'42ms', size:'1.2 kB', ip:'54.187.174.169', time:'14:22:07',
+    headers:[['content-type','application/json'],['stripe-signature','t=1754312527,v1=8f2c…'],['user-agent','Stripe/1.0 (+https://stripe.com/docs/webhooks)'],['x-forwarded-for','54.187.174.169'],['cf-ray','8d21ab4f9e2c-FRA'],['content-length','1214']],
+    body:'{\n  "id": "evt_3PqR2xKz9",\n  "type": "payment_intent.succeeded",\n  "data": {\n    "object": {\n      "amount": 4900,\n      "currency": "eur",\n      "customer": "cus_QeT1nZ"\n    }\n  }\n}' },
+  { method:'GET', path:'/api/session', status:200, statusText:'OK', ms:'11ms', size:'318 B', ip:'2a02:8108:…:e41', time:'14:22:04',
+    headers:[['accept','application/json'],['cookie','sid=…; theme=dark'],['cf-ipcountry','DE'],['cf-ray','8d21ab3c1a80-FRA']],
+    body:'{\n  "user": "maria@northloop.eu",\n  "plan": "team",\n  "expires": "2026-08-04T18:20:00Z"\n}' },
+  { method:'GET', path:'/_next/static/chunks/main-app.js', status:200, statusText:'OK', ms:'8ms', size:'86 kB', ip:'2a02:8108:…:e41', time:'14:22:03',
+    headers:[['accept','*/*'],['cache-control','no-cache'],['cf-ray','8d21ab2f77c1-FRA']],
+    body:'// 86 kB of JavaScript — body preview disabled for static assets' },
+  { method:'POST', path:'/api/checkout', status:422, statusText:'Unprocessable Entity', ms:'96ms', size:'204 B', ip:'188.34.192.7', time:'14:21:58',
+    headers:[['content-type','application/json'],['origin','https://northloop.eu'],['cf-ipcountry','NL']],
+    body:'{\n  "error": "validation_failed",\n  "fields": { "vat_id": "invalid checksum" }\n}' },
+  { method:'GET', path:'/api/products?limit=24', status:200, statusText:'OK', ms:'27ms', size:'14 kB', ip:'188.34.192.7', time:'14:21:51',
+    headers:[['accept','application/json'],['cf-ray','8d21aa90c3b2-FRA']],
+    body:'{\n  "items": [ /* 24 products */ ],\n  "total": 318\n}' },
+  { method:'DELETE', path:'/api/cart/items/9f21', status:204, statusText:'No Content', ms:'19ms', size:'0 B', ip:'188.34.192.7', time:'14:21:44',
+    headers:[['authorization','Bearer eyJhbGciOi…'],['cf-ray','8d21aa4411de-FRA']],
+    body:'(no body)' },
+  { method:'GET', path:'/favicon.ico', status:404, statusText:'Not Found', ms:'6ms', size:'0 B', ip:'188.34.192.7', time:'14:21:40',
+    headers:[['accept','image/avif,image/webp,*/*']], body:'(no body)' },
+  { method:'PUT', path:'/api/orders/8812/address', status:200, statusText:'OK', ms:'61ms', size:'512 B', ip:'92.118.44.10', time:'14:21:31',
+    headers:[['content-type','application/json'],['cf-ipcountry','FR']],
+    body:'{\n  "city": "Lyon",\n  "postal_code": "69003",\n  "country": "FR"\n}' },
+  { method:'POST', path:'/api/webhooks/github', status:500, statusText:'Internal Server Error', ms:'812ms', size:'88 B', ip:'140.82.115.66', time:'14:21:12',
+    headers:[['x-github-event','pull_request'],['x-github-delivery','7f3c1a2e-…'],['user-agent','GitHub-Hookshot/8b2c9d']],
+    body:'{\n  "error": "handler timeout after 800ms"\n}' }
+];
+
+const MCOLOR = { GET: GREEN, POST: BLUE, PUT: ORANGE, DELETE: RED, PATCH: PURPLE };
+
+class Component extends DCLogic {
+  state = {
+    theme:'dark', screen:'tunnels',
+    host:'localhost', port:'3000', sub:'northloop', connecting:false, step:0,
+    selReq:0, tab:'Request', filter:'All', live:true, copied:-1, replayed:false,
+    showTray:false, showOnboard:false, lang:'English', backend:'https://api.nport.link',
+    showClose:false, hidden:false, askAgain:true, adDismissed:false,
+    auth:'out', authEmail:'', authCode:'', authErr:false, sending:false, verifying:false,
+    stars: 494,
+    opts:[true,false,true], prefs:[true,true,false,true],
+    tunnels:[
+      { id:1, sub:'northloop', host:'localhost', port:'3000', reqs:412, left:13260 },
+      { id:2, sub:'wh-stripe', host:'192.168.1.42', port:'4000', reqs:87, left:4820 }
+    ]
+  };
+
+  componentDidMount() {
+    this.timer = setInterval(() => this.setState(s => ({
+      tunnels: s.tunnels.map(t => ({ ...t, left: Math.max(0, t.left - 1) }))
+    })), 1000);
+  }
+  componentDidUpdate(prev) {
+    // The Tweaks prop wins: turning ads back on clears a session dismissal.
+    if (!prev.showAds && this.props.showAds && this.state.adDismissed && this.state.auth !== 'in') {
+      this.setState({ adDismissed: false });
+    }
+  }
+  componentWillUnmount() { clearInterval(this.timer); clearTimeout(this.ct); }
+
+  set(k, v) { this.setState({ [k]: v }); }
+
+  fmt(sec) {
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    return h > 0 ? h + 'h ' + String(m).padStart(2,'0') + 'm'
+                 : String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  }
+
+  begin() {
+    if (this.state.connecting || this.state.tunnels.length >= 3) return;
+    this.setState({ connecting:true, step:1 });
+    const advance = n => {
+      this.ct = setTimeout(() => {
+        if (n <= 4) { this.setState({ step:n }); advance(n + 1); }
+        else this.setState(s => ({
+          connecting:false, step:0, screen:'tunnels',
+          tunnels: s.tunnels.concat([{ id:Date.now(), sub: s.sub || 'user-' + Math.floor(1000 + Math.random()*8999), host: s.host || 'localhost', port:s.port, reqs:0, left:14400 }])
+        }));
+      }, 620);
+    };
+    advance(2);
+  }
+
+  toggleIdx(key, i) {
+    this.setState(s => { const a = s[key].slice(); a[i] = !a[i]; return { [key]: a }; });
+  }
+
+  renderVals() {
+    const st = this.state, dark = st.theme === 'dark';
+    const embed = this.props.embed ?? false;
+    const GREEN = this.props.accent ?? '#30D158';
+    const MAX = this.props.maxTunnels ?? 3;
+
+    const c = dark
+      ? { tx:'rgba(255,255,255,.94)', mu:'rgba(235,235,245,.54)' }
+      : { tx:'rgba(0,0,0,.88)', mu:'rgba(60,60,67,.58)' };
+
+    const glass = dark ? {
+      window:'rgba(30,30,34,.62)', sidebar:'rgba(255,255,255,.045)', content:'rgba(20,20,24,.4)',
+      detail:'rgba(255,255,255,.035)', toolbar:'rgba(255,255,255,.05)', card:'rgba(255,255,255,.07)',
+      field:'rgba(0,0,0,.26)', chip:'rgba(120,120,128,.22)', seg:'rgba(0,0,0,.24)',
+      hair:'rgba(255,255,255,.11)', rim:'rgba(255,255,255,.18)', spec:'rgba(255,255,255,.22)',
+      dash:'rgba(255,255,255,.18)', sheet:'rgba(24,24,28,.88)', tray:'rgba(34,34,38,.72)'
+    } : {
+      window:'rgba(250,250,252,.7)', sidebar:'rgba(255,255,255,.34)', content:'rgba(255,255,255,.55)',
+      detail:'rgba(255,255,255,.42)', toolbar:'rgba(255,255,255,.5)', card:'rgba(255,255,255,.72)',
+      field:'rgba(255,255,255,.9)', chip:'rgba(120,120,128,.14)', seg:'rgba(120,120,128,.14)',
+      hair:'rgba(0,0,0,.1)', rim:'rgba(255,255,255,.65)', spec:'rgba(255,255,255,.85)',
+      dash:'rgba(0,0,0,.18)', sheet:'rgba(248,248,250,.92)', tray:'rgba(252,252,254,.8)'
+    };
+
+    glass.inset = dark ? 'inset 0 1px 2px rgba(0,0,0,.10)' : 'inset 0 1px 2px rgba(0,0,0,.06)';
+    glass.windowShadow = 'inset 0 1px 0 0 ' + glass.spec + ', 0 44px 100px -24px rgba(0,0,0,.72), 0 0 0 .5px rgba(0,0,0,.35)';
+    glass.hoverFill = dark ? 'rgba(255,255,255,.18)' : 'rgba(120,120,128,.26)';
+    glass.hoverStrong = dark ? 'rgba(255,255,255,.2)' : 'rgba(120,120,128,.3)';
+    glass.hoverRow = dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.05)';
+    glass.hoverSpec = dark ? 'inset 0 .5px 0 rgba(255,255,255,.32)' : 'inset 0 .5px 0 rgba(255,255,255,.6)';
+    glass.hoverRowSpec = dark ? 'inset 0 .5px 0 rgba(255,255,255,.2)' : 'none';
+    glass.hoverText = dark ? 'rgba(255,255,255,.98)' : 'rgba(0,0,0,.92)';
+    glass.hoverDash = dark ? 'rgba(255,255,255,.36)' : 'rgba(0,0,0,.32)';
+    glass.hoverDashFill = dark ? 'rgba(255,255,255,.08)' : 'rgba(0,0,0,.04)';
+    glass.hoverDanger = dark ? 'rgba(255,69,58,.24)' : 'rgba(255,69,58,.16)';
+    glass.hoverDangerText = dark ? '#FF9A90' : '#C8281C';
+
+    const knobSh = dark
+      ? 'inset 0 .5px 0 rgba(255,255,255,.24), 0 1px 3px rgba(0,0,0,.4)'
+      : '0 1px 3px rgba(0,0,0,.16), 0 0 0 .5px rgba(0,0,0,.05)';
+
+    const seg = on => on
+      ? { bg: dark ? 'rgba(255,255,255,.22)' : '#fff', fg: c.tx, sh: knobSh }
+      : { bg: 'transparent', fg: c.mu, sh: 'none' };
+
+    const selTint = dark ? 'rgba(48,209,88,.26)' : 'rgba(48,209,88,.22)';
+    const selSpec = dark
+      ? 'inset 0 .5px 0 rgba(255,255,255,.32), inset 0 0 0 .5px rgba(48,209,88,.4)'
+      : 'inset 0 .5px 0 rgba(255,255,255,.8), inset 0 0 0 .5px rgba(48,209,88,.42)';
+
+    const nav = name => st.screen === name
+      ? { bg: selTint, fg: c.tx, sh: selSpec }
+      : { bg:'transparent', fg:c.tx, sh:'none' };
+
+    const sw = on => ({
+      track: on ? GREEN : (dark ? 'rgba(120,120,128,.34)' : 'rgba(120,120,128,.22)'),
+      shift: on ? 'translateX(16px)' : 'translateX(0)'
+    });
+
+    const tunnels = st.tunnels.map(t => ({
+      ...t,
+      target: (t.host || 'localhost') + ':' + t.port,
+      url: t.sub + '.nport.link',
+      remaining: this.fmt(t.left),
+      pct: (t.left / 14400 * 100).toFixed(2) + '%',
+      copyLabel: st.copied === t.id ? 'Copied' : 'Copy',
+      copy: () => { this.setState({ copied: t.id }); setTimeout(() => this.setState({ copied: -1 }), 1400); },
+      stop: () => this.setState(s => ({ tunnels: s.tunnels.filter(x => x.id !== t.id) }))
+    }));
+
+    const filtered = st.filter === 'All' ? REQS
+      : st.filter === 'API' ? REQS.filter(r => r.path.indexOf('/api') === 0)
+      : st.filter === 'Errors' ? REQS.filter(r => r.status >= 400)
+      : REQS.filter(r => r.method !== 'GET');
+
+    const selIdx = Math.min(st.selReq, Math.max(0, filtered.length - 1));
+    const sel = filtered[selIdx] || REQS[0];
+    const sColor = s => s >= 500 ? RED : s >= 400 ? ORANGE : GREEN;
+
+    const detailRows = st.tab === 'Response'
+      ? [['status', sel.status + ' ' + sel.statusText], ['content-type','application/json; charset=utf-8'], ['x-powered-by','next.js'], ['duration', sel.ms], ['size', sel.size]]
+      : st.tab === 'Timing'
+      ? [['edge → tunnel','9 ms'], ['tunnel → localhost','2 ms'], ['handler', sel.ms], ['response → edge','4 ms'], ['region','FRA (Frankfurt)']]
+      : sel.headers;
+
+    const titles = { tunnels:'Tunnels', new:'New Tunnel', inspector:'Inspector', history:'History', settings:'Settings' };
+    const subs = {
+      tunnels:'Up to three at once · auto-cleanup after 4 hours',
+      new:'Port, name, go',
+      inspector:(st.tunnels[0] ? st.tunnels[0].sub : 'northloop') + '.nport.link → ' + (st.tunnels[0] ? (st.tunnels[0].host || 'localhost') + ':' + st.tunnels[0].port : 'localhost:3000'),
+      history:'Reopen a tunnel with the same settings',
+      settings:'~/.nport/config.json'
+    };
+
+    const h = (st.host || 'localhost').trim();
+    const hostKind =
+      (h === 'localhost' || h === '' ) ? 'local'
+      : /^127\./.test(h) ? 'loopback'
+      : /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h) ? 'lan'
+      : /^[0-9.]+$/.test(h) ? 'lan' : 'name';
+
+    const stepLabels = ['Authenticating with Cloudflare','Creating tunnel','Publishing DNS record','Connection established'];
+    const idle = dark ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.14)';
+
+    return {
+      c, glass,
+      themeAttr: st.theme,
+      chromeShow: embed ? 'none' : 'flex',
+      // Monetisation surfaces ship in the app only, never in the marketing preview.
+      monetiseShow: embed ? 'none' : 'flex',
+      slotsTop: embed ? 'auto' : '0',
+      monetiseCol: embed ? 'none' : 'flex',
+      stageMinH: embed ? '0' : '100vh',
+      stagePad: embed ? '0' : '52px 28px 56px',
+      starCount: st.stars.toLocaleString('en-US'),
+      windowVisible: !st.hidden,
+      isHidden: st.hidden,
+      showClose: st.showClose,
+      closeWindow: () => (st.tunnels.length && st.askAgain)
+        ? this.setState({ showClose: true })
+        : this.setState({ hidden: true, showTray: false }),
+      keepRunning: () => this.setState({ showClose: false, hidden: true, showTray: true }),
+      quitAll: () => this.setState({ showClose: false, hidden: true, showTray: false, tunnels: [] }),
+      reopenWindow: () => this.setState({ hidden: false, showTray: false }),
+      quitLabel: st.tunnels.length
+        ? (st.tunnels.length === 1 ? 'Stop 1 tunnel and quit' : 'Stop ' + st.tunnels.length + ' tunnels and quit')
+        : 'Quit',
+      closeBody: st.tunnels.length === 1
+        ? 'One tunnel is still serving traffic. NPort can stay in the menu bar and keep it alive, or shut it down now.'
+        : st.tunnels.length + ' tunnels are still serving traffic. NPort can stay in the menu bar and keep them alive, or shut them down now.',
+      hiddenStatus: st.tunnels.length
+        ? (st.tunnels.length === 1 ? '1 tunnel still running' : st.tunnels.length + ' tunnels still running')
+        : 'All tunnels stopped',
+      toggleAskAgain: () => this.setState(s => ({ askAgain: !s.askAgain })),
+      askBg: st.askAgain ? 'transparent' : GREEN,
+      askBd: st.askAgain ? (dark ? 'rgba(255,255,255,.24)' : 'rgba(0,0,0,.22)') : GREEN,
+      askMark: st.askAgain ? '' : '✓',
+      menuBarBg: st.showTray ? 'rgba(48,209,88,.22)' : 'transparent',
+      menuIconFilter: dark ? 'none' : 'invert(1)',
+      cancelClose: () => this.setState({ showClose: false }),
+      authIsOut: st.auth === 'out',
+      authIsCode: st.auth === 'code',
+      authIsIn: st.auth === 'in',
+      authEmail: st.authEmail,
+      authCode: st.authCode,
+      onAuthEmail: e => this.setState({ authEmail: e.target.value }),
+      onAuthCode: e => this.setState({ authCode: e.target.value.replace(/[^0-9]/g, '').slice(0, 6), authErr: false }),
+      sendLabel: st.sending ? 'Sending…' : 'Send code',
+      sendOpacity: /.+@.+\..+/.test(st.authEmail) ? 1 : .45,
+      sendCode: () => {
+        if (st.sending || !/.+@.+\..+/.test(st.authEmail)) return;
+        this.setState({ sending: true });
+        setTimeout(() => this.setState({ sending: false, auth: 'code', authCode: '' }), 700);
+      },
+      verifyLabel: st.verifying ? 'Verifying…' : 'Verify',
+      verifyCode: () => {
+        if (st.verifying || st.authCode.length < 6) return;
+        this.setState({ verifying: true });
+        setTimeout(() => this.setState(s => s.authCode === '000000'
+          ? { verifying: false, authErr: true }
+          : { verifying: false, auth: 'in', adDismissed: true }), 700);
+      },
+      resetAuth: () => this.setState({ auth: 'out', authCode: '', authErr: false }),
+      codeBorder: st.authErr ? RED : glass.hair,
+      authHint: st.authErr
+        ? 'That code did not match. Check the latest email and try again.'
+        : "No code? Check spam, or make sure it's the address you paid with.",
+      authHintColor: st.authErr ? RED : c.mu,
+      supporterSince: 'March 2026',
+      // Never advertise on Settings — that is where the user is already paying.
+      showAds: !embed && (this.props.showAds ?? true) && st.auth !== 'in' && !st.adDismissed
+        && st.screen !== 'settings' && !st.showOnboard && !st.hidden,
+      dismissAd: () => this.setState({ adDismissed: true }),
+      ad: {
+        mark: '◻',
+        title: 'Your message here',
+        body: 'One sponsored card per screen, 560×104, no tracking. Reaches developers who ship every day.',
+        cta: 'Sponsor NPort',
+        href: 'https://github.com/tuanngocptn/nport'
+      },
+      hiddenPadRight: st.showTray ? '360px' : '32px',
+      trayTop: st.hidden ? '38px' : '-24px',
+      trayRight: st.hidden ? '24px' : '-96px',
+      logoDark: dark ? 'block' : 'none',
+      logoLight: dark ? 'none' : 'block',
+      windowTitle: titles[st.screen], windowSub: subs[st.screen],
+      setDark: () => this.set('theme','dark'),
+      setLight: () => this.set('theme','light'),
+      darkBtn: dark ? { bg:'rgba(255,255,255,.9)', fg:'#111', sh:'0 1px 3px rgba(0,0,0,.3)' } : { bg:'transparent', fg:'rgba(255,255,255,.7)', sh:'none' },
+      lightBtn: !dark ? { bg:'rgba(255,255,255,.9)', fg:'#111', sh:'0 1px 3px rgba(0,0,0,.3)' } : { bg:'transparent', fg:'rgba(255,255,255,.7)', sh:'none' },
+      toggleTray: () => this.setState(s => ({ showTray: !s.showTray })),
+      toggleOnboard: () => this.setState(s => ({ showOnboard: !s.showOnboard })),
+      finishOnboard: () => this.setState({ showOnboard:false, screen:'tunnels' }),
+      showTray: st.showTray, showOnboard: st.showOnboard,
+
+      goTunnels: () => this.set('screen','tunnels'),
+      goNew: () => this.set('screen','new'),
+      goInspector: () => this.set('screen','inspector'),
+      goHistory: () => this.set('screen','history'),
+      goSettings: () => this.set('screen','settings'),
+      isTunnels: st.screen === 'tunnels', isNew: st.screen === 'new',
+      isInspector: st.screen === 'inspector', isHistory: st.screen === 'history',
+      isSettings: st.screen === 'settings',
+      navTunnels: nav('tunnels'), navInspector: nav('inspector'),
+      navHistory: nav('history'), navSettings: nav('settings'),
+
+      tunnels,
+      activeCount: st.tunnels.length,
+      reqCount: REQS.length,
+      maxTunnels: MAX,
+      showCliMirror: this.props.showCliMirror ?? true,
+      hasFreeSlot: st.tunnels.length < MAX,
+      freeSlots: (MAX - st.tunnels.length) + ' of ' + MAX + ' slots remaining',
+      slot1: st.tunnels.length >= 1 ? GREEN : idle,
+      slot2: st.tunnels.length >= 2 ? GREEN : idle,
+      slot3: st.tunnels.length >= MAX ? GREEN : idle,
+
+      port: st.port, sub: st.sub,
+      onPort: e => this.set('port', e.target.value.replace(/[^0-9]/g,'').slice(0,5)),
+      onSub: e => this.set('sub', e.target.value.replace(/[^a-z0-9-]/gi,'').toLowerCase()),
+      host: st.host,
+      onHost: e => this.set('host', e.target.value.replace(/[^a-z0-9.\-]/gi, '').toLowerCase()),
+      targetChips: [
+        { label:'localhost:3000', host:'localhost', port:'3000', title:'This machine' },
+        { label:'localhost:5173', host:'localhost', port:'5173', title:'This machine' },
+        { label:'127.0.0.1:8080', host:'127.0.0.1', port:'8080', title:'Loopback' },
+        { label:'192.168.1.42:80', host:'192.168.1.42', port:'80', title:'Another machine on your LAN' }
+      ].map(t => {
+        const on = st.host === t.host && st.port === t.port;
+        return {
+          label: t.label, title: t.title,
+          fg: on ? GREEN : c.mu,
+          bd: on ? 'rgba(48,209,88,.5)' : glass.hair,
+          pick: () => this.setState({ host: t.host, port: t.port })
+        };
+      }),
+      hostHint: hostKind === 'lan'
+        ? 'Forwarding to another machine on your network. That host must allow connections from this computer.'
+        : hostKind === 'loopback'
+        ? 'Loopback address — same as localhost.'
+        : hostKind === 'name'
+        ? 'Resolved on your network when the tunnel starts.'
+        : 'Point at this machine, or any host your machine can reach — a container, a VM, or another computer on your LAN.',
+      hostHintColor: c.mu,
+      availText: st.sub ? st.sub + '.nport.link is available' : 'A random name will be generated',
+      availColor: st.sub ? GREEN : c.mu,
+      cliCommand: 'nport ' + (st.port || '8080')
+        + (st.sub ? ' -s ' + st.sub : '')
+        + (hostKind === 'local' ? '' : ' -h ' + h),
+      startLabel: st.connecting ? 'Connecting…' : st.tunnels.length >= MAX ? 'All ' + MAX + ' slots in use' : 'Start Tunnel',
+      startTunnel: () => this.begin(),
+      options: [
+        { title:'Open inspector on start', desc:'Jump straight to live traffic.' },
+        { title:'Require basic auth', desc:'Ask visitors for a username and password.' },
+        { title:'Copy URL to clipboard', desc:'Ready to paste into Stripe or GitHub.' }
+      ].map((o, i) => ({ ...o, ...sw(st.opts[i]), toggle: () => this.toggleIdx('opts', i) })),
+      steps: stepLabels.map((label, i) => {
+        const done = st.step > i + 1;
+        const active = st.connecting && st.step === i + 1;
+        return {
+          label,
+          mark: done ? '✓' : '',
+          bg: done ? GREEN : active ? 'rgba(48,209,88,.3)' : 'transparent',
+          bd: done || active ? GREEN : idle,
+          tx: done || active ? c.tx : c.mu
+        };
+      }),
+
+      filters: ['All','API','Errors','Mutations'].map(f => ({
+        label: f, ...seg(st.filter === f), pick: () => this.setState({ filter: f, selReq: 0 })
+      })),
+      liveLabel: st.live ? 'Live' : 'Paused',
+      liveDot: st.live ? GREEN : c.mu,
+      liveAnim: st.live ? 'np-pulse 2s ease-in-out infinite' : 'none',
+      toggleLive: () => this.setState(s => ({ live: !s.live })),
+      requests: filtered.map((r, i) => {
+        const on = i === selIdx;
+        return {
+          ...r,
+          mColor: MCOLOR[r.method] || c.mu,
+          sColor: sColor(r.status),
+          pColor: c.tx,
+          tColor: c.mu,
+          bg: on ? selTint : 'transparent',
+          sh: on ? selSpec : 'none',
+          pick: () => this.setState({ selReq: i })
+        };
+      }),
+      sel: { ...sel, mColor: MCOLOR[sel.method] || c.mu },
+      tabs: ['Request','Response','Timing'].map(t => ({
+        label: t, ...seg(st.tab === t), pick: () => this.set('tab', t)
+      })),
+      detailRows: detailRows.map(([k, v]) => ({ k, v })),
+      detailBody: st.tab === 'Timing'
+        ? 'Total round trip: ' + sel.ms + '\nCloudflare edge: FRA · cf-ray ' + ((sel.headers.find(h => h[0] === 'cf-ray') || ['','n/a'])[1])
+        : sel.body,
+      replayLabel: st.replayed ? 'Replayed' : 'Replay',
+      replay: () => { this.setState({ replayed:true }); setTimeout(() => this.setState({ replayed:false }), 1400); },
+
+      presets: [
+        { name:'Next.js storefront', detail:'nport 3000 -s northloop' },
+        { name:'Stripe webhooks', detail:'nport 4000 -s wh-stripe' },
+        { name:'Vite playground', detail:'nport 5173 -s ui-lab' },
+        { name:'Django admin', detail:'nport 8000 -s admin-preview' }
+      ].map(p => ({ ...p, run: () => this.set('screen','new') })),
+      history: [
+        { url:'northloop.nport.link', port:'3000', reqs:'412', when:'Running now' },
+        { url:'wh-stripe.nport.link', port:'4000', reqs:'87', when:'Running now' },
+        { url:'ui-lab.nport.link', port:'5173', reqs:'1,204', when:'Yesterday' },
+        { url:'admin-preview.nport.link', port:'8000', reqs:'63', when:'Aug 1' },
+        { url:'demo-acme.nport.link', port:'3000', reqs:'2,881', when:'Jul 29' },
+        { url:'user-4471.nport.link', port:'8080', reqs:'12', when:'Jul 28' }
+      ].map(h => ({ ...h, run: () => this.set('screen','new') })),
+
+      backend: st.backend,
+      onBackend: e => this.set('backend', e.target.value),
+      prefs: [
+        { title:'Launch at login', desc:'Start NPort in the menu bar when you log in.' },
+        { title:'Keep the menu bar icon', desc:'Close the window without stopping tunnels.' },
+        { title:'Anonymous analytics', desc:'Equivalent to NPORT_ANALYTICS in the CLI.' },
+        { title:'Notify before auto-cleanup', desc:'Warn 10 minutes before the 4-hour limit.' }
+      ].map((p, i) => ({ ...p, ...sw(st.prefs[i]), toggle: () => this.toggleIdx('prefs', i) })),
+      langs: ['English','Tiếng Việt'].map(l => ({
+        label: l, ...seg(st.lang === l), pick: () => this.set('lang', l)
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>
