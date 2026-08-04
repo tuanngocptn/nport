@@ -520,3 +520,37 @@ Against that, what is actually needed: five endpoints on our own server, request
 - If a future need arrives that genuinely wants an HTTP client — streaming uploads to something that is not the tunnel, OAuth, an SDK — this decision should be revisited rather than extended. The argument here is "five small endpoints on our own server", and it stops being true the moment that is not the shape.
 
 **Rejected.** *`reqwest`* — the provider-alignment obligation and the binary size, for five endpoints. *`hyper` directly* — most of the dependency weight and most of the API surface, without the ergonomics that make `reqwest` worth it. *`ureq` or another blocking client* — blocking I/O inside an async runtime that is also serving a tunnel, which `docs/conventions/rust.md` forbids for good reason. *A `sha2` crate for the proof of work* — a second SHA-256 implementation in a binary that already links a certified one.
+
+---
+
+## ADR-0030 — Tauri's transitive licences and advisories, scoped rather than blanket-allowed
+
+**Date** 2026-08-04 · **Status** Accepted
+
+**Context.** Scaffolding `apps/desktop` put `tauri` in the Cargo workspace, and `cargo deny check` went from clean to eighteen failures. None come from code anyone here wrote; all are transitive through Tauri, and they fall into three groups.
+
+**Five crates are MPL-2.0** — `cssparser`, `cssparser-macros`, `dtoa-short`, `option-ext`, `selectors`. `deny.toml`'s allowlist is permissive-only, with a comment stating that copyleft in a statically linked MIT binary "is a decision, not an accident — it needs an ADR". This is that ADR. MPL-2.0 is **file-level** copyleft: the obligation is to publish modifications to the MPL-licensed files themselves, and it explicitly permits combining those files with code under any other licence. NPort modifies none of them, so the obligation is discharged by not doing the thing that would trigger it.
+
+**Sixteen unmaintained advisories** — ten for the gtk-rs GTK3 bindings, one for `proc-macro-error`, five for the `unic-*` family. Unmaintained is not a vulnerability. GTK3 in particular is not a Tauri choice that can be waited out: WebKitGTK, the only Linux WebView, is a GTK3 library, and the bindings are unmaintained because GTK3 itself is. There is no GTK4 path until WebKitGTK has one.
+
+**Two vulnerabilities in `quick-xml` 0.38.4**, RUSTSEC-2026-0194 and RUSTSEC-2026-0195, both denial of service in XML parsing — quadratic time on duplicate attribute names, and unbounded allocation on namespace declarations. `plist` requires `0.38`, and `0.38.4` is the newest release on that line, so there is nothing to upgrade to; the fix has to come from `plist` moving to `0.41`.
+
+A third vulnerability, RUSTSEC-2026-0009 in `time`, **was** fixable and is fixed: `time 0.3.55` patches it and needs Rust 1.88, which the pinned 1.97.1 toolchain satisfies. Upgrading is always preferred to ignoring, and it was tried first for all three.
+
+**Decision.** Accept all three groups, each **scoped to the exact crates involved** rather than relaxed globally.
+
+MPL-2.0 goes in `[licenses.exceptions]` naming those five crates, not into `allow`. A sixth MPL dependency, arriving anywhere, still fails the gate and still needs a decision.
+
+The sixteen unmaintained advisories and the two `quick-xml` vulnerabilities go in `[advisories] ignore` with a comment each, per that section's existing rule.
+
+The `quick-xml` ignore rests on reachability, not on severity. `plist` parses the application's **own** `Info.plist` — a file inside the signed bundle we ship. It is not attacker-controlled, not remote input, and not on any path a tunnel's traffic reaches. A denial of service against a parser whose only input is a file the attacker would already have had to replace is not a denial of service. **If `plist` ever parses something a user supplies, this ignore is wrong and must go.**
+
+**Consequences.**
+
+- `cargo deny check` is green again, and still fails on anything new. The scoping is the whole point: a blanket `allow = ["MPL-2.0"]` would have been one line and would have silently accepted every future MPL crate in the CLI, which ships to npm and Homebrew and has no GUI excuse.
+- Every entry carries its reason in the file, so the next person deciding whether to remove one has the argument rather than a bare identifier.
+- The `quick-xml` entries are the ones to revisit. Watch `plist` for a `quick-xml 0.41` bump and delete them when it lands.
+- Linux desktop builds inherit an unmaintained GTK3 stack for as long as WebKitGTK does. That is a known cost of shipping a Linux desktop app at all, and `apps/desktop/CLAUDE.md` already treats WebKitGTK as the oldest engine we ship against.
+- None of this touches `crates/cli`. The advisories and licences here are reachable only from `apps/desktop/src-tauri`, and the CLI's graph is unchanged — which is why scoping matters more than the count.
+
+**Rejected.** *Blanket `allow = ["MPL-2.0"]`* — accepts an unbounded future set to fix a bounded present one. *Dropping `cargo deny` for the desktop crate* — the desktop app ships signed installers to end users; it needs supply-chain review more than the CLI does, not less. *Waiting for GTK4* — WebKitGTK has no GTK4 release, so this is waiting for someone else's project to finish a port with no date. *Vendoring or patching `plist`* — a fork to dodge a DoS in a parser reading our own bundle metadata is more risk than it removes.

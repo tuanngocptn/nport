@@ -57,6 +57,21 @@ jobs:
             macOS)   brew install capnp ;;
             Windows) choco install capnproto --no-progress -y ;;
           esac
+      # `apps/desktop/src-tauri` is a workspace member, so a root `cargo clippy` builds it
+      # on every platform. macOS and Windows have their WebView in the OS; Linux does not,
+      # and the failure is a `pkg-config` error from `gobject-sys` several hundred lines
+      # into an otherwise normal build. WebKitGTK is the only Linux WebView there is.
+      - name: Install the Linux WebView and GTK development headers
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev
       # rust-toolchain.toml pins the exact version, and rustup honours it.
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2

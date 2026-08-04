@@ -7,7 +7,43 @@ all-features = true
 [advisories]
 yanked = "deny"
 # Every entry here needs a comment saying why it is tolerated and when it expires.
-ignore = []
+# All of these arrived with `apps/desktop/src-tauri` and are reachable only from it —
+# `crates/cli`'s graph is unchanged. Reasoning in full: ADR-0030.
+ignore = [
+  # --- quick-xml 0.38.4, via plist, via tauri. Two DoS advisories. -----------------
+  # Expires when `plist` moves to quick-xml 0.41; there is no patched 0.38.x to take.
+  # Tolerated on **reachability**: plist parses the application's own Info.plist, a file
+  # inside the bundle we sign and ship. Not remote input, not attacker-controlled, and
+  # nowhere near a tunnel's traffic. If plist ever parses something a user supplies,
+  # these two entries are wrong and must be removed rather than re-justified.
+  "RUSTSEC-2026-0194", # quadratic time on duplicate attribute names
+  "RUSTSEC-2026-0195", # unbounded namespace-declaration allocation
+
+  # --- gtk-rs GTK3 bindings: unmaintained, not vulnerable. ------------------------
+  # No expiry that can be named. WebKitGTK is the only Linux WebView and it is a GTK3
+  # library, so these are unmaintained for as long as GTK3 is. Revisit if and when
+  # WebKitGTK ships a GTK4 release.
+  "RUSTSEC-2024-0411",
+  "RUSTSEC-2024-0412",
+  "RUSTSEC-2024-0413",
+  "RUSTSEC-2024-0414",
+  "RUSTSEC-2024-0415",
+  "RUSTSEC-2024-0416",
+  "RUSTSEC-2024-0417",
+  "RUSTSEC-2024-0418",
+  "RUSTSEC-2024-0419",
+  "RUSTSEC-2024-0420",
+
+  # --- Unmaintained build-time crates, via tauri's macro and codegen crates. ------
+  # Expires whenever those upstreams drop them. Compile-time only: none of these ships
+  # in the binary.
+  "RUSTSEC-2024-0370", # proc-macro-error
+  "RUSTSEC-2025-0075", # unic-char-property
+  "RUSTSEC-2025-0080", # unic-char-range
+  "RUSTSEC-2025-0081", # unic-common
+  "RUSTSEC-2025-0098", # unic-ucd-ident
+  "RUSTSEC-2025-0100", # unic-ucd-version
+]
 
 [licenses]
 # Permissive only. A copyleft or source-available dependency in a statically linked
@@ -29,7 +65,19 @@ confidence-threshold = 0.93
 # The TLS stack is the known exception: `ring` and `aws-lc-rs` carry compound licences
 # that need a [[licenses.clarify]] block. Add it when Phase 1 picks the provider
 # (see the rustls comment in Cargo.toml).
-exceptions = []
+#
+# MPL-2.0 is allowed **per crate**, never in `allow` above. It is file-level copyleft:
+# the obligation attaches to the MPL files themselves and is discharged by not modifying
+# them, which NPort does not. Scoping it here means a sixth MPL dependency — in the CLI,
+# say, which ships to npm and Homebrew — still fails this gate and still gets a decision.
+# All five arrive through `apps/desktop/src-tauri`. ADR-0030.
+exceptions = [
+  { name = "cssparser", allow = ["MPL-2.0"] },
+  { name = "cssparser-macros", allow = ["MPL-2.0"] },
+  { name = "dtoa-short", allow = ["MPL-2.0"] },
+  { name = "option-ext", allow = ["MPL-2.0"] },
+  { name = "selectors", allow = ["MPL-2.0"] },
+]
 
 [bans]
 multiple-versions = "warn"
