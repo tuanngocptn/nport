@@ -48,7 +48,7 @@ User documentation lives at [nport.link](https://nport.link). This repository's 
 | [API](docs/API.md) · [ERRORS](docs/ERRORS.md) | control-plane contract and error registry |
 | [DECISIONS](docs/DECISIONS.md) | why it is built this way |
 | [mockup](docs/mockup/README.md) | the approved UI design for the site and the desktop app |
-| [ROADMAP](docs/ROADMAP.md) | phases and gates |
+| [ROADMAP](docs/ROADMAP.md) · [FEATURES](docs/FEATURES.md) | phases and gates; the feature inventory they schedule |
 | [CONTRIBUTING](docs/CONTRIBUTING.md) · [TESTING](docs/TESTING.md) | how to help |
 | [SELF_HOSTING](docs/SELF_HOSTING.md) | run your own control plane on your own domain |
 | [OPERATIONS](docs/OPERATIONS.md) · [RELEASE](docs/RELEASE.md) | running and shipping it |

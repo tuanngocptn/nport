@@ -6,7 +6,9 @@ A gate is a hard stop: every criterion must pass before the next phase starts. G
 
 ## Current position
 
-**Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b started.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented and tested in real `workerd`. 2c has not started.
+**Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b code-complete.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented and tested in real `workerd`, and `crates/core` plus the `nport` binary provision, connect, proxy, inspect, and tear down. 2c has not started.
+
+**No port has yet been opened to the internet by this code**, because nothing is deployed. Every client-side piece is written and tested — against fakes, against golden fixtures, against a loopback transport double — and none of it has met a live control plane, because there is no live control plane. That one fact is the entire critical path below.
 
 G1 criteria 2, 3, and 4 met; 5 is partial; 1 is unverified for want of dashboard access. Gate G0 is closed: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `cargo fmt --check`, `clippy -D warnings`, `cargo test`, and both codegen steps pass locally and in CI. **Nothing has been deployed** — no Worker, no DNS record, no Cloudflare API call outside the protocol spike's own tunnels.
 
@@ -21,6 +23,48 @@ G1 criteria 2, 3, and 4 met; 5 is partial; 1 is unverified for want of dashboard
 | 5 · golden fixtures for every frame type | **partial** — 2 of 7, the edge→client ones. The rest need cloudflared (`docs/TESTING.md`) |
 
 The two gaps are both "needs access I do not have" rather than "needs design": criterion 1 wants the Cloudflare dashboard, criterion 5 wants cloudflared installed. Neither blocks Phase 1.5, and neither is a protocol risk — the behaviour they would confirm is already exercised.
+
+## The critical path — open a port to the internet
+
+**This is the only work that matters until Gate G2 closes.** `docs/FEATURES.md` describes a much larger product; almost none of it is on this path, and the mapping below says where each part goes instead. The ordering is deliberate: the one thing NPort must do is turn `nport 3000` into a URL that serves a local port, and that has never once happened with this code.
+
+No new code is the blocker. **Deployment and live verification are.**
+
+1. **Deploy `apps/api`.** Worker secrets via `wrangler secret put` (never CI), the DNS record for `api.nport.link`, and the zone-level rate limit that `docs/ARCHITECTURE.md` §7 puts in the dashboard rather than in code. `docs/OPERATIONS.md` owns all three.
+2. **Confirm the Cloudflare API paths against the live API.** 2a uses the current `cfd_tunnel` resource name where v2 used the legacy `/accounts/{id}/tunnels`. Every provisioning test to date has run against `test/fake-cloudflare.ts`, so the first real create is also the first check that the path is right. This is the single most likely thing to be wrong on first deploy.
+3. **Run `nport 3000 -s test` against it.** One command exercises the whole system in order: proof of work, claim, provision, edge discovery, QUIC handshake, `registerConnection`, an HTTP request served from the origin, the heartbeat, Ctrl+C, the drain, and the delete. Anything that breaks, breaks here.
+4. **Repeat on macOS, Linux, and Windows**, plus WebSocket and server-enforced expiry. That is Gate G2.
+5. **Close the two G1 leftovers while a live tunnel exists** — criterion 1 wants the dashboard to say `healthy`, criterion 5 wants the remaining five golden fixtures, and both need exactly the access that step 1 creates.
+
+Not on this path, and not started until G2 closes: the website (2c), the desktop app (Phase 4), and everything in `docs/FEATURES.md` §§2–9 and §§11–12. Two client-side gaps in `docs/FEATURES.md` §1 are real but still not on it — **arbitrary forward targets** and **edge basic auth** — see the mapping below for why each waits.
+
+## `docs/FEATURES.md` — where each area lands
+
+`docs/FEATURES.md` is the backlog the mockup implies, written from the desktop design. It is a **feature inventory, not a plan**: per ADR-0016 the work items are GitHub Issues, and this table is the only thing that assigns them phases.
+
+| Area | Lands in | State |
+| --- | --- | --- |
+| 1 · Core tunnel engine | **2b** | built, bar two items — see below |
+| 2 · Request inspector | Phase 4 | `core::inspector` built in 2b; the UI over it is Phase 4 |
+| 3 · Tunnels screen | Phase 4 | — |
+| 4 · New tunnel | Phase 4 | — |
+| 5 · History & presets | Phase 4 | — |
+| 6 · Menu bar & window lifecycle | Phase 4 | — |
+| 7 · Settings | Phase 4 | the custom backend URL already exists — CLI `--backend` and `~/.nport/config.toml` |
+| 8 · Supporter account & monetisation | **nowhere — blocked** | contradicts invariant 1 and ADR-0007 |
+| 9 · Onboarding | Phase 4 | the own-Cloudflare path is `docs/SELF_HOSTING.md`, which exists; the *UI* for it is undesigned |
+| 10 · Backend | **2a** | built, except §8's endpoints, which are blocked with §8 |
+| 11 · Packaging & distribution | Phase 3 | — |
+| 12 · Cross-platform design | Phase 4 | blocked on design work, not on code |
+
+**§8 cannot be built as written.** Email entry, OTP verification, a persisted session, and a server-side supporter lookup are an account system: auth, a user database, and a login. Invariant 1 says "no accounts, no auth, no signup — **ever**", ADR-0007 rejected even *optional* accounts on the grounds that every optional auth system becomes load-bearing, and `docs/ARCHITECTURE.md` §9 lists accounts as out of scope. Its own note concedes the design authenticates nothing — possession of an address is not proof of donation. **Promoting it needs an ADR that supersedes ADR-0007**, and that is a product decision, not a roadmap entry. Until one exists, §8 is not scheduled and the sponsored-card slot it wraps is not either.
+
+Two items in §1 are genuinely new client-side scope:
+
+- **Arbitrary forward targets** (`127.0.0.1`, LAN IPs, container names) are cheaper than they look. `core::exchange` already takes a `SocketAddr` and the local target **never appears in the API contract** — `createTunnelRequestSchema` carries a subdomain and nothing else — so this touches `TunnelConfig`, the CLI's flag surface, and the pre-flight probe, and reopens nothing frozen at 1.5. It waits only because it is not needed to open a port. **The design's assumed `-h` flag is unavailable**: `-h` is `--help`, guaranteed by a test, and taking it would break the rule that help answers immediately. Use `--host`, or fold it into the positional as `host:port`.
+- **Edge basic auth** is `docs/ARCHITECTURE.md` §9's "tunnel password protection", explicitly out of scope for 3.0 and already in Deferred below. It needs an ADR like §8 does, though a far less contentious one.
+
+Four things `docs/FEATURES.md` leaves open are already settled in code, and the answers belong here rather than being re-derived: the inspector ring is **1000 exchanges with a 32 KiB body preview** (`core::inspector`); the CLI config file is **`~/.nport/config.toml`**, not `.json`; the CLI ships **three** languages, `en`/`vi`/`es`, where the design shows two; and **SSE already passes through**, because `core::exchange` streams rather than buffering — the same property that makes gRPC and long downloads work.
 
 ## Phase 0 — Docs and skeleton
 
@@ -129,7 +173,7 @@ One flaky test came out of the same work, worth recording for what it was assert
 
 ### 2b · `crates/core` + `crates/cli`
 
-**Started.**
+**Code-complete, never run against a live edge or a live control plane.** Everything below is built and tested; what remains is step 3 of the critical path, which is not code.
 
 - [x] the `Transport` trait in `crates/protocol/src/lib.rs`, implemented for QUIC
 - [x] promote the spike's proxy loop — the half of it that is protocol
@@ -251,11 +295,19 @@ Writing its tests found a real design hole. `Supervisor::exhausted` only reporte
 
 The spike's copies are gone rather than left to drift, which needed `nport-core` as a **dev-dependency** of `crates/protocol`. That is a cycle, and it is deliberate: Cargo permits it, it stays out of `nport-protocol`'s library graph, and the alternative was two implementations of the dechunker with only one of them tested — while the untested one is what runs against the live edge. Outside `[dev-dependencies]` it would be the architectural regression `crates/CLAUDE.md` warns about.
 
+**Gate G2 — a port is open on the internet. The project's first real milestone.**
+
+`nport 3000 -s test` works end-to-end against the deployed API on macOS, Linux, and Windows, including WebSocket, graceful Ctrl+C, and server-enforced expiry. It needs 2a and 2b only; **2c is not part of it**, which is the whole reason the gate sits here rather than after the website.
+
 ### 2c · `apps/web`
+
+**Starts after G2 closes**, not alongside 2a and 2b. The tracks are still technically parallel — 2c consumes the contract and touches nothing the tunnel needs — but a site that markets a tunnel nobody has yet opened is the wrong thing to be building, and reviewing the design surfaced enough open questions in it to make the sequencing worth stating rather than assuming.
 
 Next.js + OpenNext; v2 marketing parity (section order and copy per `apps/web/CLAUDE.md`); MDX user docs; `/errors/[code]` pages generated from the contract; SEO parity including the four JSON-LD blocks; one GA4 property.
 
-**Gate G2.** `nport 3000 -s test` works end-to-end against the new API on macOS, Linux, and Windows, including WebSocket, graceful Ctrl+C, and server-enforced expiry.
+The approved design is `docs/mockup/NPort Site.dc.html` — read `docs/mockup/README.md` first. It adds a `#compare` section the fixed v2 order has no slot for; placing it is a 2c decision.
+
+**Gate G2c.** The site builds, deploys, and passes its own checks. It gates the 3.0 announcement, not the tunnel.
 
 ## Phase 3 — Release pipeline and beta
 
@@ -271,6 +323,8 @@ Deliberately last: it consumes a *stable* `crates/core`, and building it earlier
 
 Tunnel list and one-click start; tray integration; the traffic inspector over `core::inspector`; settings; auto-update via the updater manifest; signing and notarization per platform.
 
+**The scope is `docs/FEATURES.md` §§2–7, §9, and §12** — the mapping table above — against the design in `docs/mockup/NPort Desktop.dc.html`. Two things to settle before components are written, both recorded in `apps/desktop/CLAUDE.md`: the design draws seven surfaces where the planned layout has four views, and every surface in the token sheet is a `backdrop-filter` glass layer, which is the property that degrades worst on WebKitGTK. §8 is excluded, per the mapping table. §12 is design work that has not been done at all — the mockup is macOS Tahoe only.
+
 ## Phase 5 — v2 sunset
 
 Keep the legacy shim alive for installed 2.x clients. Then, in order: `npm deprecate nport@2` with a pointer to the 3.x migration note; announce a date; after that date return `426 CLIENT_TOO_OLD`; eventually remove the shim.
@@ -282,10 +336,13 @@ Dates and the exact sequence live in `docs/RELEASE.md`.
 - **Phase 1 precedes everything.** An unproven data plane invalidates the CLI and desktop designs.
 - **Phase 1.5 precedes Phase 2.** Without a frozen contract the tracks collide. ✅ closed
 - **Phase 4 follows Phase 3.** The desktop app needs a stable `core`.
-- 2a, 2b, and 2c are genuinely parallel once the contract is frozen.
+- **G2 precedes 2c.** 2a, 2b, and 2c *can* run in parallel once the contract is frozen, and for a while they did. They no longer do: with 2a and 2b both code-complete and nothing deployed, the only work that moves the project is getting a port open, and the site can be built against a tunnel that demonstrably works rather than one that is only tested.
+- **`docs/FEATURES.md` §8 precedes nothing.** It is blocked on an ADR, not on a phase.
 
 ## Deferred
 
 Not scheduled. Each needs an ADR to promote. See `docs/ARCHITECTURE.md` §9 for why each is out of scope.
 
 TCP/UDP/ICMP tunnelling (ADR-0020) · custom domains · tunnel password protection · multiple ports per tunnel · CLI traffic inspection · request replay in the desktop inspector · self-hosted control-plane one-click deploy.
+
+Three of those appear in `docs/FEATURES.md` as ordinary backlog items — tunnel password protection as §1's edge basic auth, request replay as §2's **Replay**, and the one-click deploy as §9's own-Cloudflare onboarding. Being drawn in the mockup does not schedule them. **Accounts and monetisation** (§8) belong on this list too, and are the one entry here that contradicts an invariant rather than merely postponing a feature.
