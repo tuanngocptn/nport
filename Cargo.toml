@@ -61,6 +61,8 @@ rustls-native-certs = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
+# `~/.nport/config.toml`, whose format `crates/CLAUDE.md` rule 8 already settled. Parsing only.
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
 tokio = { version = "1.53", features = [
   "rt-multi-thread",
   "net",

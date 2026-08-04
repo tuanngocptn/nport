@@ -20,3 +20,13 @@ publish = false
 workspace = true
 
 [dependencies]
+# `anyhow` is deliberately absent: nothing here returns a boxed error, because every failure the CLI
+# reports carries a registry code (`crates/CLAUDE.md` rule 3) and a code is what `render` needs.
+clap = { workspace = true }
+nport-contract = { workspace = true }
+nport-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+# The config file, and nothing else. Its format was settled in `crates/CLAUDE.md` rule 8.
+toml = { workspace = true }

@@ -145,7 +145,7 @@ One flaky test came out of the same work, worth recording for what it was assert
 - [x] `core::inspector` behind an optional sink — the record, the ring, and the wiring
 - [x] **`core::tunnel`** — the lifecycle the other pieces were missing: provision, heartbeat, teardown
 - [x] the API client over `crates/contract` — the five endpoints, the proof of work, and typed refusals
-- [ ] the CLI — `clap` parsing, terminal rendering, `~/.nport/config.toml`, i18n (en/vi/es, auto-detected), signal handling and graceful shutdown
+- [x] **the CLI** — `clap` parsing, terminal rendering, `~/.nport/config.toml`, i18n (en/vi/es, auto-detected), signal handling and graceful shutdown
 
 2b consumes the API **only** through `crates/contract`, so it develops against `wrangler dev` or a mock and never blocks on 2a.
 
@@ -210,6 +210,14 @@ The proof-of-work solver runs on a blocking thread. It is a hash loop with no I/
 **A heartbeat failure is not fatal; a missing lease is.** The server allows 120 s of silence and the interval is 30 s, so a blip costs nothing and retrying on the normal schedule is the whole response. What ends the tunnel is the server saying the lease no longer exists — no number of retries brings it back, and a client still beating at a tunnel nobody can reach is R1's "looks healthy, serves nothing" state exactly.
 
 **The teardown gets one attempt and no retry.** Releasing the lease is idempotent and skipping it is safe, because the lease expires on its own — so a shutdown path that waited on the network would hang precisely when the network is what failed, and a user pressing Ctrl+C is entitled to a prompt exit. The one place it *is* worth doing eagerly is a lease that was claimed and then could not be connected to: releasing it there returns the name immediately instead of holding a hand-picked subdomain for its full duration.
+
+**The CLI is four of v2's defects, in the order `main` does things.** Parse first, so `--help` and `--version` answer before a config file is read or a socket opened — v2's `nport -v` hung on a fresh install behind a prompt. Probe the local port *before* provisioning, so a closed port is `LOCAL_PORT_CLOSED` rather than a URL that answers 502. Never prompt, and never detect a TTY (ADR-0019). And make shutdown structural: `Tunnel::shutdown` consumes the value, so the second Ctrl+C has no second shutdown to start — it exits with 130 and leaves the lease to expire, which `docs/API.md` guarantees is safe.
+
+`nport -s app 3000` has a test of its own. v2 parsed the port positionally only, so that command tunnelled the default port while printing a URL that looked entirely correct.
+
+**The URL goes to stdout and everything else to stderr**, so `URL=$(nport 3000 --quiet)` works while progress and failures still reach the screen. No colour, no spinner, no cursor movement anywhere: the output has to be identical in a terminal, in CI, in Docker, and through a pipe, and a line that redraws itself is unreadable in the last three.
+
+**Not every error code is translated, and the gap is deliberate rather than unfinished.** The registry has thirty codes; most can only be produced by a control plane a CLI user is not operating. The ones a person running `nport` can cause and act on are translated into all three languages, and anything else renders as the code plus its documentation URL — a worse line than a sentence, a much better one than a guess, and one that cannot go stale, because the page behind it is generated from the same registry. A missing *interface* string, by contrast, is a compile error: the catalogue is a match over an enum, not a lookup that can return `None`.
 
 **`TunnelManager` owns sockets and timers and no rules.** Every decision comes from `core::supervisor`; this layer only carries them out. It is generic over a `Connector`, so the whole supervision loop — backoff, rotation, giving up, the pool surviving one dead index — is tested against fakes with no edge at all. `TunnelHandle::shutdown` **consumes the handle**, so v2's double-Ctrl+C double-delete (defect R19) does not compile rather than being guarded at runtime.
 
