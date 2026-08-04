@@ -3,18 +3,32 @@ name: Release NPM
 on:
   release:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or commit to publish (e.g. v2.1.6)
+        required: true
+
+permissions:
+  contents: read
+  id-token: write # required for npm trusted publishing (OIDC) + provenance
 
 jobs:
   publish-npm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
         with:
-          node-version: 20
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
           registry-url: https://registry.npmjs.org/
+      # Trusted publishing (OIDC) requires npm >= 11.5.1
+      - run: npm install -g npm@latest
       - run: npm ci --ignore-scripts
       - run: npm run build
       - run: npm publish
         env:
-          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+          # Fallback for token-based auth; ignored once trusted publishing is configured.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
