@@ -8,7 +8,7 @@ A native Rust implementation of Cloudflare's tunnel connector protocol: edge dis
 
 **Not responsible for:** tunnel lifecycle, provisioning, the NPort API, retries above the connection level, or anything user-facing. It speaks the wire and nothing else. `crates/core` owns policy.
 
-**Status: not implemented.** Phase 1, and it gates the entire rewrite.
+**Status: implemented and proven live.** Phase 1 closed on 2026-08-03: token, edge discovery, QUIC handshake, registration, framing, WebSockets, and a four-connection pool, all verified against the real edge. `src/h2.rs` is still unwritten (ADR-0017 Fallback 1).
 
 ## Why this directory is dangerous
 
@@ -24,7 +24,8 @@ src/token.rs      tunnel token: parse, redact, zeroize
 src/edge.rs       SRV / DoT / A-AAAA discovery, address pool, per-index rotation
 src/quic.rs       QUIC transport (primary)
                   (src/h2.rs — ADR-0017 Fallback 1, NOT YET WRITTEN, Phase 2b)
-src/connect.rs    stream signatures, version byte, ConnectRequest/Response codecs
+src/connect.rs    stream signatures, version byte, ConnectRequest/Response codecs,
+                  and the metadata-to-request-head mapping
                   (src/datagram.rs — out of scope for 3.0, ADR-0020, not written)
 src/rpc.rs        Cap'n Proto registration RPC
 schema/*.capnp    VENDORED from cloudflared at the pinned commit — do not edit

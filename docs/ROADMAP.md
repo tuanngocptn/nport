@@ -6,7 +6,7 @@ A gate is a hard stop: every criterion must pass before the next phase starts. G
 
 ## Current position
 
-**Phase 1 done, Phase 1.5 closed, Phase 2a feature-complete.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented and tested in real `workerd`. 2b and 2c have not started.
+**Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b started.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented and tested in real `workerd`. 2c has not started.
 
 G1 criteria 2, 3, and 4 met; 5 is partial; 1 is unverified for want of dashboard access. Gate G0 is closed: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `cargo fmt --check`, `clippy -D warnings`, `cargo test`, and both codegen steps pass locally and in CI. **Nothing has been deployed** — no Worker, no DNS record, no Cloudflare API call outside the protocol spike's own tunnels.
 
@@ -130,7 +130,7 @@ One flaky test came out of the same work, worth recording for what it was assert
 **Started.**
 
 - [x] the `Transport` trait in `crates/protocol/src/lib.rs`, implemented for QUIC
-- [ ] promote the spike's proxy loop into `crates/protocol` proper
+- [x] promote the spike's proxy loop — the half of it that is protocol
 - [ ] `TunnelManager` with the connection pool, reconnect, and local proxy
 - [ ] the `TunnelEvent` stream; `core::inspector` behind an optional sink
 - [ ] the API client over `crates/contract`
@@ -141,6 +141,10 @@ One flaky test came out of the same work, worth recording for what it was assert
 The trait covers **dialling and stream opening and nothing else** — registration and framing are shared above it, which is what makes ADR-0017's ladder a transport swap rather than a rewrite. Its two methods are deliberately asymmetric: the control stream is client-opened and the data streams are edge-opened (`docs/PROTOCOL.md` §6), and that asymmetry is exactly what lets HTTP/2 implement it, since under h2 the client runs a *server* and the edge sends it requests. A trait built around "the client opens streams" could not express that.
 
 It is tested against a **second implementation over in-memory pipes**, not only against QUIC. A trait with one implementor tends to end up shaped like that implementor, and the fallback's whole value rests on the shape being general — so the loopback double is the assertion that it is. That double is also what `crates/core` will drive its proxy loop against without a network.
+
+**The proxy loop split, rather than moving wholesale.** The layering in `crates/CLAUDE.md` is explicit that `crates/core` owns "provision → connect → proxy → teardown", and `crates/protocol` "speaks the wire and nothing else". So only the half that is wire went into `connect.rs`: `request_head`, which turns a decoded `ConnectRequest` into an HTTP/1.1 request head. That mapping is protocol-defined — `docs/PROTOCOL.md` §7 fixes the `HttpMethod`, `HttpHost`, and `HttpHeader:<Name>` keys — so it belongs beside the codec that decoded them. Dialling the origin, decoding chunked bodies, and piping WebSocket bytes stay in the example until `TunnelManager` claims them, because those are about the *local* origin and not about Cloudflare's wire.
+
+That function had **no tests at all** while it lived in the example, despite owning both the hop-by-hop stripping and the content-length recomputation — the two rules behind the chunked-encoding bug that made a real app render as hex chunk sizes. It now has seven, including one asserting a repeated header is not collapsed and one asserting a bodyless request carries no `content-length`.
 
 ### 2c · `apps/web`
 

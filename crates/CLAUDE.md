@@ -4,7 +4,7 @@ The Rust workspace: the connector, the tunnel manager, and the CLI.
 
 Style rules are in `docs/conventions/rust.md`. This file covers layering and the crate-specific rules that document cannot.
 
-**Status: not implemented.** `crates/protocol` is Phase 1; `core` and `cli` are Phase 2b.
+**Status: `protocol` works; `core` and `cli` are empty.** Phase 1 is done — the connector speaks the wire end to end against the live edge. Phase 2b has started with the `Transport` trait; `TunnelManager` and the CLI are next.
 
 ## Crates
 

@@ -241,6 +241,64 @@ impl ConnectRequest {
 /// Generic over the stream rather than taking a `quinn::RecvStream`, for two reasons that both
 /// matter: `src/h2.rs` is the ADR-0017 fallback and carries the same frames over an HTTP/2
 /// body, and a plain `&[u8]` is what makes these codecs testable without a network at all.
+/// Builds the HTTP/1.1 request head an origin should see, from a decoded [`ConnectRequest`].
+///
+/// The mapping is the protocol's, not a policy choice: `docs/PROTOCOL.md` §7 defines the metadata keys
+/// (`HttpMethod`, `HttpHost`, and one `HttpHeader:<Name>` entry per header value), so turning them back
+/// into a request line and headers belongs beside the codec that decoded them. What the caller does with
+/// the head — which socket it goes down, how the body is framed — is `crates/core`'s.
+///
+/// Three rules, each of which has cost a real bug:
+///
+/// 1. **`Host` comes from the `HttpHost` metadata key, not the header list.** The edge sends it as
+///    metadata, and a stale `host` header would send the origin's virtual-host routing somewhere else.
+/// 2. **Hop-by-hop headers are dropped** ([`is_hop_by_hop`]). They describe one connection and relaying
+///    them is meaningless at best.
+/// 3. **`content-length` is recomputed, never copied.** This is the one that shipped: forwarding the
+///    edge's `transfer-encoding: chunked` header while sending an unchunked body made a Next.js app
+///    render as hex chunk sizes. The caller passes the length of what it actually has, and a `0` or
+///    `None` emits no header at all — a bodyless `GET` must not carry `content-length: 0`.
+///
+/// `extra` is for headers the caller must add and that must win over anything the edge sent — the
+/// WebSocket upgrade set in [`WEBSOCKET_ORIGIN_HEADERS`], which the edge strips before forwarding.
+#[must_use]
+pub fn request_head(
+    request: &ConnectRequest,
+    extra: &[(&str, &str)],
+    content_length: Option<usize>,
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut head = format!(
+        "{} {} HTTP/1.1\r\n",
+        request.method().unwrap_or("GET"),
+        request.path_and_query()
+    );
+    let _ = writeln!(head, "host: {}\r", request.host().unwrap_or("localhost"));
+
+    for (name, value) in request.headers() {
+        if name.eq_ignore_ascii_case("host")
+            || name.eq_ignore_ascii_case("content-length")
+            || is_hop_by_hop(name)
+            || extra
+                .iter()
+                .any(|(override_name, _)| name.eq_ignore_ascii_case(override_name))
+        {
+            continue;
+        }
+        let _ = writeln!(head, "{name}: {value}\r");
+    }
+
+    for (name, value) in extra {
+        let _ = writeln!(head, "{name}: {value}\r");
+    }
+    if let Some(length) = content_length.filter(|length| *length > 0) {
+        let _ = writeln!(head, "content-length: {length}\r");
+    }
+    head.push_str("\r\n");
+    head
+}
+
 pub async fn read_stream_kind<R: AsyncRead + Unpin>(
     recv: &mut R,
 ) -> Result<StreamKind, FrameError> {
@@ -667,6 +725,140 @@ mod tests {
         // ConnectRequest.type is the only upgrade signal on the wire (§11); there is no
         // `Upgrade` header to notice.
         assert_ne!(ConnectionType::Websocket, ConnectionType::Http);
+    }
+
+    #[test]
+    fn a_request_head_takes_host_from_metadata_not_from_a_header() {
+        // The edge sends Host as `HttpHost` metadata (§7). A stale `host` header in the list would
+        // send the origin's virtual-host routing somewhere the caller never asked for.
+        let request = request(
+            "https://myapp.nport.link/health",
+            &[
+                ("HttpMethod", "GET"),
+                ("HttpHost", "myapp.nport.link"),
+                ("HttpHeader:Host", "attacker.example"),
+            ],
+        );
+
+        let head = request_head(&request, &[], None);
+
+        assert!(head.starts_with("GET /health HTTP/1.1\r\n"));
+        assert!(head.contains("host: myapp.nport.link\r\n"));
+        assert!(!head.contains("attacker.example"));
+    }
+
+    #[test]
+    fn a_request_head_drops_hop_by_hop_headers() {
+        let request = request(
+            "https://myapp.nport.link/",
+            &[
+                ("HttpMethod", "POST"),
+                ("HttpHost", "myapp.nport.link"),
+                ("HttpHeader:Connection", "keep-alive"),
+                ("HttpHeader:Transfer-Encoding", "chunked"),
+                ("HttpHeader:Content-Type", "application/json"),
+            ],
+        );
+
+        let head = request_head(&request, &[], Some(11));
+
+        // The one that shipped: relaying `transfer-encoding: chunked` while sending an unchunked body
+        // made a real app render as hex chunk sizes.
+        assert!(!head.to_lowercase().contains("transfer-encoding"));
+        assert!(!head.to_lowercase().contains("connection:"));
+        // Case is preserved as the edge sent it — header names are case-insensitive, but rewriting
+        // them is a gratuitous difference an origin could notice.
+        assert!(head.contains("Content-Type: application/json\r\n"));
+    }
+
+    #[test]
+    fn a_request_head_recomputes_content_length_and_never_copies_it() {
+        let request = request(
+            "https://myapp.nport.link/",
+            &[
+                ("HttpMethod", "POST"),
+                ("HttpHost", "myapp.nport.link"),
+                // What the edge claimed. The body we actually hold is what matters.
+                ("HttpHeader:Content-Length", "99999"),
+            ],
+        );
+
+        let head = request_head(&request, &[], Some(4));
+
+        assert!(head.contains("content-length: 4\r\n"));
+        assert!(!head.contains("99999"));
+    }
+
+    #[test]
+    fn a_bodyless_request_carries_no_content_length() {
+        // `content-length: 0` on a GET is not wrong so much as noise, and some origins treat it as a
+        // signal that a body is coming.
+        let request = request(
+            "https://myapp.nport.link/",
+            &[("HttpMethod", "GET"), ("HttpHost", "myapp.nport.link")],
+        );
+
+        for length in [None, Some(0)] {
+            let head = request_head(&request, &[], length);
+            assert!(
+                !head.to_lowercase().contains("content-length"),
+                "length {length:?} should emit no header"
+            );
+        }
+    }
+
+    #[test]
+    fn extra_headers_win_over_whatever_the_edge_sent() {
+        // The WebSocket case: the edge strips the upgrade headers before forwarding, so the connector
+        // re-adds them — and if the edge did send a conflicting one, ours has to be the only one left,
+        // or the origin sees two `Connection` headers and picks whichever it likes.
+        let request = request(
+            "https://myapp.nport.link/ws",
+            &[
+                ("HttpMethod", "GET"),
+                ("HttpHost", "myapp.nport.link"),
+                ("HttpHeader:Sec-WebSocket-Version", "8"),
+            ],
+        );
+
+        let head = request_head(&request, &WEBSOCKET_ORIGIN_HEADERS, None);
+
+        assert!(head.contains("sec-websocket-version: 13\r\n"));
+        assert_eq!(
+            head.to_lowercase().matches("sec-websocket-version").count(),
+            1
+        );
+        assert!(!head.contains(": 8\r\n"));
+    }
+
+    #[test]
+    fn repeated_headers_all_survive() {
+        // Metadata is a list, not a map, precisely so repeated values are not collapsed — two `Set-Cookie`
+        // headers arriving as one would silently drop a cookie.
+        let request = request(
+            "https://myapp.nport.link/",
+            &[
+                ("HttpMethod", "GET"),
+                ("HttpHost", "myapp.nport.link"),
+                ("HttpHeader:X-Trace", "one"),
+                ("HttpHeader:X-Trace", "two"),
+            ],
+        );
+
+        let head = request_head(&request, &[], None);
+
+        assert!(head.contains("X-Trace: one\r\n"));
+        assert!(head.contains("X-Trace: two\r\n"));
+    }
+
+    #[test]
+    fn a_request_head_ends_with_a_blank_line() {
+        // Without the terminating CRLF the origin waits for more headers and the request hangs.
+        let request = request(
+            "https://myapp.nport.link/",
+            &[("HttpMethod", "GET"), ("HttpHost", "myapp.nport.link")],
+        );
+        assert!(request_head(&request, &[], None).ends_with("\r\n\r\n"));
     }
 
     fn request(dest: &str, metadata: &[(&str, &str)]) -> ConnectRequest {

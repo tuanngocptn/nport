@@ -178,55 +178,6 @@ pub async fn handle_exchange(
     }
 }
 
-/// Builds the origin-form HTTP/1.1 request head from a `ConnectRequest`.
-///
-/// `extra` is the caller's own hop-by-hop set — `connection: close` for a plain request, the
-/// upgrade trio for a WebSocket. Anything named there wins over the client's version, and
-/// `connection` reaches the origin **only** through it, since the forwarded headers are
-/// hop-by-hop filtered first.
-pub fn origin_request_head(
-    request: &nport_protocol::connect::ConnectRequest,
-    extra: &[(&str, &str)],
-    content_length: Option<usize>,
-) -> String {
-    use nport_protocol::connect::is_hop_by_hop;
-
-    let mut head = format!(
-        "{} {} HTTP/1.1\r\n",
-        request.method().unwrap_or("GET"),
-        request.path_and_query()
-    );
-    // Host comes from the HttpHost metadata key, not from the header list.
-    head.push_str(&format!(
-        "host: {}\r\n",
-        request.host().unwrap_or("localhost")
-    ));
-
-    for (name, value) in request.headers() {
-        // Hop-by-hop headers describe one connection and must not be relayed. content-length
-        // is recomputed from what actually arrived, so the origin never sees a stale one.
-        if name.eq_ignore_ascii_case("host")
-            || name.eq_ignore_ascii_case("content-length")
-            || is_hop_by_hop(name)
-            || extra
-                .iter()
-                .any(|(override_name, _)| name.eq_ignore_ascii_case(override_name))
-        {
-            continue;
-        }
-        head.push_str(&format!("{name}: {value}\r\n"));
-    }
-
-    for (name, value) in extra {
-        head.push_str(&format!("{name}: {value}\r\n"));
-    }
-    if let Some(length) = content_length.filter(|length| *length > 0) {
-        head.push_str(&format!("content-length: {length}\r\n"));
-    }
-    head.push_str("\r\n");
-    head
-}
-
 /// A parsed origin response head.
 pub struct ResponseHead {
     pub status: u16,
@@ -379,7 +330,11 @@ pub async fn proxy_http(
     let mut upstream = tokio::net::TcpStream::connect(origin).await?;
     // `connection: close` means read-to-end delimits the response, so the spike needs no
     // chunked decoder on the way back.
-    let head = origin_request_head(request, &[("connection", "close")], Some(body.len()));
+    let head = nport_protocol::connect::request_head(
+        request,
+        &[("connection", "close")],
+        Some(body.len()),
+    );
 
     upstream.write_all(head.as_bytes()).await?;
     if !body.is_empty() {
@@ -440,7 +395,7 @@ pub async fn proxy_websocket(
 
     let mut upstream = tokio::net::TcpStream::connect(origin).await?;
     // No content-length: upstream zeroes it for a WebSocket, and a handshake carries no body.
-    let head = origin_request_head(request, &WEBSOCKET_ORIGIN_HEADERS, None);
+    let head = nport_protocol::connect::request_head(request, &WEBSOCKET_ORIGIN_HEADERS, None);
     upstream.write_all(head.as_bytes()).await?;
 
     let head = read_response_head(&mut upstream).await?;
