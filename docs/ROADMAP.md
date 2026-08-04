@@ -138,7 +138,7 @@ One flaky test came out of the same work, worth recording for what it was assert
 - [x] `core::local_runtime` — ADR-0024's `!Send` thread boundary, implemented
 - [x] `TunnelManager` — the supervision tasks, event broadcast, and shutdown
 - [ ] **`rpc::Session`** — hold the control stream open and expose `unregisterConnection` (§12). Blocks the connector
-- [ ] **`LocalRuntime`: a long-lived-object API** — `run` is run-to-completion, which cannot host a session. Blocks the above
+- [x] **`LocalRuntime::host`** — a long-lived `!Send` object on the confined thread, with a `Send` handle
 - [ ] the QUIC `Connector`: edge discovery, dial, register, serve — wiring the manager to a real edge
 - [ ] `core::inspector` behind an optional sink
 - [ ] the API client over `crates/contract`
@@ -176,7 +176,11 @@ The spike put all four supervisors on one shared `LocalSet`, which the ADR calls
 
 **The connector is blocked on something neither crate can do yet, found while starting it.** `Connection::serve`'s contract says an implementation must unregister and drain, not just close. It cannot: `crates/protocol` has no `unregister_connection` at all, and `register_connection` drops its `RpcSystem` when it returns, which resets the control stream. `docs/PROTOCOL.md` records that the edge *tolerates* this — connections served for 30 minutes with the stream closed — so Phase 1 was right not to care. §12's graceful shutdown is a different question, and it needs the stream held open for the connection's whole life.
 
-That implies a second gap one layer down. `LocalRuntime::run` is run-to-completion: a closure goes over, a `Send` value comes back. A session is a **long-lived `!Send` object** that must stay on that thread and be called again later, which the current API cannot express. So the order is `LocalRuntime` actor API → `rpc::Session` → QUIC connector, and doing the connector first would mean writing a shutdown path that silently cannot work.
+That implied a second gap one layer down, now closed. `LocalRuntime::run` is run-to-completion: a closure goes over, a `Send` value comes back, and nothing can be held open. `LocalRuntime::host` builds a `!Send` object on the confined thread and returns a `Hosted<T>` handle; the object never moves, and callers send closures that borrow it.
+
+The property that makes it useful is that **`Hosted<T>` is `Send` even when `T` is not** — it carries no `T`, only the ability to ask for work on one — so an ordinary `tokio::spawn`ed connection task can own a handle to a capnp session it could never hold directly. Calls are served one at a time, which is correctness rather than a limitation: an `RpcSystem` is not safe to drive concurrently, and a session interleaving `unregisterConnection` with something else would be a protocol bug.
+
+Remaining order: `rpc::Session` → QUIC connector. Doing the connector first would still mean writing a shutdown path that silently cannot work.
 
 Worth noting what this does *not* block: the manager already treats a connection that returns from `serve` as safe to cut, so the only thing missing is the unregister call itself. The drain, the deadline, and the `Stopped { drained }` reporting are all in place and tested.
 
