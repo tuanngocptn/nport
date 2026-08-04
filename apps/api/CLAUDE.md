@@ -6,20 +6,23 @@ The control plane at `api.nport.link`. Hono on Cloudflare Workers. Validates req
 
 **Not responsible for:** carrying tunnel traffic (it never touches the data path), user identity (there is none), or the connector protocol.
 
-**Status: not implemented.** Phase 2a.
+**Status: partly implemented.** Phase 2a — the lease lifecycle works; rate limiting, the reconciliation cron, and the legacy v2 shim do not exist yet (`docs/ROADMAP.md`).
 
 ## Layout
 
 ```
 src/index.ts            Hono app; exports { fetch, scheduled } + both DO classes
 src/routes/             tunnels, challenge, health, meta
-src/middleware/         request-id, client-gate, rate-limit, pow, error-handler
+src/middleware/         request-id, client-gate, require-bindings
+                        (rate-limit — needs the Workers rate-limit binding, next slice)
 src/do/subdomain-lease.ts   DO per subdomain: atomic claim, saga journal, expiry alarm
-src/do/registry.ts          singleton DO: global index, sweep cursor, counters
-                        (src/cloudflare/ — typed CF API client, next slice of Phase 2a)
-src/domain/             subdomain, reserved, pow, ip-hash — pure logic, heavily unit-tested
+src/do/registry.ts          singleton DO: global index, counters, challenge ledger
+src/cloudflare/client.ts    the only place this Worker calls Cloudflare
+src/domain/             pow, ip-hash, owner-token, generated-name — pure logic, unit-tested
+                        (subdomain validation lives in packages/contract, not here)
 src/errors.ts           ErrorCode → HTTP status; codes imported from @nport/contract
-test/
+src/env.ts              which bindings are required, and why
+test/                   workerd integration tests + test/fake-cloudflare.ts
 ```
 
 ## Commands
@@ -62,7 +65,7 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 ## Gotchas
 
 - **DO alarms are at-least-once.** A handler that deletes on second delivery must tolerate the record already being gone.
-- **`vitest-pool-workers` needs `isolatedStorage`** per test, or DO state leaks between cases and you get failures that depend on test order.
+- **Durable Object state leaks between tests.** `vitest-pool-workers` 0.20 removed `isolatedStorage`, and passing it is *silently ignored* — so a suite that writes any DO state must call `reset()` from `cloudflare:test` in an `afterEach`, or you get failures that depend on test order.
 - **`idFromName(subdomain)` requires the *normalized* subdomain.** Normalizing after deriving the ID gives two DOs for one logical name, and the whole atomicity guarantee evaporates. Normalize first, always.
 - **A `wrangler rollback` reverts code, not DO schema.** Migrations are forward-only; deploy schema changes in two compatible steps (`docs/RELEASE.md`).
 - **The legacy v2 shim must keep working** until the sunset date. It deliberately does *not* reproduce v2's subdomain-takeover or unauthenticated-delete behaviour — those were the bugs.

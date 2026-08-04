@@ -5,6 +5,10 @@ import { missingBindings } from "./env"
 const COMPLETE = {
   POW_SECRET: "s",
   IP_HASH_SECRET: "h",
+  CF_API_TOKEN: "t",
+  CF_ACCOUNT_ID: "a",
+  CF_ZONE_ID: "z",
+  CF_DOMAIN: "nport.test",
   LEASE_TTL_SECONDS: 14400,
   HEARTBEAT_GRACE_SECONDS: 120,
   MAX_ACTIVE_TUNNELS: 1000,
@@ -47,8 +51,15 @@ describe("missingBindings", () => {
     expect(missingBindings({ ...COMPLETE, MIN_CLIENT_VERSION: "3.0.0-beta.1" })).toEqual([])
   })
 
+  it("catches an absent Cloudflare credential", () => {
+    // Required on every gated route, not only the provisioning one: a deployment that answers
+    // `/v1/meta` happily while being unable to provision anything is the worst kind of half-working.
+    const { CF_API_TOKEN: _omitted, ...rest } = COMPLETE
+    expect(missingBindings(rest)).toContain("CF_API_TOKEN")
+  })
+
   it("lists every missing binding, not just the first", () => {
-    // An operator fixing one at a time is a slow way to learn there were four.
-    expect(missingBindings({}).length).toBeGreaterThanOrEqual(7)
+    // An operator fixing one at a time is a slow way to learn there were eleven.
+    expect(missingBindings({}).length).toBe(11)
   })
 })

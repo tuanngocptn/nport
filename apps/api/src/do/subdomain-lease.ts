@@ -1,6 +1,17 @@
 import { DurableObject } from "cloudflare:workers"
 
+import type { ServerErrorCode } from "@nport/contract"
+
+import {
+  CloudflareClient,
+  CloudflareError,
+  cnameTargetFor,
+  DNS_RECORD_EXISTS,
+  tunnelNameFor,
+} from "../cloudflare/client"
+import { hashesMatch } from "../domain/owner-token"
 import type { Env } from "../types"
+import type { Registry } from "./registry"
 
 /**
  * One Durable Object per **normalized** subdomain: atomic claim, saga journal, expiry alarm.
@@ -10,9 +21,637 @@ import type { Env } from "../types"
  * **must** be normalized before deriving the ID — normalizing afterwards yields two objects for one
  * logical name and the atomicity guarantee evaporates (`apps/api/CLAUDE.md` § Gotchas).
  *
- * **Not implemented.** Next slice of Phase 2a: the journaled provisioning saga
- * (`docs/ARCHITECTURE.md` §3a) and the alarm-driven teardown. Declared now because
- * `wrangler.jsonc` binds it and its migration tag `v1` is already committed — a binding whose
- * class does not exist is a deploy-time failure.
+ * ## Single-threaded is not the same as uninterruptible
+ *
+ * A Durable Object runs one piece of JavaScript at a time, but it does **not** run one request at a
+ * time: two `claim` calls can interleave at any `await`. Serialization alone would therefore not
+ * prevent a double-claim — what prevents it is that the read-check-journal sequence below contains
+ * no `await` at all. `ctx.storage.sql` is synchronous, so "is this name free" and "it is mine now"
+ * are one indivisible step. Insert an `await` between them and defect R4 comes straight back.
+ *
+ * ## The journal
+ *
+ * Every state is written **before** the side effect it describes (`docs/ARCHITECTURE.md` §3a), so on
+ * replay a journal entry means "this may have happened". Compensation is therefore allowed to be
+ * wrong about whether a step completed: it confirms against Cloudflare by name rather than assuming,
+ * which is what makes re-running it safe.
+ *
+ * ## Errors do not cross this boundary as exceptions
+ *
+ * Methods return `{ok: false, code}` instead of throwing `ApiError`. A thrown error crossing a
+ * Durable Object RPC boundary arrives as a plain `Error` with its class and fields gone, so the
+ * route would have to parse a message to recover the code — the exact mistake ADR-0018 exists to
+ * prevent. The route turns a returned code into an `ApiError`.
  */
-export class SubdomainLease extends DurableObject<Env> {}
+
+/**
+ * The lease states (`docs/ARCHITECTURE.md` §4), which are also the saga journal's alphabet.
+ *
+ * `FREE` is in the documented list but not here: it is represented by the **absence of a row**, so
+ * that "free" and "never claimed" cannot drift apart into two states meaning the same thing. A
+ * released lease deletes its row rather than writing `FREE`.
+ */
+export type LeaseState = "CLAIMING" | "TUNNEL_CREATED" | "DNS_CREATED" | "ACTIVE" | "RELEASING"
+
+/**
+ * The side effect currently being attempted, or `none`.
+ *
+ * Distinct from `state`, which records what has completed. Together they distinguish "the tunnel
+ * call returned" from "the tunnel call was in flight when the isolate died" — and the second case is
+ * the one that needs a lookup-by-name rather than a delete-by-ID.
+ */
+export type SagaStep = "none" | "create-tunnel" | "create-dns" | "teardown"
+
+/**
+ * How long a saga or a teardown may be in flight before the watchdog alarm assumes it died.
+ *
+ * Generous relative to the work: provisioning is four Cloudflare calls, each retried at most three
+ * times with sub-second backoff. The in-memory guard in `#inFlight` covers a merely *slow* saga, so
+ * this bound only has to be longer than a plausible one, not longer than the worst conceivable one.
+ */
+const WATCHDOG_MS = 30_000
+
+interface LeaseRow {
+  subdomain: string
+  tunnel_id: string | null
+  owner_token_hash: ArrayBuffer
+  state: LeaseState
+  saga_step: SagaStep
+  created_at: number
+  expires_at: number
+  last_heartbeat_at: number
+  client_version: string
+  ip_hash: string
+}
+
+export interface ClaimRequest {
+  /** Already normalized. The DO cannot check this — see the class comment. */
+  readonly subdomain: string
+  /** `SHA-256(ownerToken)`. The plaintext never reaches this object. */
+  readonly ownerTokenHash: Uint8Array
+  readonly ipHash: string
+  readonly clientVersion: string
+}
+
+/**
+ * A refusal, carrying a registry code the route maps to a status.
+ *
+ * **`details` is `Record<string, string | number>` and must not become `Record<string, unknown>`.**
+ * Cloudflare's RPC return types are mapped through a serializability constraint that `unknown` does
+ * not satisfy, and a union member that fails it is silently reduced to `never` rather than reported.
+ * The whole failure arm therefore *disappears* from `ClaimResult`, `!result.ok` narrows to the
+ * success branch, and every `result.code` in the route becomes "property does not exist on type
+ * never" — an error a long way from its cause. `ApiError`'s own details are wider, so nothing
+ * downstream is constrained by this.
+ */
+export interface LeaseFailure {
+  readonly ok: false
+  readonly code: ServerErrorCode
+  readonly details?: Record<string, string | number>
+}
+
+export type ClaimResult =
+  | {
+      readonly ok: true
+      readonly subdomain: string
+      readonly tunnelId: string
+      /** Returned to the client exactly once. Never logged, never stored. */
+      readonly tunnelToken: string
+      readonly expiresAt: number
+    }
+  | LeaseFailure
+
+export type HeartbeatResult = { readonly ok: true; readonly expiresAt: number } | LeaseFailure
+
+export type ReleaseResult = { readonly ok: true } | LeaseFailure
+
+export type StatusResult =
+  | { readonly ok: true; readonly active: boolean; readonly expiresAt: number }
+  | LeaseFailure
+
+export class SubdomainLease extends DurableObject<Env> {
+  /**
+   * Whether this instance is mid-saga.
+   *
+   * In-memory on purpose, and the only correct place for it. The watchdog alarm must not compensate
+   * underneath a saga that is merely slow, but it *must* compensate one whose isolate died — and
+   * "the isolate died" is exactly the condition under which this flag is gone. Persisting it would
+   * break that, and the no-module-level-state rule does not apply: this is per-object instance
+   * state, not shared module scope.
+   */
+  #inFlight = false
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+    // Schema creation blocks every request until it completes, so no method can observe a
+    // half-created table.
+    ctx.blockConcurrencyWhile(async () => {
+      ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS lease (
+          subdomain         TEXT PRIMARY KEY,
+          tunnel_id         TEXT,
+          owner_token_hash  BLOB NOT NULL,
+          state             TEXT NOT NULL,
+          saga_step         TEXT NOT NULL,
+          created_at        INTEGER NOT NULL,
+          expires_at        INTEGER NOT NULL,
+          last_heartbeat_at INTEGER NOT NULL,
+          client_version    TEXT NOT NULL,
+          ip_hash           TEXT NOT NULL
+        )
+      `)
+    })
+  }
+
+  /**
+   * Claims the name and provisions the tunnel, or explains why not.
+   *
+   * The first two statements are the atomicity guarantee; see the class comment before adding an
+   * `await` to them.
+   */
+  async claim(request: ClaimRequest): Promise<ClaimResult> {
+    const now = Date.now()
+    const existing = this.#read()
+
+    if (existing !== undefined) {
+      if (!this.#isReclaimable(existing, now)) {
+        return {
+          ok: false,
+          code: "SUBDOMAIN_IN_USE",
+          // The one detail worth giving a loser: when to come back. Without it a CLI can only
+          // suggest "try another name", which is the wrong advice for a name that frees up in a
+          // minute.
+          details: { expiresAt: existing.expires_at },
+        }
+      }
+
+      // The lease has genuinely expired — by the server's clock, which is the only authority
+      // (`docs/ARCHITECTURE.md` §7) — but its teardown never completed. Reclaim is still gated on
+      // teardown *finishing*, so run it now rather than handing out a name whose DNS record and
+      // tunnel still exist. Marking RELEASING first is synchronous, so a second claim arriving
+      // during the teardown sees RELEASING and gets a clean 409 instead of tearing down twice.
+      this.#write({ ...existing, state: "RELEASING", saga_step: "teardown" })
+      await this.#armWatchdog(now)
+      const torndown = await this.#teardown(existing)
+      if (!torndown.ok) {
+        return torndown
+      }
+    }
+
+    const ttlMs = Number(this.env.LEASE_TTL_SECONDS) * 1000
+    const row: LeaseRow = {
+      subdomain: request.subdomain,
+      tunnel_id: null,
+      owner_token_hash: toArrayBuffer(request.ownerTokenHash),
+      state: "CLAIMING",
+      saga_step: "none",
+      created_at: now,
+      expires_at: now + ttlMs,
+      // Not `now`: a lease that never heartbeats should die on the grace period, and seeding this
+      // with the creation time is what makes that happen without a special case.
+      last_heartbeat_at: now,
+      client_version: request.clientVersion,
+      ip_hash: request.ipHash,
+    }
+    this.#write(row)
+    // ── end of the indivisible section ──────────────────────────────────────────────
+
+    await this.#armWatchdog(now)
+    this.#inFlight = true
+    try {
+      return await this.#provision(row)
+    } finally {
+      this.#inFlight = false
+    }
+  }
+
+  /**
+   * Records a heartbeat and re-arms the alarm.
+   *
+   * **Does not extend `expires_at`.** The lease's ceiling is server-authoritative and a heartbeat is
+   * liveness, not renewal — v2's four-hour limit was a client-side `setTimeout` and so was no limit
+   * at all (defect R6).
+   */
+  async heartbeat(ownerTokenHash: Uint8Array): Promise<HeartbeatResult> {
+    const row = this.#read()
+    if (row === undefined) {
+      return { ok: false, code: "TUNNEL_NOT_FOUND" }
+    }
+    if (!this.#authorized(row, ownerTokenHash)) {
+      return { ok: false, code: "INVALID_OWNER_TOKEN" }
+    }
+
+    const now = Date.now()
+    if (now >= row.expires_at) {
+      // Reached when the alarm has not fired yet. Answer honestly and let the alarm do the work:
+      // tearing down inline would make a heartbeat the most expensive call in the API.
+      await this.#ensureAlarmAt(now)
+      return { ok: false, code: "LEASE_EXPIRED" }
+    }
+    if (row.state !== "ACTIVE") {
+      // Mid-saga or mid-teardown. Not found is the honest answer: there is nothing to keep alive
+      // yet, and the client should not treat a provisioning race as an ownership failure.
+      return { ok: false, code: "TUNNEL_NOT_FOUND" }
+    }
+
+    this.#write({ ...row, last_heartbeat_at: now })
+    await this.#ensureAlarmAt(this.#deadline({ ...row, last_heartbeat_at: now }))
+    return { ok: true, expiresAt: row.expires_at }
+  }
+
+  /**
+   * Releases the lease and tears the tunnel down.
+   *
+   * Idempotent: releasing a lease that is already gone succeeds. A client retrying after a network
+   * blip must not be told its own successful delete failed (`docs/API.md`).
+   */
+  async release(ownerTokenHash: Uint8Array): Promise<ReleaseResult> {
+    const row = this.#read()
+    if (row === undefined) {
+      return { ok: true }
+    }
+    if (!this.#authorized(row, ownerTokenHash)) {
+      return { ok: false, code: "INVALID_OWNER_TOKEN" }
+    }
+
+    this.#write({ ...row, state: "RELEASING", saga_step: "teardown" })
+    await this.#armWatchdog(Date.now())
+    this.#inFlight = true
+    try {
+      const result = await this.#teardown(row)
+      return result.ok ? { ok: true } : result
+    } finally {
+      this.#inFlight = false
+    }
+  }
+
+  /** Public status. Carries nothing an attacker could use — no tunnel ID, no owner hash. */
+  async status(): Promise<StatusResult> {
+    const row = this.#read()
+    if (row === undefined) {
+      return { ok: false, code: "TUNNEL_NOT_FOUND" }
+    }
+    const now = Date.now()
+    return {
+      ok: true,
+      // Expired-but-not-yet-reaped reads as inactive. Reporting `active: true` because an alarm has
+      // not fired yet would make this endpoint disagree with whether the URL actually works.
+      active: row.state === "ACTIVE" && now < row.expires_at,
+      expiresAt: row.expires_at,
+    }
+  }
+
+  /**
+   * Expiry, heartbeat timeout, and the saga watchdog — all three, because a Durable Object has only
+   * one alarm and `min()` is enough to share it (`docs/ARCHITECTURE.md` §6).
+   *
+   * **At-least-once**, so every branch tolerates the work already being done. Left to throw on
+   * failure on purpose: the runtime then retries the alarm with backoff, which is the mechanism
+   * `docs/ARCHITECTURE.md` §5 relies on for "alarm re-drives compensation". Once the runtime gives
+   * up, the reconciliation cron is the backstop.
+   */
+  override async alarm(): Promise<void> {
+    const row = this.#read()
+    if (row === undefined) {
+      return
+    }
+
+    const now = Date.now()
+
+    if (this.#inFlight) {
+      // A saga or teardown is running in this isolate right now and will finish on its own. The
+      // watchdog exists for the case where it *cannot*, so firing here would compensate live work.
+      await this.#ensureAlarmAt(now + WATCHDOG_MS)
+      return
+    }
+
+    if (row.state === "RELEASING") {
+      const result = await this.#teardown(row)
+      if (!result.ok) {
+        // A DNS conflict is not retryable by us — it needs a human (`docs/OPERATIONS.md`). The row
+        // is already cleared by `#teardown`, so stopping here does not strand the name.
+        console.error("lease teardown blocked", { subdomain: row.subdomain, code: result.code })
+      }
+      return
+    }
+
+    if (row.state !== "ACTIVE") {
+      // Mid-saga with no saga running: the isolate died between a journal entry and its side effect.
+      // This is the case the journal exists for.
+      if (now >= row.created_at + WATCHDOG_MS) {
+        console.warn("compensating an abandoned saga", {
+          subdomain: row.subdomain,
+          state: row.state,
+          step: row.saga_step,
+        })
+        this.#write({ ...row, state: "RELEASING", saga_step: "teardown" })
+        await this.#teardown(row)
+        return
+      }
+      await this.#ensureAlarmAt(row.created_at + WATCHDOG_MS)
+      return
+    }
+
+    const deadline = this.#deadline(row)
+    if (now < deadline) {
+      // Spurious or early — re-arm rather than reaping a healthy lease.
+      await this.#ensureAlarmAt(deadline)
+      return
+    }
+
+    this.#write({ ...row, state: "RELEASING", saga_step: "teardown" })
+    const result = await this.#teardown(row)
+    if (!result.ok) {
+      console.error("lease expiry blocked", { subdomain: row.subdomain, code: result.code })
+    }
+  }
+
+  // ── the saga ──────────────────────────────────────────────────────────────────────
+
+  /**
+   * `CLAIMING → TUNNEL_CREATED → DNS_CREATED → ACTIVE`, journaling before each side effect.
+   *
+   * Any failure compensates in reverse and leaves the name free. `PROVISION_FAILED`'s message —
+   * "Nothing was left behind" — is a promise this function has to keep.
+   */
+  async #provision(row: LeaseRow): Promise<ClaimResult> {
+    const client = this.#cloudflare()
+    const name = tunnelNameFor(row.subdomain)
+    const fqdn = client.fqdn(row.subdomain)
+
+    let tunnelId: string
+    let tunnelToken: string
+    try {
+      // Journaled before the call, so a crash mid-call still leaves a record saying a tunnel may
+      // exist. Compensation finds it by name, which is why the name is derived and not random.
+      this.#write({ ...row, saga_step: "create-tunnel" })
+      const created = await client.createTunnel(name)
+      tunnelId = created.id
+      tunnelToken = created.token
+      this.#write({ ...row, tunnel_id: tunnelId, state: "TUNNEL_CREATED", saga_step: "none" })
+    } catch (error) {
+      await this.#compensate(row, "create-tunnel")
+      return this.#provisionFailure(error, row.subdomain, "create-tunnel")
+    }
+
+    const withTunnel: LeaseRow = { ...row, tunnel_id: tunnelId, state: "TUNNEL_CREATED" }
+
+    try {
+      this.#write({ ...withTunnel, saga_step: "create-dns" })
+      await client.createDnsRecord(fqdn, cnameTargetFor(tunnelId))
+    } catch (error) {
+      if (error instanceof CloudflareError && error.has(DNS_RECORD_EXISTS)) {
+        // A record already exists for a name whose lease was free. Either a previous teardown could
+        // not remove it, or it belongs to something that is not a tunnel. Deciding requires looking,
+        // and invariant 8 forbids deleting what we cannot prove we own.
+        const existing = await client.findDnsRecord(fqdn)
+        const ours =
+          existing !== null &&
+          existing.type === "CNAME" &&
+          existing.content === cnameTargetFor(tunnelId)
+        if (!ours) {
+          await this.#compensate(withTunnel, "create-dns")
+          console.error("dns conflict on claim", { subdomain: row.subdomain, fqdn })
+          return { ok: false, code: "DNS_CONFLICT" }
+        }
+        // It is already exactly the record we were about to create. Nothing to do — this is the
+        // retry path, not an error.
+      } else {
+        await this.#compensate(withTunnel, "create-dns")
+        return this.#provisionFailure(error, row.subdomain, "create-dns")
+      }
+    }
+
+    const now = Date.now()
+    const active: LeaseRow = {
+      ...withTunnel,
+      state: "DNS_CREATED",
+      saga_step: "none",
+      last_heartbeat_at: now,
+    }
+    this.#write(active)
+
+    const final: LeaseRow = { ...active, state: "ACTIVE" }
+    this.#write(final)
+    await this.#ensureAlarmAt(this.#deadline(final))
+    await this.#registry().record(row.subdomain, final.expires_at)
+
+    return {
+      ok: true,
+      subdomain: row.subdomain,
+      tunnelId,
+      tunnelToken,
+      expiresAt: final.expires_at,
+    }
+  }
+
+  /**
+   * Undoes whatever the failed step may have done, then frees the name.
+   *
+   * Reverse order, and confirmed against Cloudflare rather than assumed — `#teardown` looks the
+   * tunnel up by name and verifies the DNS record's content before touching either.
+   */
+  async #compensate(row: LeaseRow, failedStep: SagaStep): Promise<void> {
+    console.warn("compensating saga", { subdomain: row.subdomain, failedStep })
+    const result = await this.#teardown(row)
+    if (!result.ok) {
+      // The name is freed regardless; what remains is a Cloudflare-side leftover for reconciliation.
+      console.error("compensation incomplete", { subdomain: row.subdomain, code: result.code })
+    }
+  }
+
+  /**
+   * Removes the DNS record and the tunnel, then clears the lease. Idempotent.
+   *
+   * Order is deliberate: DNS first, so the name stops resolving before the tunnel it points at
+   * disappears. The reverse would leave a window where the hostname resolves to a tunnel that no
+   * longer exists, which the edge answers with its own error page rather than ours.
+   *
+   * **Never deletes a DNS record it cannot prove it owns** (invariant 8): the record must be a
+   * `CNAME` whose content is exactly `<tunnel_id>.cfargotunnel.com`. Anything else is left alone and
+   * reported as `DNS_CONFLICT` with a log line for manual review. This is v2's subdomain-takeover
+   * path, which deleted the incumbent's records on nothing more than a status string (defect R7).
+   */
+  async #teardown(row: LeaseRow): Promise<{ ok: true } | LeaseFailure> {
+    const client = this.#cloudflare()
+    const fqdn = client.fqdn(row.subdomain)
+    let conflict = false
+
+    try {
+      const record = await client.findDnsRecord(fqdn)
+      if (record !== null) {
+        const expected = row.tunnel_id === null ? null : cnameTargetFor(row.tunnel_id)
+        const provable = expected !== null && record.type === "CNAME" && record.content === expected
+        if (provable) {
+          await client.deleteDnsRecord(record.id)
+        } else {
+          conflict = true
+          console.error("refusing to delete an unowned dns record", {
+            subdomain: row.subdomain,
+            fqdn,
+            recordType: record.type,
+            // The expected target, not the actual content: the actual content is somebody else's
+            // hostname, and this line ends up in a log an operator reads.
+            expected,
+          })
+        }
+      }
+
+      // The tunnel is identified by ID when we have one, and by our own namespaced name when we do
+      // not — the case where the isolate died mid-`createTunnel`. The `nport-` prefix is what makes
+      // deleting by name safe in an account that may hold tunnels NPort did not create.
+      if (row.tunnel_id !== null) {
+        await client.deleteTunnel(row.tunnel_id)
+      } else {
+        for (const tunnel of await client.findTunnelsByName(tunnelNameFor(row.subdomain))) {
+          await client.deleteTunnel(tunnel.id)
+        }
+      }
+    } catch (error) {
+      // Leave the row in RELEASING and let the alarm retry. Clearing it here would free the name
+      // while a tunnel and possibly a DNS record still point at it.
+      console.error("teardown failed", {
+        subdomain: row.subdomain,
+        status: error instanceof CloudflareError ? error.status : undefined,
+      })
+      await this.#ensureAlarmAt(Date.now() + WATCHDOG_MS)
+      return { ok: false, code: "UPSTREAM_CLOUDFLARE_ERROR" }
+    }
+
+    this.ctx.storage.sql.exec("DELETE FROM lease")
+    await this.ctx.storage.deleteAlarm()
+    await this.#registry().forget(row.subdomain)
+
+    // A conflict still clears the lease: our own record of it is gone, and holding the name hostage
+    // would make one stray DNS record permanently unclaimable. The next claim will hit the same
+    // conflict at `create-dns` and be refused there, which is the same answer with the same log.
+    return conflict ? { ok: false, code: "DNS_CONFLICT" } : { ok: true }
+  }
+
+  #provisionFailure(error: unknown, subdomain: string, step: SagaStep): LeaseFailure {
+    if (error instanceof CloudflareError) {
+      console.error("provisioning failed", { subdomain, step, status: error.status })
+      // 502 for an upstream failure, 500 for one that is ours. The distinction drives whether the
+      // CLI retries, so it is not cosmetic.
+      return { ok: false, code: error.retryable ? "UPSTREAM_CLOUDFLARE_ERROR" : "PROVISION_FAILED" }
+    }
+    console.error("provisioning failed", { subdomain, step, error: String(error) })
+    return { ok: false, code: "PROVISION_FAILED" }
+  }
+
+  // ── storage ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Synchronous by design. See the class comment on atomicity.
+   *
+   * The generic is intersected with `Record<string, SqlStorageValue>` only because that is
+   * `sql.exec`'s constraint. The declared return type is the strict `LeaseRow`, so callers still get
+   * a compile error for a mistyped column name.
+   */
+  #read(): LeaseRow | undefined {
+    return this.ctx.storage.sql
+      .exec<LeaseRow & Record<string, SqlStorageValue>>("SELECT * FROM lease LIMIT 1")
+      .toArray()[0]
+  }
+
+  #write(row: LeaseRow): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO lease (subdomain, tunnel_id, owner_token_hash, state, saga_step,
+                          created_at, expires_at, last_heartbeat_at, client_version, ip_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(subdomain) DO UPDATE SET
+         tunnel_id = excluded.tunnel_id,
+         owner_token_hash = excluded.owner_token_hash,
+         state = excluded.state,
+         saga_step = excluded.saga_step,
+         expires_at = excluded.expires_at,
+         last_heartbeat_at = excluded.last_heartbeat_at,
+         client_version = excluded.client_version,
+         ip_hash = excluded.ip_hash`,
+      row.subdomain,
+      row.tunnel_id,
+      row.owner_token_hash,
+      row.state,
+      row.saga_step,
+      row.created_at,
+      row.expires_at,
+      row.last_heartbeat_at,
+      row.client_version,
+      row.ip_hash,
+    )
+  }
+
+  // ── policy ────────────────────────────────────────────────────────────────────────
+
+  /**
+   * When this lease should be reaped: whichever comes first, the hard expiry or a missed heartbeat.
+   *
+   * `docs/ARCHITECTURE.md` §3e states this as `min(expires_at, last_heartbeat_at + 120s)`.
+   */
+  #deadline(row: LeaseRow): number {
+    const graceMs = Number(this.env.HEARTBEAT_GRACE_SECONDS) * 1000
+    return Math.min(row.expires_at, row.last_heartbeat_at + graceMs)
+  }
+
+  /**
+   * Whether an existing row may be taken over.
+   *
+   * `RELEASING` is never reclaimable: teardown is either running or being retried by the watchdog,
+   * and handing the name out before it completes is precisely the takeover v3 forbids. A teardown
+   * that fails permanently leaves the name held — deliberately, because the alternative is issuing a
+   * URL that points at somebody else's tunnel. Reconciliation is the backstop.
+   */
+  #isReclaimable(row: LeaseRow, now: number): boolean {
+    if (row.state === "RELEASING") {
+      return false
+    }
+    if (row.state === "ACTIVE") {
+      return now >= this.#deadline(row)
+    }
+    // Mid-saga. Reclaimable only once the watchdog window has passed without the saga finishing,
+    // which means the isolate that started it is gone.
+    return now >= row.created_at + WATCHDOG_MS
+  }
+
+  #authorized(row: LeaseRow, presented: Uint8Array): boolean {
+    return hashesMatch(new Uint8Array(row.owner_token_hash), presented)
+  }
+
+  // ── collaborators ─────────────────────────────────────────────────────────────────
+
+  #cloudflare(): CloudflareClient {
+    return new CloudflareClient({
+      apiToken: this.env.CF_API_TOKEN,
+      accountId: this.env.CF_ACCOUNT_ID,
+      zoneId: this.env.CF_ZONE_ID,
+      domain: this.env.CF_DOMAIN,
+    })
+  }
+
+  #registry(): DurableObjectStub<Registry> {
+    return this.env.REGISTRY.get(this.env.REGISTRY.idFromName("global"))
+  }
+
+  /**
+   * Arms the alarm that compensates this saga if the isolate running it dies.
+   *
+   * Unconditional rather than via `#ensureAlarmAt`: a saga starting on a name whose previous lease
+   * had a far-future alarm must pull it in, not leave it.
+   */
+  async #armWatchdog(now: number): Promise<void> {
+    await this.ctx.storage.setAlarm(now + WATCHDOG_MS)
+  }
+
+  /** Sets the alarm unless one is already pending at or before `at`. */
+  async #ensureAlarmAt(at: number): Promise<void> {
+    const pending = await this.ctx.storage.getAlarm()
+    if (pending === null || pending > at) {
+      await this.ctx.storage.setAlarm(at)
+    }
+  }
+}
+
+/** SQLite BLOB binding wants an `ArrayBuffer`, and a `Uint8Array` view may be a slice of a larger one. */
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+}

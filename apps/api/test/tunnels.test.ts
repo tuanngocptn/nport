@@ -1,0 +1,480 @@
+/**
+ * The lease lifecycle, as a client sees it.
+ *
+ * Through `SELF.fetch`, so middleware, routing, validation, the Durable Objects, and the error
+ * handler all participate — in real `workerd`, with real Durable Object storage and real alarms
+ * (`docs/TESTING.md`). Cloudflare itself is the only fake, and it is a stateful one, because "nothing
+ * was left behind" is a claim about state.
+ */
+
+import {
+  listDurableObjectIds,
+  reset,
+  runInDurableObject,
+  SELF,
+  env as testEnv,
+} from "cloudflare:test"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
+
+import { solveChallenge } from "../src/domain/pow"
+import type { Env } from "../src/types"
+import { FakeCloudflare } from "./fake-cloudflare"
+
+const env = testEnv as unknown as Env
+
+const UA = "nport/3.0.0 (darwin; arm64)"
+
+let cloudflare: FakeCloudflare
+let originalDifficulty: number
+
+beforeEach(() => {
+  cloudflare = new FakeCloudflare()
+  cloudflare.install()
+  // The deployed floor is 20 bits — about 100 ms for a user, but slow and variable enough on a loaded
+  // CI runner to make every test in this file flaky. 4 bits exercises the identical code path.
+  originalDifficulty = env.POW_DIFFICULTY_BITS
+  env.POW_DIFFICULTY_BITS = 4
+})
+
+afterEach(async () => {
+  cloudflare.restore()
+  env.POW_DIFFICULTY_BITS = originalDifficulty
+  // Durable Object state does not reset itself between tests — see the note in `vitest.config.ts`.
+  // Without this, a lease created here inflates the global count in the next test.
+  await reset()
+})
+
+async function post(path: string, body: unknown, headers: Record<string, string> = {}) {
+  return SELF.fetch(`https://api.nport.link${path}`, {
+    method: "POST",
+    headers: { "user-agent": UA, "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  })
+}
+
+/** A solved challenge. Difficulty is lowered per-test so the work does not dominate the run. */
+async function solvedChallenge(): Promise<{ challenge: string; nonce: string }> {
+  const response = await SELF.fetch("https://api.nport.link/v1/challenge", {
+    headers: { "user-agent": UA },
+  })
+  const body = (await response.json()) as { challenge: string; difficulty: number }
+  return { challenge: body.challenge, nonce: await solveChallenge(body.challenge, body.difficulty) }
+}
+
+interface CreatedTunnel {
+  subdomain: string
+  url: string
+  tunnelId: string
+  tunnelToken: string
+  ownerToken: string
+  expiresAt: number
+}
+
+async function createTunnel(subdomain?: string) {
+  const proof = await solvedChallenge()
+  const response = await post("/v1/tunnels", {
+    ...(subdomain === undefined ? {} : { subdomain }),
+    ...proof,
+    client: "cli",
+  })
+  return response
+}
+
+describe("POST /v1/tunnels", () => {
+  it("provisions a tunnel and returns both credentials exactly once", async () => {
+    const response = await createTunnel("myapp")
+    expect(response.status).toBe(201)
+
+    const body = (await response.json()) as CreatedTunnel
+    expect(body.subdomain).toBe("myapp")
+    expect(body.url).toBe(`https://myapp.${env.CF_DOMAIN}`)
+    expect(body.tunnelToken.length).toBeGreaterThan(0)
+    // 32 bytes, base64url — 43 characters with no padding.
+    expect(body.ownerToken).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(body.expiresAt).toBeGreaterThan(Date.now())
+
+    // Both sides actually exist at Cloudflare, and the DNS record points at the tunnel.
+    expect([...cloudflare.tunnels.values()].map((t) => t.name)).toEqual(["nport-myapp"])
+    const record = cloudflare.dns.get(`myapp.${env.CF_DOMAIN}`)
+    expect(record).toMatchObject({ type: "CNAME", content: `${body.tunnelId}.cfargotunnel.com` })
+  })
+
+  it("never lets a credential be cached", async () => {
+    // This body is the only time either token is issued. A cache on the path would be a credential
+    // store nobody chose to build.
+    const response = await createTunnel("cacheme")
+    expect(response.headers.get("cache-control")).toBe("no-store")
+  })
+
+  it("normalizes the requested name, so MyApp and myapp.nport.link are one claim", async () => {
+    const response = await createTunnel("MyApp.nport.link")
+    expect(response.status).toBe(201)
+    expect(((await response.json()) as CreatedTunnel).subdomain).toBe("myapp")
+  })
+
+  it("generates an unguessable name when none is asked for", async () => {
+    const body = (await (await createTunnel()).json()) as CreatedTunnel
+    // `nport-` plus 13 base32 characters: 64 bits of entropy, against v2's 10,000-name space.
+    expect(body.subdomain).toMatch(/^nport-[a-z2-7]{13}$/)
+  })
+
+  it("refuses a second claim on a live name, and says when it frees up", async () => {
+    const first = (await (await createTunnel("taken")).json()) as CreatedTunnel
+
+    const second = await createTunnel("taken")
+    expect(second.status).toBe(409)
+    const body = (await second.json()) as {
+      error: { code: string; details?: { expiresAt: number } }
+    }
+    expect(body.error.code).toBe("SUBDOMAIN_IN_USE")
+    // Without this a CLI can only say "try another name", which is the wrong advice for a name that
+    // frees up in a minute.
+    expect(body.error.details?.expiresAt).toBe(first.expiresAt)
+
+    // And nothing was provisioned for the loser.
+    expect(cloudflare.tunnels.size).toBe(1)
+  })
+
+  it("serializes concurrent claims on one name instead of racing them", async () => {
+    // The v2 defect this closes (R4): both callers created a tunnel, and the losing DNS write was
+    // swallowed, leaving an orphan. One Durable Object per name makes that impossible.
+    const proofs = await Promise.all([solvedChallenge(), solvedChallenge()])
+    const responses = await Promise.all(
+      proofs.map((proof) => post("/v1/tunnels", { subdomain: "racy", ...proof, client: "cli" })),
+    )
+
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 409])
+    // Exactly one tunnel, not two — this is the assertion that would have failed against v2.
+    expect(cloudflare.tunnels.size).toBe(1)
+    expect(cloudflare.dns.size).toBe(1)
+  })
+
+  it("rejects a reserved name with 403, not with a generic validation error", async () => {
+    // v2 reserved exactly `['api']`, leaving `www`, `admin`, and `_dmarc` claimable — so an anonymous
+    // caller could take the name that receives our mail or answers our ACME challenges (defect R10).
+    // Asserted per name rather than as a set of acceptable statuses: "one of 400 or 403" would pass
+    // even if every one of these came back as a plain validation error.
+    for (const name of ["api", "www", "login", "admin", "paypal"]) {
+      const response = await createTunnel(name)
+      expect(response.status, name).toBe(403)
+      expect(((await response.json()) as { error: { code: string } }).error.code, name).toBe(
+        "SUBDOMAIN_RESERVED",
+      )
+    }
+
+    // `_dmarc` is different in kind: an underscore can never pass the pattern, so it is a malformed
+    // name rather than a reserved one, and the reason it gives has to say so.
+    const dmarc = await createTunnel("_dmarc")
+    expect(dmarc.status).toBe(400)
+    const body = (await dmarc.json()) as { error: { code: string; details?: { reason: string } } }
+    expect(body.error.code).toBe("INVALID_SUBDOMAIN")
+    expect(body.error.details?.reason).toBe("invalid-characters")
+
+    // Nothing was provisioned for any of them.
+    expect(cloudflare.tunnels.size).toBe(0)
+    expect(cloudflare.dns.size).toBe(0)
+  })
+
+  it("reports why a name was rejected", async () => {
+    const response = await createTunnel("ab")
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as {
+      error: { code: string; details?: { reason: string } }
+    }
+    expect(body.error.code).toBe("INVALID_SUBDOMAIN")
+    // "Invalid" alone is useless to someone who typed two characters.
+    expect(body.error.details?.reason).toBe("too-short")
+  })
+
+  it("validates the name before spending the challenge, so a typo is not expensive", async () => {
+    const proof = await solvedChallenge()
+    const rejected = await post("/v1/tunnels", { subdomain: "ab", ...proof, client: "cli" })
+    expect(rejected.status).toBe(400)
+
+    // The same proof still works, because the first attempt never redeemed it.
+    const accepted = await post("/v1/tunnels", { subdomain: "goodname", ...proof, client: "cli" })
+    expect(accepted.status).toBe(201)
+  })
+
+  it("refuses a replayed challenge", async () => {
+    // Without the ledger, one solved challenge creates unlimited tunnels inside its two-minute
+    // window, and proof-of-work stops being a per-tunnel cost at all.
+    const proof = await solvedChallenge()
+    expect(
+      (await post("/v1/tunnels", { subdomain: "firstuse", ...proof, client: "cli" })).status,
+    ).toBe(201)
+
+    const replay = await post("/v1/tunnels", { subdomain: "seconduse", ...proof, client: "cli" })
+    expect(replay.status).toBe(400)
+    expect(((await replay.json()) as { error: { code: string } }).error.code).toBe("POW_INVALID")
+  })
+
+  it("refuses an unsolved challenge", async () => {
+    const response = await SELF.fetch("https://api.nport.link/v1/challenge", {
+      headers: { "user-agent": UA },
+    })
+    const { challenge } = (await response.json()) as { challenge: string }
+
+    const created = await post("/v1/tunnels", {
+      subdomain: "nowork",
+      challenge,
+      nonce: "0",
+      client: "cli",
+    })
+    expect(created.status).toBe(400)
+    expect(((await created.json()) as { error: { code: string } }).error.code).toBe("POW_INVALID")
+  })
+
+  it("refuses a forged challenge as invalid rather than as expired", async () => {
+    // A forged `exp` in the past must not be reported as `CHALLENGE_EXPIRED`, which is retryable —
+    // that is why `verifyChallenge` checks the signature first.
+    const forged = `${btoa(JSON.stringify({ exp: 1, bits: 4, salt: "x" }))}.abcd`
+    const created = await post("/v1/tunnels", { challenge: forged, nonce: "0", client: "cli" })
+    expect(created.status).toBe(400)
+    expect(((await created.json()) as { error: { code: string } }).error.code).toBe("POW_INVALID")
+  })
+
+  it("treats an empty challenge as POW_REQUIRED", async () => {
+    const created = await post("/v1/tunnels", { challenge: "", nonce: "", client: "cli" })
+    expect(created.status).toBe(428)
+    expect(((await created.json()) as { error: { code: string } }).error.code).toBe("POW_REQUIRED")
+  })
+
+  it("answers a malformed body with our envelope, not the validator's", async () => {
+    const created = await post("/v1/tunnels", { client: "browser" })
+    expect(created.status).toBe(400)
+    const body = (await created.json()) as { error: { code: string; docsUrl: string } }
+    expect(body.error.code).toBe("INVALID_REQUEST")
+    expect(body.error.docsUrl).toBe("https://nport.link/errors/invalid-request")
+  })
+
+  it("refuses to exceed the global cap, with Retry-After", async () => {
+    const original = env.MAX_ACTIVE_TUNNELS
+    try {
+      env.MAX_ACTIVE_TUNNELS = 1
+      expect((await createTunnel("first")).status).toBe(201)
+
+      const response = await createTunnel("second")
+      expect(response.status).toBe(503)
+      expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+        "CAPACITY_EXHAUSTED",
+      )
+      // docs/API.md tells clients to honour it, so every 503 must carry one.
+      expect(response.headers.get("retry-after")).toBe("30")
+    } finally {
+      env.MAX_ACTIVE_TUNNELS = original
+    }
+  })
+
+  it("leaves nothing behind when DNS creation fails", async () => {
+    // v2's central provisioning defect (R3): the tunnel was created, the DNS write failed, and the
+    // tunnel stayed forever with nothing pointing at it.
+    cloudflare.fail("create-dns", { status: 500 })
+
+    const response = await createTunnel("dnsfails")
+    expect(response.status).toBe(502)
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+      "UPSTREAM_CLOUDFLARE_ERROR",
+    )
+
+    // The promise `PROVISION_FAILED` makes — "Nothing was left behind" — as an assertion.
+    expect(cloudflare.tunnels.size).toBe(0)
+    expect(cloudflare.dns.size).toBe(0)
+
+    // And the name is free again, once Cloudflare is healthy.
+    cloudflare.recover()
+    expect((await createTunnel("dnsfails")).status).toBe(201)
+  })
+
+  it("leaves nothing behind when the tunnel cannot be created", async () => {
+    cloudflare.fail("create-tunnel", { status: 500 })
+
+    const response = await createTunnel("tunnelfails")
+    expect(response.status).toBe(502)
+    expect(cloudflare.tunnels.size).toBe(0)
+    expect(cloudflare.dns.size).toBe(0)
+  })
+
+  it("retries a transient Cloudflare failure rather than failing the caller", async () => {
+    cloudflare.fail("create-tunnel", { status: 429, times: 1 })
+
+    expect((await createTunnel("flaky")).status).toBe(201)
+    expect(cloudflare.tunnels.size).toBe(1)
+  })
+
+  it("refuses a name whose DNS record NPort cannot prove it owns", async () => {
+    // Invariant 8. v2 would have deleted this record — its takeover path was a deliberate feature.
+    cloudflare.seedDns(`squatted.${env.CF_DOMAIN}`, "A", "203.0.113.7")
+
+    const response = await createTunnel("squatted")
+    expect(response.status).toBe(409)
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe("DNS_CONFLICT")
+
+    // The foreign record survives untouched, and our tunnel was rolled back.
+    expect(cloudflare.dns.get(`squatted.${env.CF_DOMAIN}`)).toMatchObject({ type: "A" })
+    expect(cloudflare.tunnels.size).toBe(0)
+  })
+})
+
+describe("POST /v1/tunnels/:subdomain/heartbeat", () => {
+  it("renews a lease and reports the authoritative expiry", async () => {
+    const created = (await (await createTunnel("beating")).json()) as CreatedTunnel
+
+    const response = await post("/v1/tunnels/beating/heartbeat", { ownerToken: created.ownerToken })
+    expect(response.status).toBe(200)
+    expect((await response.json()) as { expiresAt: number }).toEqual({
+      expiresAt: created.expiresAt,
+    })
+  })
+
+  it("does not extend the lease", async () => {
+    // The four-hour ceiling is server-authoritative. v2's was a client-side `setTimeout` (R6).
+    const created = (await (await createTunnel("noextend")).json()) as CreatedTunnel
+    const after = (await (
+      await post("/v1/tunnels/noextend/heartbeat", { ownerToken: created.ownerToken })
+    ).json()) as { expiresAt: number }
+    expect(after.expiresAt).toBe(created.expiresAt)
+  })
+
+  it("rejects a heartbeat from anyone but the creator", async () => {
+    await createTunnel("mine")
+
+    const response = await post("/v1/tunnels/mine/heartbeat", {
+      ownerToken: "A".repeat(43),
+    })
+    expect(response.status).toBe(403)
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+      "INVALID_OWNER_TOKEN",
+    )
+  })
+
+  it("reports an unknown subdomain as not found", async () => {
+    const response = await post("/v1/tunnels/nosuchname/heartbeat", { ownerToken: "A".repeat(43) })
+    expect(response.status).toBe(404)
+  })
+
+  it("works for a generated name", async () => {
+    // The regression this guards: `nport-` is a reserved prefix, so validating a path parameter with
+    // the claim validator would make every generated tunnel unable to heartbeat or delete itself.
+    const created = (await (await createTunnel()).json()) as CreatedTunnel
+    const response = await post(`/v1/tunnels/${created.subdomain}/heartbeat`, {
+      ownerToken: created.ownerToken,
+    })
+    expect(response.status).toBe(200)
+  })
+})
+
+describe("DELETE /v1/tunnels/:subdomain", () => {
+  async function del(subdomain: string, ownerToken: string) {
+    return SELF.fetch(`https://api.nport.link/v1/tunnels/${subdomain}`, {
+      method: "DELETE",
+      headers: { "user-agent": UA, "content-type": "application/json" },
+      body: JSON.stringify({ ownerToken }),
+    })
+  }
+
+  it("tears down both sides and frees the name", async () => {
+    const created = (await (await createTunnel("goodbye")).json()) as CreatedTunnel
+
+    expect((await del("goodbye", created.ownerToken)).status).toBe(204)
+    expect(cloudflare.tunnels.size).toBe(0)
+    expect(cloudflare.dns.size).toBe(0)
+
+    // Reclaimable immediately, because teardown completed rather than being assumed.
+    expect((await createTunnel("goodbye")).status).toBe(201)
+  })
+
+  it("is idempotent", async () => {
+    const created = (await (await createTunnel("twice")).json()) as CreatedTunnel
+
+    expect((await del("twice", created.ownerToken)).status).toBe(204)
+    // v2 reported an error for the second Ctrl+C's DELETE (R19).
+    expect((await del("twice", created.ownerToken)).status).toBe(204)
+  })
+
+  it("refuses a delete from anyone but the creator", async () => {
+    const created = (await (await createTunnel("protected")).json()) as CreatedTunnel
+
+    const response = await del("protected", "B".repeat(43))
+    expect(response.status).toBe(403)
+    // v2 accepted `{subdomain, tunnelId}` from anyone, so any caller could remove any tunnel —
+    // including the `api` record itself.
+    expect(cloudflare.tunnels.size).toBe(1)
+    expect(cloudflare.dns.size).toBe(1)
+
+    // The real owner still can.
+    expect((await del("protected", created.ownerToken)).status).toBe(204)
+  })
+
+  it("will not delete a DNS record that no longer points at its tunnel", async () => {
+    const created = (await (await createTunnel("repointed")).json()) as CreatedTunnel
+    // Somebody repointed the record out from under us. Deleting it now would be deleting a record we
+    // cannot prove we own (invariant 8).
+    cloudflare.dns.set(`repointed.${env.CF_DOMAIN}`, {
+      id: "rec-foreign",
+      name: `repointed.${env.CF_DOMAIN}`,
+      type: "CNAME",
+      content: "someone-elses-tunnel.cfargotunnel.com",
+    })
+
+    const response = await del("repointed", created.ownerToken)
+    expect(response.status).toBe(409)
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe("DNS_CONFLICT")
+
+    // The record survives; the tunnel, which we can prove is ours by its `nport-` name, does not.
+    expect(cloudflare.dns.get(`repointed.${env.CF_DOMAIN}`)?.id).toBe("rec-foreign")
+    expect(cloudflare.tunnels.size).toBe(0)
+  })
+
+  it("rejects a malformed subdomain before it can become a Durable Object", async () => {
+    const before = (await listDurableObjectIds(env.SUBDOMAIN_LEASE)).length
+    const response = await del("bad_name", "C".repeat(43))
+    expect(response.status).toBe(400)
+    expect((await listDurableObjectIds(env.SUBDOMAIN_LEASE)).length).toBe(before)
+  })
+})
+
+describe("GET /v1/tunnels/:subdomain", () => {
+  it("reports an active lease without leaking anything", async () => {
+    const created = (await (await createTunnel("public")).json()) as CreatedTunnel
+
+    const response = await SELF.fetch("https://api.nport.link/v1/tunnels/public", {
+      headers: { "user-agent": UA },
+    })
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as Record<string, unknown>
+
+    expect(body).toEqual({ subdomain: "public", active: true, expiresAt: created.expiresAt })
+    // Deliberately absent: anything an attacker could use.
+    const text = JSON.stringify(body)
+    expect(text).not.toContain(created.tunnelId)
+    expect(text).not.toContain(created.tunnelToken)
+    expect(text).not.toContain(created.ownerToken)
+  })
+
+  it("reports a free name as not found", async () => {
+    const response = await SELF.fetch("https://api.nport.link/v1/tunnels/unclaimed", {
+      headers: { "user-agent": UA },
+    })
+    expect(response.status).toBe(404)
+  })
+
+  it("reports an expired-but-unreaped lease as inactive", async () => {
+    const created = (await (await createTunnel("stale")).json()) as CreatedTunnel
+    expect(created.subdomain).toBe("stale")
+
+    // Push the expiry into the past without running the alarm, which is exactly the window between
+    // a lease expiring and its alarm firing.
+    const stub = env.SUBDOMAIN_LEASE.get(env.SUBDOMAIN_LEASE.idFromName("stale"))
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("UPDATE lease SET expires_at = ?", Date.now() - 1000)
+    })
+
+    const response = await SELF.fetch("https://api.nport.link/v1/tunnels/stale", {
+      headers: { "user-agent": UA },
+    })
+    const body = (await response.json()) as { active: boolean }
+    // Reporting `active: true` here would make this endpoint disagree with whether the URL works.
+    expect(body.active).toBe(false)
+  })
+})

@@ -11,3 +11,15 @@
 
 POW_SECRET="local-development-pow-secret-not-for-production"
 IP_HASH_SECRET="local-development-ip-hash-secret-not-for-production"
+
+# The Cloudflare credentials the provisioning saga needs. `POST /v1/tunnels` will refuse with a
+# logged `INTERNAL` until all four are present, which is deliberate: a control plane that answers
+# `/v1/meta` cheerfully while being unable to provision anything is the worst kind of half-working.
+#
+# The placeholders below are enough to *start* the Worker, not to provision: every Cloudflare call
+# will be rejected upstream. Use a real scoped token (Account → Cloudflare Tunnel → Edit, Zone → DNS
+# → Edit) against a zone you own if you need the lifecycle end to end, and never a production one.
+CF_API_TOKEN="local-development-not-a-real-token"
+CF_ACCOUNT_ID="0000000000000000000000000000000o"
+CF_ZONE_ID="0000000000000000000000000000000o"
+CF_DOMAIN="nport.test"

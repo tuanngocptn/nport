@@ -36,6 +36,17 @@ Specifically must be integration tests: concurrent claims for the same subdomain
 
 **Golden fixtures, not snapshots** — every protocol frame. See below.
 
+### The fake Cloudflare API, and why it is not the fake edge this document rejects
+
+`apps/api/test/fake-cloudflare.ts` is a stateful in-memory Cloudflare REST API: it holds tunnels and DNS records in maps, answers lookups from them, and can be told to fail a named operation. `apps/api`'s tests install it by replacing `globalThis.fetch`, which reaches inside a Durable Object because the pool runs the Worker under test in the same isolate as the test file.
+
+This looks like the thing "Deliberately untested" rules out for `crates/protocol` — a hand-built fake that encodes our assumptions and therefore passes exactly when we are wrong. The distinction is what each fake is being asked to prove:
+
+- A fake *edge* would be asserting our reading of an **undocumented wire protocol**. It would agree with us by construction, which is why golden fixtures come from `cloudflared` instead.
+- The fake *Cloudflare API* asserts nothing about Cloudflare. It exists so the saga's own state machine can be exercised: that a failed DNS write leaves no tunnel behind, that compensation finds a tunnel by name when it has no ID, that teardown refuses a record it cannot prove it owns. Those are claims about **our** logic, and they need a collaborator that has state, not one that is correct.
+
+What it therefore does **not** prove is that the request shapes are right. That gap is real and recorded in `docs/ROADMAP.md` §2a: the Cloudflare API paths have never run against the live API. A stub returning canned replies would have hidden it just as well while feeling safer.
+
 ## Golden byte fixtures
 
 The regression net for `crates/protocol`. Byte-exact captures of real frames, asserted unchanged.

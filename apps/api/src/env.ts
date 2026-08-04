@@ -21,8 +21,21 @@
 
 import type { Env } from "./types"
 
-/** Bindings without which the Worker cannot serve a request correctly. */
-const REQUIRED_SECRETS = ["POW_SECRET", "IP_HASH_SECRET"] as const
+/**
+ * Bindings without which the Worker cannot serve a request correctly.
+ *
+ * The Cloudflare credentials are required for *every* gated route, not only the ones that provision.
+ * A deployment missing them is broken, and finding that out on the first `POST /v1/tunnels` — after
+ * `/v1/meta` and `/v1/challenge` answered happily — is how a misconfiguration reaches production.
+ */
+const REQUIRED_SECRETS = [
+  "POW_SECRET",
+  "IP_HASH_SECRET",
+  "CF_API_TOKEN",
+  "CF_ACCOUNT_ID",
+  "CF_ZONE_ID",
+  "CF_DOMAIN",
+] as const
 const REQUIRED_VARS = [
   "LEASE_TTL_SECONDS",
   "HEARTBEAT_GRACE_SECONDS",

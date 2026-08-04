@@ -6,9 +6,9 @@ A gate is a hard stop: every criterion must pass before the next phase starts. G
 
 ## Current position
 
-**Phase 1 done and Phase 1.5 closed. Phase 2's three tracks can now start in parallel.**
+**Phase 1 done, Phase 1.5 closed, Phase 2a past its hardest slice.** The lease lifecycle — claim, saga, heartbeat, delete, alarm-driven expiry — is implemented and tested in real `workerd`. 2b and 2c have not started.
 
-G1 criteria 2, 3, and 4 met; 5 is partial; 1 is unverified for want of dashboard access. Gate G0 is closed locally: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `cargo fmt --check`, `clippy -D warnings`, and `cargo test` all pass. CI has not run yet — nothing is pushed.
+G1 criteria 2, 3, and 4 met; 5 is partial; 1 is unverified for want of dashboard access. Gate G0 is closed: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `cargo fmt --check`, `clippy -D warnings`, `cargo test`, and both codegen steps pass locally and in CI. **Nothing has been deployed** — no Worker, no DNS record, no Cloudflare API call outside the protocol spike's own tunnels.
 
 `crates/protocol` parses tokens, discovers the edge, completes a QUIC handshake, registers connections, **proxies HTTP end-to-end**, **carries WebSockets**, and **sustains a four-connection pool across forced disconnects**. Two and a half of the six open questions in `docs/PROTOCOL.md` §17 are answered, and risks P1, P2, and P3 are closed.
 
@@ -88,20 +88,27 @@ The one deliverable outstanding is the tag, which needs a remote. Everything Pha
 
 ### 2a · `apps/api`
 
-**In progress.** The stateless half is done; the lease lifecycle is next.
+**In progress.** The lease lifecycle works end to end against a fake Cloudflare; abuse controls and reconciliation are next.
 
 - [x] Hono app, `ApiError` → envelope error handler, request-id from `cf-ray`
 - [x] client gate with the minimum-version floor
 - [x] stateless proof-of-work: HMAC-signed challenge, bit-level difficulty, `GET /v1/challenge`
 - [x] `GET /v1/meta`, `GET /v1/health`, `GET /` redirect
-- [x] 37 tests in real `workerd`
-- [ ] `SubdomainLease` and `Registry` DOs; the journaled provisioning saga with compensations
-- [ ] `POST /v1/tunnels`, heartbeat, delete, status
+- [x] `SubdomainLease` and `Registry` DOs; the journaled provisioning saga with compensations
+- [x] `POST /v1/tunnels`, heartbeat, delete, status
+- [x] alarm-driven expiry, including the heartbeat-timeout and abandoned-saga paths
+- [x] 123 tests in real `workerd`
 - [ ] rate limiting and per-source caps; dynamic PoW difficulty
-- [ ] alarm-driven expiry and the reconciliation cron
+- [ ] the reconciliation cron, and the `Registry` sweep cursor it walks
 - [ ] the legacy v2 method-dispatch shim
 
-The DO classes are declared and exported but empty: `wrangler.jsonc` binds them and its `v1` migration tag is already committed, so a missing class is a deploy-time failure. They are empty rather than stubbed with fake behaviour, so nothing pretends to work.
+Closed here: **R3** (the saga journals every step before its side effect and compensates in reverse), **R4** (one DO per normalized name, and the read-check-journal sequence holds no `await`, so concurrent claims cannot both win), **R6** (`expires_at` is server-owned and a heartbeat does not extend it), and **R7** (a lease cannot be taken while live, and no DNS record is deleted unless it is a `CNAME` whose content is exactly `<tunnel_id>.cfargotunnel.com`). Also **R5**, **R10**, **R11**, and the create half of **R9**.
+
+Three things worth knowing before this deploys:
+
+- **The Cloudflare API paths are unverified.** v2 used the legacy `/accounts/{id}/tunnels`; this uses the current `cfd_tunnel` name for the same resource. Nothing here has run against the live API, so the first deploy has to confirm it — everything else in 2a is exercised against `test/fake-cloudflare.ts`.
+- **The global cap is soft.** `MAX_ACTIVE_TUNNELS` is checked before the claim, so a burst of simultaneous creates can overshoot by roughly its own concurrency. It is a capacity guard, not a security boundary; the per-source caps in the next slice are what bound a single abuser.
+- **A permanently failing teardown holds its name.** Deliberate — the alternative is issuing a URL that points at a tunnel we could not confirm is gone. The watchdog alarm retries, and the reconciliation cron is the backstop that does not exist yet.
 
 ### 2b · `crates/core` + `crates/cli`
 

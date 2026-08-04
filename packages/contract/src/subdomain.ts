@@ -164,12 +164,21 @@ export function normalizeSubdomain(input: string): string {
 }
 
 /**
- * Validates an already-normalized name.
+ * The shape rules alone: length, charset, hyphen placement. **No reserved-name check.**
  *
- * Returns the reason rather than a boolean: `INVALID_SUBDOMAIN` carries `details.reason`, and
- * "invalid" alone is a useless thing to tell someone who typed 64 characters.
+ * Split out from [`validateSubdomain`] because claiming a name and *referring* to one are
+ * different questions. A generated name is `nport-<base32>`, and `nport-` is a reserved prefix —
+ * so `GET /v1/tunnels/nport-ab12cd34ef5gh` would be rejected by the full validator as
+ * `reserved-prefix`, making every generated tunnel's own status, heartbeat, and delete endpoints
+ * unreachable. Reserved-ness is a rule about what a stranger may *take*, not about what may be
+ * looked up.
+ *
+ * This is still the guard that stops arbitrary junk becoming a Durable Object name, which is the
+ * property that matters for a path parameter: an unbounded key space is an unbounded number of
+ * objects. A reserved-but-well-formed name simply has no lease and answers `TUNNEL_NOT_FOUND`,
+ * which leaks nothing.
  */
-export function validateSubdomain(subdomain: string): SubdomainCheck {
+export function validateSubdomainShape(subdomain: string): SubdomainCheck {
   if (subdomain.length === 0) {
     return { ok: false, reason: "empty" }
   }
@@ -193,6 +202,20 @@ export function validateSubdomain(subdomain: string): SubdomainCheck {
   if (subdomain.slice(2, 4) === "--") {
     return { ok: false, reason: "double-hyphen-prefix" }
   }
+  return { ok: true, subdomain }
+}
+
+/**
+ * Validates an already-normalized name for a **claim**: shape, then reserved names and prefixes.
+ *
+ * Returns the reason rather than a boolean: `INVALID_SUBDOMAIN` carries `details.reason`, and
+ * "invalid" alone is a useless thing to tell someone who typed 64 characters.
+ */
+export function validateSubdomain(subdomain: string): SubdomainCheck {
+  const shape = validateSubdomainShape(subdomain)
+  if (!shape.ok) {
+    return shape
+  }
   if (RESERVED_SUBDOMAINS.includes(subdomain)) {
     return { ok: false, reason: "reserved" }
   }
@@ -202,9 +225,19 @@ export function validateSubdomain(subdomain: string): SubdomainCheck {
   return { ok: true, subdomain }
 }
 
-/** Normalize then validate — the only entry point callers should need. */
+/** Normalize then validate — the entry point for a **claim**. */
 export function checkSubdomain(input: string): SubdomainCheck {
   return validateSubdomain(normalizeSubdomain(input))
+}
+
+/**
+ * Normalize then shape-check — the entry point for a **reference** to an existing lease.
+ *
+ * Used by the `:subdomain` path parameter on status, heartbeat, and delete. See
+ * [`validateSubdomainShape`] for why those cannot use [`checkSubdomain`].
+ */
+export function checkSubdomainShape(input: string): SubdomainCheck {
+  return validateSubdomainShape(normalizeSubdomain(input))
 }
 
 /**

@@ -17,15 +17,25 @@ export default defineConfig({
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
-        // Without per-test isolation, DO state leaks between cases and you get failures that
-        // depend on test order (`apps/api/CLAUDE.md` § Gotchas).
-        isolatedStorage: true,
+        // No `isolatedStorage` here: the option **does not exist in 0.20** — it is absent from the
+        // package's dist and from its own v3→v4 codemod — and passing it is silently ignored, which
+        // is how it survived here unnoticed. Durable Object state therefore leaks between tests, and
+        // every suite that writes any must call `reset()` from `cloudflare:test` in an `afterEach`
+        // (`apps/api/CLAUDE.md` § Gotchas).
         bindings: {
           // Test-only. Real values are set with `wrangler secret put` and never live in a config
           // file — but the Worker needs *something* here, and a test that shares a production
           // secret is a test that leaks it.
           POW_SECRET: "test-pow-secret",
           IP_HASH_SECRET: "test-ip-hash-secret",
+          // Never reach a network: every Cloudflare call is answered by `test/fake-cloudflare.ts`,
+          // which throws on any request to a host it does not recognise. A test that accidentally
+          // escapes the fake fails loudly rather than talking to a real account.
+          CF_API_TOKEN: "test-cf-api-token",
+          CF_ACCOUNT_ID: "test-account",
+          CF_ZONE_ID: "test-zone",
+          // `.test` is reserved by RFC 2606, so a leaked request cannot resolve to anything real.
+          CF_DOMAIN: "nport.test",
         },
       },
     }),

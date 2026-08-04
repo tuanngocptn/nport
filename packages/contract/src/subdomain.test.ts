@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import fixtures from "../fixtures/subdomains.json" with { type: "json" }
 import {
   checkSubdomain,
+  checkSubdomainShape,
   isReserved,
   MAX_LENGTH,
   normalizeSubdomain,
@@ -93,6 +94,61 @@ describe("invariants the fixtures cannot express", () => {
     for (const { input } of [...fixtures.normalize, ...fixtures.valid, ...fixtures.invalid]) {
       const once = normalizeSubdomain(input)
       expect(normalizeSubdomain(once), input).toBe(once)
+    }
+  })
+})
+
+/**
+ * The split between claiming a name and referring to one.
+ *
+ * These are not fixture-driven: the fixtures describe what may be *claimed*, and this function
+ * deliberately answers a different question. Adding shape-only cases to the shared file would make
+ * the Rust mirror assert the wrong thing.
+ */
+describe("checkSubdomainShape", () => {
+  it("accepts a generated name, which the claim validator must reject", () => {
+    // The regression this exists for: `nport-` is a reserved prefix, so validating a `:subdomain`
+    // path parameter with `checkSubdomain` makes every generated tunnel unable to report its status,
+    // heartbeat, or delete itself.
+    const generated = "nport-ab12cd34ef5gh"
+    expect(checkSubdomainShape(generated)).toEqual({ ok: true, subdomain: generated })
+    expect(checkSubdomain(generated)).toEqual({ ok: false, reason: "reserved-prefix" })
+  })
+
+  it("accepts a reserved name, because looking one up leaks nothing", () => {
+    // `api` has no lease, so the caller gets `TUNNEL_NOT_FOUND` — the same answer as for any other
+    // unclaimed name, which is what makes this safe.
+    expect(checkSubdomainShape("api")).toEqual({ ok: true, subdomain: "api" })
+  })
+
+  it("still refuses anything that could never have been issued", () => {
+    // This is the guard that stops a junk path parameter becoming a Durable Object: an unbounded key
+    // space is an unbounded number of objects.
+    const rejections: [string, string][] = [
+      ["ab", "too-short"],
+      ["bad_name", "invalid-characters"],
+      ["-lead", "leading-or-trailing-hyphen"],
+      ["xn--abc", "double-hyphen-prefix"],
+      ["a".repeat(64), "too-long"],
+    ]
+    for (const [input, reason] of rejections) {
+      const check = checkSubdomainShape(input)
+      expect(check.ok, input).toBe(false)
+      if (!check.ok) {
+        expect(check.reason, input).toBe(reason)
+      }
+    }
+  })
+
+  it("normalizes first, so a pasted URL resolves to the same object", () => {
+    expect(checkSubdomainShape("MyApp.nport.link.")).toEqual({ ok: true, subdomain: "myapp" })
+  })
+
+  it("agrees with the claim validator on every fixture that is not reserved", () => {
+    // Shape is a strict subset of the claim rules, so any name the claim validator accepts must pass
+    // here too. A divergence would mean a tunnel that can be created but not addressed.
+    for (const { input } of fixtures.valid) {
+      expect(checkSubdomainShape(input).ok, input).toBe(true)
     }
   })
 })

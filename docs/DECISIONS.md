@@ -31,6 +31,10 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0021 | shadcn/ui + TanStack Virtual for the desktop frontend | Accepted |
 | 0022 | Phase 0 toolchain: exact pins, lefthook, root-level Biome | Accepted |
 | 0023 | Frontend e2e with visual regression; tests enforced by a Stop hook | Accepted |
+| 0024 | Confine `capnp-rpc`'s non-`Send` region behind a thread boundary | Accepted |
+| 0025 | A purpose-built Rust emitter instead of `typify` | Accepted |
+| 0026 | Derived tunnel names are the saga's idempotency key | Accepted |
+| 0027 | Redeemed proof-of-work challenges are recorded | Accepted |
 
 ---
 
@@ -426,3 +430,41 @@ The emitter resolves inlined enums back to their named component by value set, a
 - If the contract ever grows genuinely complex schemas — nested objects, unions, discriminated variants — `typify` is still the escape hatch and this ADR should be revisited rather than the emitter grown to match it.
 
 **Rejected.** *`typify` plus a second generator for the registry* — two pipelines, two failure modes, and the registry generator would still be hand-written. *Reading `packages/contract/src/errors.ts` from Rust* — that means parsing TypeScript. *Duplicating status and retryability by hand on the Rust side* — precisely the drift the contract exists to prevent.
+
+## ADR-0026 — Derived tunnel names are the saga's idempotency key
+
+**Date.** 2026-08-04. **Status.** Accepted.
+
+**Context.** The provisioning saga journals each step before its side effect, so on replay an entry means "this *may* have happened" (`docs/ARCHITECTURE.md` §3a). Compensation therefore has to answer a question the journal cannot: did the `createTunnel` call that was in flight when the isolate died actually create a tunnel?
+
+The Cloudflare API offers no idempotency key for tunnel creation, so a naive answer is impossible. If the tunnel got created but its ID was never journaled, there is nothing to delete by — and that leaves an orphan tunnel with no DNS record, which is defect R3 reappearing through the mechanism designed to prevent it.
+
+**Decision.** Every tunnel NPort creates is named **`nport-<normalized subdomain>`**, derived rather than random. Compensation and teardown look a tunnel up by that name when they have no ID, and delete what they find.
+
+**Consequences.**
+
+- The orphan window closes without an idempotency key: the name *is* the key, and it is knowable before the call that creates the thing it names.
+- The `nport-` prefix is what makes deleting-by-name safe. A self-hoster's account may hold tunnels NPort did not create, and reconciliation must be able to tell them apart before it deletes anything. `nport-` is already a reserved prefix in `packages/contract`, so no user-chosen subdomain can produce a colliding tunnel name.
+- One extra Cloudflare call on the compensation path, and only there — the happy path still has the ID.
+- **This is a weaker guarantee than the DNS one, deliberately.** Invariant 8 requires *proving* ownership of a DNS record by its content before deleting it. For a tunnel there is no equivalent content to check, so the name prefix is the whole proof. That asymmetry is acceptable because a tunnel with no DNS record routes nothing, while a DNS record can point at somebody else's live service.
+
+**Rejected.** *A random tunnel name journaled before creation* — the journal write and the API call still cannot be atomic, so a crash between them leaves a name nothing will look up. *Listing all tunnels and diffing against leases* — that is reconciliation's job, running every five minutes; compensation needs an answer now and bounded to one name. *Treating the ambiguous case as unrecoverable* — it would mean `PROVISION_FAILED` sometimes lies about having left nothing behind.
+
+## ADR-0027 — Redeemed proof-of-work challenges are recorded, though issuing stays stateless
+
+**Date.** 2026-08-04. **Status.** Accepted. **Amends** the abuse-control design in `docs/ARCHITECTURE.md` §7.
+
+**Context.** The proof-of-work gate is described as stateless: `GET /v1/challenge` returns an HMAC over its own parameters, nothing is stored, and so issuing costs one HMAC and cannot be exhausted. That property is real and worth keeping.
+
+But it was load-bearing for a claim it does not actually support. A challenge is valid for 120 seconds, and nothing stopped one solved challenge from being presented to `POST /v1/tunnels` repeatedly inside that window. The cost of a solve was therefore amortised over unlimited tunnels, and §7's "the only control that raises attacker cost without an account" carried no load at all.
+
+**Decision.** The `Registry` Durable Object keeps a ledger of redeemed challenge MACs. `POST /v1/tunnels` spends a challenge before provisioning; a second presentation is `POW_INVALID`. Rows are pruned on every write and expire well after the challenge does.
+
+**Consequences.**
+
+- Proof of work becomes a cost **per tunnel** rather than per two-minute window, which is what makes raising difficulty under load a meaningful lever.
+- **Issuing is still stateless and still unexhaustible.** The distinction is the point: nothing is written until a caller has already paid for a solve, so the ledger cannot be filled by anyone who has not done the work. A table of *outstanding* challenges — the thing §7 rejects — would itself be the attack surface.
+- Two Durable Object round trips on create, both to the same singleton `Registry`: one for the global cap, one to spend. Ordered so the cap is checked first, because a 503 must not consume the caller's work.
+- The ledger is on the create path only, so its cost scales with creates rather than with heartbeats.
+
+**Rejected.** *A nonce range bound to the challenge* — it limits how many solutions exist, not how many times one is presented. *Making the challenge single-use by encoding a counter* — stateless verification cannot know whether a counter was already used. *Accepting the replay* — the alternative to a ledger is that difficulty is not a lever, and difficulty is the documented response to an abuse event (`docs/OPERATIONS.md`).

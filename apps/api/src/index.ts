@@ -6,9 +6,8 @@
  * driving the API — and **no module-level mutable state**, because an isolate is shared across
  * callers and module scope is not per-request.
  *
- * **Phase 2a, first slice.** The stateless half: error envelope, client gate, proof-of-work, and
- * the read-only routes. `POST /v1/tunnels` and the lease lifecycle need the Durable Objects and
- * land next; they are absent rather than stubbed, so nothing here pretends to work.
+ * **Phase 2a.** The stateless half plus the lease lifecycle. Still to land: per-source rate limits
+ * and caps, dynamic proof-of-work difficulty, the reconciliation cron, and the legacy v2 shim.
  */
 
 import { Hono } from "hono"
@@ -20,6 +19,7 @@ import { requireBindings } from "./middleware/require-bindings"
 import { challengeRoute } from "./routes/challenge"
 import { healthRoute } from "./routes/health"
 import { metaRoute } from "./routes/meta"
+import { tunnelsRoute } from "./routes/tunnels"
 import type { Env, Variables } from "./types"
 
 export { Registry } from "./do/registry"
@@ -45,6 +45,7 @@ app.use("/v1/*", clientGate)
 app.route("/v1/challenge", challengeRoute)
 app.route("/v1/meta", metaRoute)
 app.route("/v1/health", healthRoute)
+app.route("/v1/tunnels", tunnelsRoute)
 
 /** Matches v2. Some users hit the API root by hand. */
 app.get("/", (context) => context.redirect("https://nport.link", 301))

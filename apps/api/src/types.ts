@@ -12,6 +12,17 @@ interface Secrets {
   POW_SECRET: string
   /** Keys the source-identity HMAC. Raw IPs are never stored (rule 11). */
   IP_HASH_SECRET: string
+  /** Scoped to Account → Cloudflare Tunnel → Edit and Zone → DNS → Edit (`docs/OPERATIONS.md`). */
+  CF_API_TOKEN: string
+  CF_ACCOUNT_ID: string
+  CF_ZONE_ID: string
+  /**
+   * The zone tunnels live under, e.g. `nport.link`.
+   *
+   * Not a secret, but it travels with the other four so a self-hoster configures one group rather
+   * than remembering that one of the five belongs somewhere else (`docs/SELF_HOSTING.md`).
+   */
+  CF_DOMAIN: string
 }
 
 /** Plain values from `wrangler.jsonc` § vars. Strings, because Workers vars are strings. */
@@ -24,8 +35,12 @@ interface Vars {
 }
 
 export interface Env extends Secrets, Vars {
-  SUBDOMAIN_LEASE: DurableObjectNamespace
-  REGISTRY: DurableObjectNamespace
+  // Parameterized so the stubs expose their classes' methods. Without the type argument every
+  // Durable Object call would be typed `unknown` and a renamed method would fail at runtime rather
+  // than at `tsc`. Inline `import(...)` rather than a top-level one because both classes import
+  // `Env` from here — a type-only inline import is erased, so the cycle never exists at runtime.
+  SUBDOMAIN_LEASE: DurableObjectNamespace<import("./do/subdomain-lease").SubdomainLease>
+  REGISTRY: DurableObjectNamespace<import("./do/registry").Registry>
 }
 
 export interface Variables {
