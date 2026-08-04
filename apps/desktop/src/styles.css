@@ -1,0 +1,32 @@
+@import "tailwindcss";
+@import "@nport/design-tokens/tokens.css";
+
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
+
+/**
+ * The window is transparent so the OS wallpaper shows through the glass. The mockup simulates that
+ * layer with a painted background because a design export has no OS behind it; here the real thing
+ * is available, so `tauri.conf.json` sets `transparent` and this sets nothing.
+ */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  color: var(--np-text);
+  font-family: var(--np-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A WebView is not a browser tab. Selecting the chrome and dragging it is not a gesture anyone
+   wants; inputs opt back in where they need it. */
+body {
+  user-select: none;
+  cursor: default;
+}
+input,
+textarea,
+[contenteditable] {
+  user-select: text;
+}

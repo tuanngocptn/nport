@@ -36,6 +36,14 @@ export default defineConfig({
           CF_ZONE_ID: "test-zone",
           // `.test` is reserved by RFC 2606, so a leaked request cannot resolve to anything real.
           CF_DOMAIN: "nport.test",
+          // **Pinned so a developer's `.dev.vars` cannot change what the tests mean.** The pool
+          // reads that file alongside `wrangler.jsonc`, so `FAKE_CLOUDFLARE=1` — which every local
+          // dev session sets — would otherwise route the saga through `src/cloudflare/dev-fake.ts`
+          // and straight past `test/fake-cloudflare.ts`. That is not a hypothetical: adding the
+          // flag broke 36 tests here, and the failures pointed at the saga rather than at the
+          // config. Anything the suite depends on belongs in this block, set explicitly.
+          FAKE_CLOUDFLARE: "",
+          MIN_CLIENT_VERSION: "3.0.0",
           // Loosened from the deployed floor of 20 bits: 4 bits exercises the identical code path but
           // does not make every create-path test hostage to a loaded CI runner's CPU.
           POW_DIFFICULTY_BITS: 4,

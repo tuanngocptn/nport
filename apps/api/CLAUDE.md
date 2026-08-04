@@ -20,6 +20,8 @@ src/do/source-quota.ts      DO per source: concurrency, hourly quota, PoW diffic
 src/reconcile.ts        the cron sweep: orphan tunnels only, and what it may delete
 src/routes/legacy.ts    the v2 method-dispatch shim, and why it is weaker than /v1
 src/cloudflare/client.ts    the only place this Worker calls Cloudflare
+src/cloudflare/factory.ts   the only place a client is constructed
+src/cloudflare/dev-fake.ts  DEV ONLY: an in-memory Cloudflare, behind FAKE_CLOUDFLARE
 src/domain/             pow, ip-hash, owner-token, generated-name — pure logic, unit-tested
                         (subdomain validation lives in packages/contract, not here)
 src/errors.ts           ErrorCode → HTTP status; codes imported from @nport/contract
@@ -30,6 +32,7 @@ test/                   workerd integration tests + test/fake-cloudflare.ts
 ## Commands
 
 ```bash
+pnpm dev                              # this, plus apps/web and apps/desktop
 pnpm dev:api                          # wrangler dev with local DOs
 pnpm --filter @nport/api test         # vitest-pool-workers
 pnpm --filter @nport/api typecheck
@@ -41,7 +44,7 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 
 1. **Every route is defined in `packages/contract` first.** Add the schema there, `pnpm codegen`, then implement. Never hand-write a validator.
 2. **Never `throw new Error()`.** Throw `ApiError(code)` with a code from the registry. The error-handler middleware maps it to a status and builds the envelope.
-3. **All Cloudflare API calls go through `src/cloudflare/client.ts`.** Never `fetch` the CF API directly — the client owns retry, backoff, idempotency, and error mapping.
+3. **All Cloudflare API calls go through `src/cloudflare/client.ts`**, and every client is built by `src/cloudflare/factory.ts`. Never `fetch` the CF API directly — the client owns retry, backoff, idempotency, and error mapping — and never `new CloudflareClient` at a call site, or one caller ends up on the real API while the other is on the dev fake.
 4. **Anything that must be atomic lives in a Durable Object.** Never in KV, never in module scope.
 5. **Every mutation is idempotent.** DO alarms are at-least-once and clients retry.
 6. **Journal saga steps before the side effect they describe**, so replay-based compensation is safe.

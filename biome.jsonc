@@ -17,6 +17,8 @@
       "!**/generated",
       "!schema/*.json",
       "!**/worker-configuration.d.ts",
+      // Written by `next dev`/`next build` on every run, same as the line above.
+      "!**/next-env.d.ts",
       // Vendored shadcn/ui source — upstream formatting is left alone (ADR-0021).
       "!apps/desktop/src/components/ui",
       // The approved UI mockup, exported from Claude Design (docs/mockup/README.md). It is a
@@ -25,6 +27,14 @@
       // warnings — every one of them a note about someone else's generated bundle.
       "!docs/mockup"
     ]
+  },
+  "css": {
+    "parser": {
+      // Tailwind v4 has no config file: `@theme` and `@custom-variant` in
+      // packages/design-tokens *are* the configuration. Without this Biome refuses to parse those
+      // files at all, which also disables formatting them.
+      "tailwindDirectives": true
+    }
   },
   "formatter": {
     "enabled": true,

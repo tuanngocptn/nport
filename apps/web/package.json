@@ -1,0 +1,32 @@
+{
+  "name": "@nport/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The public site at nport.link: marketing page, user docs, generated error pages.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "opennextjs-cloudflare build",
+    "preview": "opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nport/contract": "workspace:*",
+    "@nport/design-tokens": "workspace:*",
+    "next": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@nport/tsconfig": "workspace:*",
+    "@opennextjs/cloudflare": "catalog:",
+    "@tailwindcss/postcss": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

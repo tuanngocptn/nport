@@ -1,0 +1,10 @@
+{
+  "extends": "@nport/tsconfig/next.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "next-env.d.ts", "*.ts", "*.mjs", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", ".next", ".open-next"]
+}

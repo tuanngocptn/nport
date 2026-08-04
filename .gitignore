@@ -21,6 +21,8 @@ coverage/
 # `.dev.vars`, so the copy-me file has to be discoverable. It holds no real secret.
 !.dev.vars.example
 worker-configuration.d.ts
+# Rewritten by `next dev` and `next build` on every run, like the line above.
+apps/web/next-env.d.ts
 
 # Tauri
 apps/desktop/src-tauri/gen/

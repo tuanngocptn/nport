@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the main window is allowed to do. Every command needs an entry here or it is denied at runtime (apps/desktop/CLAUDE.md rule 4).",
+  "windows": ["main"],
+  "permissions": ["core:default", "opener:default"]
+}

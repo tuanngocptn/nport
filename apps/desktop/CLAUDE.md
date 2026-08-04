@@ -8,7 +8,9 @@ Tauri v2 desktop app: a GUI for people who would rather not use a terminal, plus
 
 **The approved design is `docs/mockup/NPort Desktop.dc.html`**, with the layout flattened to plain markup in `docs/mockup/handoff/desktop/index.html`. Read `docs/mockup/README.md` before building or changing anything visual. It is reference only: never imported, never hand-edited, excluded from every check.
 
-**Status: not implemented.** Phase 4 — deliberately last, so it consumes a stable `core` API instead of churning it.
+**Status: scaffolded, not implemented.** Tauri v2 + React + Tailwind v4 open a window and complete one IPC round-trip. `src-tauri` is a Cargo workspace member and **deliberately does not depend on `nport-core` yet** — that edge is what Phase 4 waits for, and adding it early is exactly the churn the ordering avoids. The scaffold exists so `pnpm dev` brings every surface up at once.
+
+Phase 4 remains deliberately last, so it consumes a stable `core` API instead of churning it.
 
 ## Layout
 

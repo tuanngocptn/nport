@@ -65,6 +65,8 @@ Most of these currently run against stubs; the phase in brackets is when each be
 
 | Command | What it does |
 | --- | --- |
+| `pnpm dev` | **every surface at once** — the control plane, the site, and the desktop window |
+| `pnpm dev:cli` | tunnel the local site through the local control plane |
 | `pnpm lint` | Biome over the whole repo — the linter and the formatter check |
 | `pnpm lint:fix` | the same, applying every safe fix |
 | `pnpm format` | formatting only, no lint rules |

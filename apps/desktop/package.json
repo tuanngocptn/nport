@@ -1,0 +1,31 @@
+{
+  "name": "@nport/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "NPort desktop app: Tauri v2 GUI with a traffic inspector.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:vite": "vite",
+    "build": "tauri build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nport/design-tokens": "workspace:*",
+    "@tauri-apps/api": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@nport/tsconfig": "workspace:*",
+    "@tailwindcss/postcss": "catalog:",
+    "@tauri-apps/cli": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}

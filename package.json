@@ -21,9 +21,11 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
+    "dev": "node scripts/dev-preflight.mjs && turbo run dev",
     "dev:api": "pnpm --filter @nport/api dev",
     "dev:web": "pnpm --filter @nport/web dev",
     "dev:desktop": "pnpm --filter @nport/desktop dev",
+    "dev:cli": "cargo run -p nport -- 3000 --backend http://localhost:8787",
     "prepare": "lefthook install"
   },
   "devDependencies": {

@@ -58,6 +58,8 @@ The lint, test, and codegen commands run today against stubs. `dev:*` needs Phas
 
 ```bash
 corepack enable && pnpm install    # bootstrap; also installs the git hooks
+pnpm dev                           # api + web + desktop, all at once
+pnpm dev:cli                       # tunnel the local site through the local control plane
 pnpm dev:api                       # wrangler dev on apps/api
 pnpm dev:web                       # next dev with Worker bindings
 pnpm dev:desktop                   # tauri dev

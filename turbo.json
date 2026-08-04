@@ -2,6 +2,17 @@
   "$schema": "https://turborepo.com/schema.json",
   "globalDependencies": [".nvmrc", "biome.jsonc", "pnpm-workspace.yaml"],
   "tasks": {
+    // `pnpm dev` — every long-running surface at once. `persistent` tells Turborepo these never
+    // exit, so it must not wait on them; `cache: false` because a dev server has no output to
+    // cache and a cache hit would mean not starting it.
+    //
+    // No `dependsOn`: the three are genuinely independent. apps/web reads @nport/contract as
+    // TypeScript source rather than a build artifact, so there is nothing to build first — and
+    // making them depend on each other would mean one slow start blocks the other two.
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
     "build": {
       "dependsOn": ["^build"],
       "outputs": [".next/**", "!.next/cache/**", ".open-next/**", "dist/**"]

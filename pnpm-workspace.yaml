@@ -44,3 +44,26 @@ catalog:
   # Runs apps/api's tests in real workerd, so Durable Object storage and alarms are the real
   # thing. A mocked DO proves nothing about the semantics the design rests on (docs/TESTING.md).
   '@cloudflare/vitest-pool-workers': 0.20.1
+
+  # apps/web. Next 16.3.0 exists and is what `next@latest` resolves to, but it was published
+  # inside minimumReleaseAge's 24 h window, so pnpm rejects it — the guard working as intended.
+  # The pin moves on the next bump, not the guard (ADR-0022, and the same note as hono above).
+  next: 16.2.12
+  '@opennextjs/cloudflare': 1.20.2
+  # Tailwind v4 has no tailwind.config.js: the tokens in packages/design-tokens are the config,
+  # via `@theme` (apps/web/CLAUDE.md § Gotchas). v3 idioms will not work here.
+  tailwindcss: 4.3.3
+  '@tailwindcss/postcss': 4.3.3
+
+  # Shared by apps/web and apps/desktop, which is the whole reason they are catalog entries:
+  # two React majors in one workspace is a class of bug nobody enjoys.
+  react: 19.2.8
+  react-dom: 19.2.8
+  '@types/react': 19.2.18
+  '@types/react-dom': 19.2.4
+
+  # apps/desktop. The Tauri JS side; the Rust side is pinned in the root Cargo.toml.
+  '@tauri-apps/cli': 2.11.4
+  '@tauri-apps/api': 2.11.1
+  vite: 8.2.0
+  '@vitejs/plugin-react': 6.0.5

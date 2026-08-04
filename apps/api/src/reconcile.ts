@@ -29,8 +29,9 @@
  */
 
 import { isReserved } from "@nport/contract"
-
-import { CloudflareClient, cnameTargetFor, tunnelNameFor } from "./cloudflare/client"
+import type { CloudflareClient } from "./cloudflare/client"
+import { cnameTargetFor, tunnelNameFor } from "./cloudflare/client"
+import { cloudflareFor } from "./cloudflare/factory"
 import { missingBindings } from "./env"
 import type { Env } from "./types"
 
@@ -72,12 +73,7 @@ export async function reconcile(env: Env): Promise<ReconcileReport> {
   const registry = env.REGISTRY.get(env.REGISTRY.idFromName("global"))
   const page = await registry.sweepPage()
 
-  const client = new CloudflareClient({
-    apiToken: env.CF_API_TOKEN,
-    accountId: env.CF_ACCOUNT_ID,
-    zoneId: env.CF_ZONE_ID,
-    domain: env.CF_DOMAIN,
-  })
+  const client = cloudflareFor(env)
 
   const { tunnels, hasMore } = await client.listTunnels(page, PAGE_SIZE)
 

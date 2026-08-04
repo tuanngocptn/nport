@@ -1,0 +1,16 @@
+{
+  "name": "@nport/design-tokens",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "NPort brand tokens as plain CSS. Shared by apps/web and apps/desktop (ADR-0014).",
+  "license": "MIT",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./fonts.css": "./fonts.css"
+  },
+  "files": [
+    "tokens.css",
+    "fonts.css"
+  ]
+}

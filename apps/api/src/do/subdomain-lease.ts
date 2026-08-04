@@ -1,14 +1,14 @@
 import { DurableObject } from "cloudflare:workers"
 
 import type { ServerErrorCode } from "@nport/contract"
-
+import type { CloudflareClient } from "../cloudflare/client"
 import {
-  CloudflareClient,
   CloudflareError,
   cnameTargetFor,
   DNS_RECORD_EXISTS,
   tunnelNameFor,
 } from "../cloudflare/client"
+import { cloudflareFor } from "../cloudflare/factory"
 import { hashesMatch } from "../domain/owner-token"
 import type { Env } from "../types"
 import type { Registry } from "./registry"
@@ -824,12 +824,7 @@ export class SubdomainLease extends DurableObject<Env> {
   // ── collaborators ─────────────────────────────────────────────────────────────────
 
   #cloudflare(): CloudflareClient {
-    return new CloudflareClient({
-      apiToken: this.env.CF_API_TOKEN,
-      accountId: this.env.CF_ACCOUNT_ID,
-      zoneId: this.env.CF_ZONE_ID,
-      domain: this.env.CF_DOMAIN,
-    })
+    return cloudflareFor(this.env)
   }
 
   #registry(): DurableObjectStub<Registry> {

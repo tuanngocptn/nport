@@ -25,6 +25,17 @@ interface Secrets {
   CF_DOMAIN: string
 }
 
+/**
+ * Set only by `apps/api/.dev.vars`, which `wrangler dev` reads and `wrangler deploy` does not.
+ *
+ * Optional and outside `Secrets` on purpose: `missingBindings` must not require it, because a
+ * deployment that had it would be the bug. See `src/cloudflare/dev-fake.ts` for the second guard.
+ */
+interface DevOnly {
+  /** `"1"` routes every Cloudflare call to the in-memory fake, so `pnpm dev` provisions offline. */
+  FAKE_CLOUDFLARE?: string
+}
+
 /** Plain values from `wrangler.jsonc` § vars. Strings, because Workers vars are strings. */
 interface Vars {
   LEASE_TTL_SECONDS: number
@@ -39,7 +50,7 @@ interface Vars {
   MAX_CREATES_PER_HOUR_PER_SOURCE: number
 }
 
-export interface Env extends Secrets, Vars {
+export interface Env extends Secrets, Vars, DevOnly {
   // Parameterized so the stubs expose their classes' methods. Without the type argument every
   // Durable Object call would be typed `unknown` and a renamed method would fail at runtime rather
   // than at `tsc`. Inline `import(...)` rather than a top-level one because both classes import

@@ -1,0 +1,27 @@
+[package]
+name = "nport-desktop"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+description = "NPort desktop app"
+license = "MIT"
+publish = false
+
+# Tauri builds a library and a thin binary over it: the library is what the mobile targets and the
+# integration tests link, and `main.rs` is six lines calling into it. Keeping that split from the
+# start means the eventual test suite has something to link that is not a binary.
+[lib]
+name = "nport_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+tauri = { workspace = true }
+tauri-plugin-opener = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

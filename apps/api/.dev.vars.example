@@ -23,3 +23,26 @@ CF_API_TOKEN="local-development-not-a-real-token"
 CF_ACCOUNT_ID="0000000000000000000000000000000o"
 CF_ZONE_ID="0000000000000000000000000000000o"
 CF_DOMAIN="nport.test"
+
+# Routes every Cloudflare call to the in-memory fake in src/cloudflare/dev-fake.ts, so
+# `POST /v1/tunnels` succeeds without credentials and `pnpm dev` provisions offline. The lease, the
+# saga, the ownerToken and the URL are all real; the connector token is not, so `nport` cannot open a
+# QUIC session with it.
+#
+# This flag can only reach a Worker through this file, which `wrangler deploy` never uploads — and
+# the fake refuses to activate anyway when CF_API_TOKEN looks like a real one, so putting a genuine
+# token above silently gets you the genuine API. Set it to "" to always use the real thing.
+FAKE_CLOUDFLARE="1"
+
+# Lowers the client-version floor to match what the workspace actually builds.
+#
+# `wrangler.jsonc` sets it to 3.0.0 for production, and `crates/cli` is version 3.0.0-dev — which
+# semver puts *below* 3.0.0, so the local CLI is refused by the local control plane with
+# CLIENT_TOO_OLD. That ordering is deliberate and must not be "fixed" in the gate: it is what stops
+# every 3.0.0-beta.N client sailing through the moment the floor moves to 3.0.0
+# (`src/middleware/client-gate.ts`).
+#
+# 3.0.0-dev rather than 0.0.0 on purpose — the gate still runs and a real 2.x client is still
+# refused, so what is being exercised locally is the production code path, not a disabled one.
+# A `.dev.vars` entry overrides the matching `vars` value, and only under `wrangler dev`.
+MIN_CLIENT_VERSION="3.0.0-dev"

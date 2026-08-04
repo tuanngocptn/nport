@@ -10,7 +10,7 @@ The public site at `nport.link`: marketing page, user documentation, and generat
 
 **The approved design is `docs/mockup/NPort Site.dc.html`.** Read `docs/mockup/README.md` before building or changing anything visual — that file is what UI, UX, and behaviour are checked against. It is reference only: never imported, never hand-edited, excluded from every check.
 
-**Status: not implemented.** Phase 2c.
+**Status: scaffolded, not implemented.** Next 16 + OpenNext + Tailwind v4 boot and serve one development page over `packages/design-tokens`; every section, the MDX docs, and `/errors/[code]` are Phase 2c. The scaffold exists so `pnpm dev` brings every surface up at once, not because 2c has started.
 
 ## Layout
 

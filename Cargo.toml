@@ -6,7 +6,10 @@ members = [
   "crates/core",
   "crates/protocol",
   "crates/xtask",
-  # "apps/desktop/src-tauri" joins in Phase 4 (apps/desktop/CLAUDE.md rule 1).
+  # Scaffolded early so `pnpm dev` can bring every surface up at once. The *app* is still Phase 4
+  # (apps/desktop/CLAUDE.md rule 1): this member is a window and one IPC command, and deliberately
+  # does not depend on `nport-core` yet — that edge is what Phase 4 waits for a stable core to add.
+  "apps/desktop/src-tauri",
 ]
 
 [workspace.package]
@@ -60,6 +63,11 @@ rustls = "0.23"
 rustls-native-certs = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# apps/desktop. The JS half is pinned in pnpm-workspace.yaml's catalog; these two must stay in step
+# with `@tauri-apps/cli`, because the CLI generates and validates the config this crate compiles.
+tauri = { version = "2.11", features = ["macos-private-api"] }
+tauri-build = { version = "2.6", features = [] }
+tauri-plugin-opener = "2.5"
 thiserror = "2.0"
 # `~/.nport/config.toml`, whose format `crates/CLAUDE.md` rule 8 already settled. Parsing only.
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }

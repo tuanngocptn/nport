@@ -1,0 +1,23 @@
+/**
+ * Font stacks. No `@font-face`, no `@import`, no `<link>` to a font CDN.
+ *
+ * The mockup preconnects to Google Fonts, which is right for a design export and wrong for the
+ * site: a render-blocking request to a third party on every page load, and a third party that sees
+ * every visitor. `apps/web` loads Geist through `next/font`, which self-hosts and subsets it;
+ * `apps/desktop` runs in a WebView with no network dependency worth adding. Both then fall through
+ * to the system UI font, which on macOS *is* the design — SF Pro is what the mockup draws.
+ *
+ * The optical weights are not a rounding error. SF Pro's "Medium" is 510 and its "Semibold" is 590;
+ * asking for 500 and 600 gets you a synthesized weight that reads subtly wrong at display sizes.
+ */
+
+:root {
+  --np-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Geist", system-ui, sans-serif;
+  --np-font-display:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Geist", system-ui, sans-serif;
+  --np-font-mono: "SF Mono", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --np-w-regular: 400;
+  --np-w-medium: 510;
+  --np-w-semibold: 590;
+}

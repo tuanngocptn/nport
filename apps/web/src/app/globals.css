@@ -1,0 +1,26 @@
+@import "tailwindcss";
+@import "@nport/design-tokens/tokens.css";
+
+/**
+ * Dark mode is an attribute on the root element, not a class.
+ *
+ * The tokens switch on `[data-theme="light"]`, so the variant has to agree with them or half the
+ * palette would follow one signal and half the other. `apps/desktop` uses the same attribute, which
+ * is the point of sharing a token file at all.
+ */
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
+
+html {
+  color-scheme: dark light;
+}
+
+body {
+  background: #07070a;
+  color: var(--np-text);
+  font-family: var(--np-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-theme="light"] body {
+  background: #f2f2f6;
+}
