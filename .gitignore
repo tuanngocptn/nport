@@ -45,3 +45,7 @@ Thumbs.db
 npm-debug.log*
 .pnpm-debug.log*
 *.pending-snap
+
+# Claude Code's scratch worktrees. Each is a full git repository, so `git add -A` picks it up as a
+# gitlink — a commit pointing at a clone nobody else has. Ignored rather than remembered.
+.claude/worktrees/

@@ -6,7 +6,7 @@ A gate is a hard stop: every criterion must pass before the next phase starts. G
 
 ## Current position
 
-**Phase 1 done, Phase 1.5 closed, Phase 2a past its hardest slice.** The lease lifecycle — claim, saga, heartbeat, delete, alarm-driven expiry — is implemented and tested in real `workerd`. 2b and 2c have not started.
+**Phase 1 done, Phase 1.5 closed, Phase 2a feature-complete.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented and tested in real `workerd`. 2b and 2c have not started.
 
 G1 criteria 2, 3, and 4 met; 5 is partial; 1 is unverified for want of dashboard access. Gate G0 is closed: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `cargo fmt --check`, `clippy -D warnings`, `cargo test`, and both codegen steps pass locally and in CI. **Nothing has been deployed** — no Worker, no DNS record, no Cloudflare API call outside the protocol spike's own tunnels.
 
@@ -88,7 +88,7 @@ The one deliverable outstanding is the tag, which needs a remote. Everything Pha
 
 ### 2a · `apps/api`
 
-**In progress.** The lease lifecycle and all five abuse-control layers work end to end against a fake Cloudflare. Reconciliation and the legacy shim are what remain.
+**Feature-complete, undeployed.** Everything 2a set out to build exists and is tested in real `workerd` against a fake Cloudflare. What remains is not code: the Cloudflare API paths have never met the live API, and the zone-level rate limit is a dashboard setting.
 
 - [x] Hono app, `ApiError` → envelope error handler, request-id from `cf-ray`
 - [x] client gate with the minimum-version floor
@@ -99,8 +99,8 @@ The one deliverable outstanding is the tag, which needs a remote. Everything Pha
 - [x] alarm-driven expiry, including the heartbeat-timeout and abandoned-saga paths
 - [x] rate limiting, per-source caps, and per-source PoW escalation (ADR-0028)
 - [x] the reconciliation cron and the `Registry` sweep cursor it walks
-- [x] 159 tests in real `workerd`
-- [ ] the legacy v2 method-dispatch shim
+- [x] the legacy v2 method-dispatch shim
+- [x] 177 tests in real `workerd`
 
 Closed here: **R3** (the saga journals every step before its side effect and compensates in reverse), **R4** (one DO per normalized name, and the read-check-journal sequence holds no `await`, so concurrent claims cannot both win), **R6** (`expires_at` is server-owned and a heartbeat does not extend it), **R7** (a lease cannot be taken while live, and no DNS record is deleted unless it is a `CNAME` whose content is exactly `<tunnel_id>.cfargotunnel.com`), and **R9** — all five layers: zone limiting is a dashboard setting, the Workers rate limiter is keyed on `HMAC(ip, secret)` + ASN, `SourceQuota` bounds concurrent and hourly creates per source, proof of work escalates per source, and the global cap returns 503. Also **R5**, **R10**, and **R11**.
 
@@ -110,6 +110,7 @@ Three things worth knowing before this deploys:
 - **The global cap is soft.** `MAX_ACTIVE_TUNNELS` is checked before the claim, so a burst of simultaneous creates can overshoot by roughly its own concurrency. It is a capacity guard, not a security boundary — the per-source caps are what bound a single abuser, and those *are* hard: `SourceQuota.reserve` takes the slot and records the attempt in one synchronous, await-free step.
 - **Zone-level rate limiting is a dashboard setting, not code.** `docs/ARCHITECTURE.md` §7's outermost layer lives in the Cloudflare dashboard for `api.nport.link` and has not been configured, because nothing is deployed. `docs/OPERATIONS.md` owns it.
 - **A permanently failing teardown holds its name.** Deliberate — the alternative is issuing a URL that points at a tunnel we could not confirm is gone. The watchdog alarm retries, and the reconciliation cron now backs it up.
+- **The v2 shim is the weakest path in the system, deliberately.** It gets the rate limiter, the per-source caps, and the global cap — but **no proof of work**, because a 2.x client cannot solve a challenge, and no `ownerToken`, because the concept did not exist when those clients shipped. Its delete is authorized by source hash against a lease explicitly flagged `legacy`, so it can never reach a `/v1` tunnel. Every day it stays open is a day the cheapest way to create a tunnel is the old one; `docs/RELEASE.md` owns the sunset.
 - **The sweep will not delete a DNS record it cannot prove it owns, and therefore leaves some orphans behind.** An orphan has no lease to say what its record should point at, so the proof used instead is the orphan tunnel's own ID — which means the record is deleted *before* the tunnel, while the proof still exists. A record pointing anywhere else is logged and left for a human (`docs/OPERATIONS.md`). Closing that gap automatically would mean deleting records on weaker evidence than invariant 8 allows, which is v2's takeover defect.
 
 **Every review pass of this track's concurrency and cleanup has found a reachable bug in code that had already passed the full gate.** Five so far, all fixed and tested:

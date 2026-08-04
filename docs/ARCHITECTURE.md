@@ -144,7 +144,8 @@ CREATE TABLE lease (
   expires_at        INTEGER,
   last_heartbeat_at INTEGER,
   client_version    TEXT,
-  ip_hash           BLOB       -- HMAC(ip, rotating secret); raw IPs are never stored
+  ip_hash           BLOB,      -- HMAC(ip, rotating secret); raw IPs are never stored
+  legacy            INTEGER    -- created through the v2 shim, and therefore deletable by source hash
 );
 ```
 

@@ -83,6 +83,7 @@ interface LeaseRow {
   last_heartbeat_at: number
   client_version: string
   ip_hash: string
+  legacy: number
 }
 
 export interface ClaimRequest {
@@ -92,6 +93,14 @@ export interface ClaimRequest {
   readonly ownerTokenHash: Uint8Array
   readonly ipHash: string
   readonly clientVersion: string
+  /**
+   * Set only by the v2 compatibility shim.
+   *
+   * A v2 client never received an `ownerToken` — the concept did not exist — so its delete cannot prove
+   * ownership the way `/v1` requires. This flag marks the leases for which `releaseAsLegacy` is allowed
+   * to fall back to a source-hash match, and it must never be set for a `/v1` claim.
+   */
+  readonly legacy?: boolean
 }
 
 /**
@@ -158,7 +167,12 @@ export class SubdomainLease extends DurableObject<Env> {
           expires_at        INTEGER NOT NULL,
           last_heartbeat_at INTEGER NOT NULL,
           client_version    TEXT NOT NULL,
-          ip_hash           TEXT NOT NULL
+          ip_hash           TEXT NOT NULL,
+          -- Whether this lease was created through the v2 compatibility shim, which is the only thing
+          -- that may later authorize a delete without an ownerToken. An explicit column rather than a
+          -- prefix on the client_version text: an authorization decision must never rest on parsing a
+          -- string, which is ADR-0018's whole point. (No backticks here -- JS template literal.)
+          legacy            INTEGER NOT NULL DEFAULT 0
         )
       `)
     })
@@ -220,6 +234,7 @@ export class SubdomainLease extends DurableObject<Env> {
       last_heartbeat_at: now,
       client_version: request.clientVersion,
       ip_hash: request.ipHash,
+      legacy: request.legacy === true ? 1 : 0,
     }
     this.#write(row)
     // ── end of the indivisible section ──────────────────────────────────────────────
@@ -279,6 +294,50 @@ export class SubdomainLease extends DurableObject<Env> {
       return { ok: true }
     }
     if (!this.#authorized(row, ownerTokenHash)) {
+      return { ok: false, code: "INVALID_OWNER_TOKEN" }
+    }
+
+    this.#write({ ...row, state: "RELEASING", saga_step: "teardown" })
+    await this.#armWatchdog(Date.now())
+    this.#inFlight = true
+    try {
+      const result = await this.#teardown(row)
+      return result.ok ? { ok: true } : result
+    } finally {
+      this.#inFlight = false
+    }
+  }
+
+  /**
+   * Releases a lease created through the v2 compatibility shim, authorized by source hash.
+   *
+   * The weakest authorization in the system, and confined here on purpose. A v2 client never received an
+   * `ownerToken`, so there is nothing for it to present; the only thing left is that the delete arrives
+   * from the same source that created the lease. `docs/API.md` § Legacy v2 compatibility states exactly
+   * this, and two guards keep it from becoming v2's unauthenticated delete:
+   *
+   * 1. **`legacy` must be set.** A `/v1` lease can never be deleted this way, however the request is
+   *    shaped, so an attacker cannot use the legacy endpoint to reach a modern tunnel.
+   * 2. **The source hash must match.** Same address and ASN as the create, which for a CLI on one machine
+   *    is the normal case.
+   *
+   * Both are weaker than an `ownerToken` and both are the reason `docs/RELEASE.md` sunsets this. What it
+   * is *not* is v2's behaviour: v2 accepted `{subdomain, tunnelId}` from anyone and deleted whatever it
+   * named, including the `api` record.
+   */
+  async releaseAsLegacy(ipHash: string): Promise<ReleaseResult> {
+    const row = this.#read()
+    if (row === undefined) {
+      // Idempotent, like `/v1` delete: a client retrying after a blip must not be told its own
+      // successful delete failed.
+      return { ok: true }
+    }
+    if (row.legacy !== 1) {
+      console.warn("legacy delete refused for a v1 lease", { subdomain: row.subdomain })
+      return { ok: false, code: "INVALID_OWNER_TOKEN" }
+    }
+    if (row.ip_hash !== ipHash) {
+      console.warn("legacy delete refused: source mismatch", { subdomain: row.subdomain })
       return { ok: false, code: "INVALID_OWNER_TOKEN" }
     }
 
@@ -682,8 +741,8 @@ export class SubdomainLease extends DurableObject<Env> {
   #write(row: LeaseRow): void {
     this.ctx.storage.sql.exec(
       `INSERT INTO lease (subdomain, tunnel_id, owner_token_hash, state, saga_step,
-                          created_at, expires_at, last_heartbeat_at, client_version, ip_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          created_at, expires_at, last_heartbeat_at, client_version, ip_hash, legacy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(subdomain) DO UPDATE SET
          tunnel_id = excluded.tunnel_id,
          owner_token_hash = excluded.owner_token_hash,
@@ -698,7 +757,8 @@ export class SubdomainLease extends DurableObject<Env> {
          expires_at = excluded.expires_at,
          last_heartbeat_at = excluded.last_heartbeat_at,
          client_version = excluded.client_version,
-         ip_hash = excluded.ip_hash`,
+         ip_hash = excluded.ip_hash,
+         legacy = excluded.legacy`,
       row.subdomain,
       row.tunnel_id,
       row.owner_token_hash,
@@ -709,6 +769,7 @@ export class SubdomainLease extends DurableObject<Env> {
       row.last_heartbeat_at,
       row.client_version,
       row.ip_hash,
+      row.legacy,
     )
   }
 

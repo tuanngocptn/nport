@@ -6,7 +6,7 @@ The control plane at `api.nport.link`. Hono on Cloudflare Workers. Validates req
 
 **Not responsible for:** carrying tunnel traffic (it never touches the data path), user identity (there is none), or the connector protocol.
 
-**Status: partly implemented.** Phase 2a — the lease lifecycle, the abuse controls, and the reconciliation cron work; the legacy v2 shim does not exist yet (`docs/ROADMAP.md`).
+**Status: Phase 2a complete.** Lease lifecycle, abuse controls, reconciliation cron, and the v2 compatibility shim. Not yet deployed, and the Cloudflare API paths are unverified against the live API (`docs/ROADMAP.md`).
 
 ## Layout
 
@@ -18,6 +18,7 @@ src/do/subdomain-lease.ts   DO per subdomain: atomic claim, saga journal, expiry
 src/do/registry.ts          singleton DO: global index, cap, challenge ledger
 src/do/source-quota.ts      DO per source: concurrency, hourly quota, PoW difficulty
 src/reconcile.ts        the cron sweep: orphan tunnels only, and what it may delete
+src/routes/legacy.ts    the v2 method-dispatch shim, and why it is weaker than /v1
 src/cloudflare/client.ts    the only place this Worker calls Cloudflare
 src/domain/             pow, ip-hash, owner-token, generated-name — pure logic, unit-tested
                         (subdomain validation lives in packages/contract, not here)
@@ -74,4 +75,6 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 - **`idFromName(subdomain)` requires the *normalized* subdomain.** Normalizing after deriving the ID gives two DOs for one logical name, and the whole atomicity guarantee evaporates. Normalize first, always.
 - **A `wrangler rollback` reverts code, not DO schema.** Migrations are forward-only; deploy schema changes in two compatible steps (`docs/RELEASE.md`).
 - **The legacy v2 shim must keep working** until the sunset date. It deliberately does *not* reproduce v2's subdomain-takeover or unauthenticated-delete behaviour — those were the bugs.
+- **The shim answers in v2's body shape, and that includes failures raised in middleware.** A rate-limited 2.x client would otherwise receive the `/v1` envelope and print `[object Object]`, so `app.onError` picks the shape by path. Any new middleware on `/` inherits this automatically; any new *response* shape does not.
+- **`POST /` has no proof of work**, because a 2.x client cannot solve one. It is the cheapest path to a tunnel that exists, held in check only by the rate limiter, the per-source caps, and the global cap — which is the argument for sunsetting on schedule (`docs/RELEASE.md`).
 - `GET /` is a 301 to `https://nport.link`, matching v2. Some users hit the API root by hand.

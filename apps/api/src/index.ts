@@ -6,8 +6,8 @@
  * driving the API — and **no module-level mutable state**, because an isolate is shared across
  * callers and module scope is not per-request.
  *
- * **Phase 2a.** The lease lifecycle, the abuse controls, and the reconciliation cron. Still to land:
- * the legacy v2 method-dispatch shim.
+ * **Phase 2a complete.** The lease lifecycle, the abuse controls, the reconciliation cron, and the v2
+ * compatibility shim.
  */
 
 import { Hono } from "hono"
@@ -20,6 +20,12 @@ import { requireBindings } from "./middleware/require-bindings"
 import { runScheduled } from "./reconcile"
 import { challengeRoute } from "./routes/challenge"
 import { healthRoute } from "./routes/health"
+import {
+  isLegacyRequest,
+  legacyEnvelope,
+  legacyMethodNotAllowed,
+  legacyRoute,
+} from "./routes/legacy"
 import { metaRoute } from "./routes/meta"
 import { tunnelsRoute } from "./routes/tunnels"
 import type { Env, Variables } from "./types"
@@ -36,6 +42,12 @@ app.use("*", requestId)
 // line rather than an opaque failure inside whichever primitive needed the value first. Health is
 // excluded deliberately: an uptime monitor should still distinguish a running-but-misconfigured
 // Worker from a dead one.
+// `/` carries the v2 shim on POST and DELETE, so it needs the same binding check as the v1 routes.
+// Registered per method rather than on the path, because `GET /` is a browser redirect that reads no
+// binding and must keep working on a misconfigured Worker.
+app.post("/", requireBindings)
+app.delete("/", requireBindings)
+
 app.use("/v1/challenge", requireBindings)
 app.use("/v1/meta", requireBindings)
 app.use("/v1/tunnels", requireBindings)
@@ -54,6 +66,13 @@ app.use("/v1/*", clientGate)
 // route would simply be unprotected, and nothing would say so. `rateLimit` skips `/v1/health` itself.
 app.use("/v1/*", rateLimit)
 
+// **The shim gets the limiter too.** Without this, `POST /` would be an unlimited-abuse hole that
+// bypasses the entire control stack except the global cap — and since a v2 client cannot solve a proof of
+// work, this endpoint is already the cheapest way to create a tunnel that exists. It must at least be
+// rate-limited and quota-bounded (`src/routes/legacy.ts`).
+app.post("/", rateLimit)
+app.delete("/", rateLimit)
+
 app.route("/v1/challenge", challengeRoute)
 app.route("/v1/meta", metaRoute)
 app.route("/v1/health", healthRoute)
@@ -61,6 +80,11 @@ app.route("/v1/tunnels", tunnelsRoute)
 
 /** Matches v2. Some users hit the API root by hand. */
 app.get("/", (context) => context.redirect("https://nport.link", 301))
+
+// The v2 compatibility shim. Registered after `GET /` so the redirect wins for browsers, and
+// `legacyMethodNotAllowed` last so it only catches methods nothing else claimed.
+app.route("/", legacyRoute)
+app.route("/", legacyMethodNotAllowed)
 
 app.notFound((context) =>
   context.json(envelope(new ApiError("INVALID_REQUEST"), context.get("requestId")), 400),
@@ -74,9 +98,13 @@ app.notFound((context) =>
  */
 app.onError((error, context) => {
   const id = context.get("requestId")
+  // A 2.x client cannot read the v1 envelope. Failures raised in middleware — the rate limiter, the
+  // binding check — never reach `src/routes/legacy.ts`, so the shape has to be chosen here or an old
+  // client would print `[object Object]` where a message belongs.
+  const legacy = isLegacyRequest(context.req.path, context.req.method)
 
   if (error instanceof ApiError) {
-    const body = envelope(error, id)
+    const body = legacy ? legacyEnvelope(error.message) : envelope(error, id)
     const headers: Record<string, string> = {}
     // Every 429 and 503 carries Retry-After, because docs/API.md tells clients to honour it and
     // a retryable error without one invites a tighter loop than the server wants.
@@ -88,7 +116,8 @@ app.onError((error, context) => {
   }
 
   console.error("unhandled", { requestId: id, error: String(error) })
-  return context.json(envelope(new ApiError("INTERNAL"), id), 500)
+  const internal = new ApiError("INTERNAL")
+  return context.json(legacy ? legacyEnvelope(internal.message) : envelope(internal, id), 500)
 })
 
 export default {

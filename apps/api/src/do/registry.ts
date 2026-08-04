@@ -135,6 +135,21 @@ export class Registry extends DurableObject<Env> {
     })
   }
 
+  /**
+   * Whether the global cap leaves room for another lease.
+   *
+   * Split out from `admitCreate` for the v2 shim, which has no challenge to redeem: a v2 client cannot
+   * solve a proof of work, so there is nothing to put in the ledger. The capacity question is the only
+   * part of admission that still applies.
+   */
+  async hasCapacity(maxActive: number): Promise<boolean> {
+    this.#prune(Date.now())
+    const active = this.ctx.storage.sql
+      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM lease_index")
+      .one().count
+    return active < maxActive
+  }
+
   /** Called by a lease when it becomes `ACTIVE`. Idempotent: the same name records once. */
   async record(subdomain: string, expiresAt: number): Promise<void> {
     this.ctx.storage.sql.exec(
