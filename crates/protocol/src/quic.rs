@@ -336,6 +336,43 @@ pub async fn connect_on(
     Ok(connection)
 }
 
+/// QUIC is the primary transport (ADR-0002); HTTP/2 is the ADR-0017 fallback.
+///
+/// The mapping is almost too direct to need a trait — `open_bi` and `accept_bi` are exactly the two
+/// questions [`Transport`] asks. That is the point: the trait was shaped by `docs/PROTOCOL.md` §6, and
+/// QUIC happens to answer it natively while h2 has to work for it.
+impl crate::Transport for EdgeConnection {
+    type Send = quinn::SendStream;
+    type Recv = quinn::RecvStream;
+
+    fn peer(&self) -> SocketAddr {
+        self.peer
+    }
+
+    async fn open_control(&self) -> Result<(Self::Send, Self::Recv), crate::TransportError> {
+        // `open_bi`, not `open_uni`: registration is request/response, and upstream opens it
+        // bidirectionally (`connection/quic_connection.go`). Nothing is written here — the caller hands
+        // the pair straight to the capnp transport, with **no signature and no version byte** (§6).
+        self.connection
+            .open_bi()
+            .await
+            .map_err(|_| crate::TransportError::StreamRejected)
+    }
+
+    async fn accept_data(&self) -> Result<(Self::Send, Self::Recv), crate::TransportError> {
+        self.connection
+            .accept_bi()
+            .await
+            .map_err(|_| crate::TransportError::ConnectionLost)
+    }
+
+    fn close(&self, reason: &str) {
+        // Error code 0 and a human reason, matching upstream's `CloseWithError(0, "")` after the drain
+        // period. quinn sends the close frame on a best-effort basis and returns immediately.
+        self.connection.close(0u32.into(), reason.as_bytes());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
