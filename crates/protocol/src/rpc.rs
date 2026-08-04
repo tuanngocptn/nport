@@ -210,32 +210,7 @@ pub async fn register_connection(
         }
 
         let response = request.send().promise.await?;
-        // Two hops with the same name: the RPC results struct has a `result` pointer field
-        // holding a ConnectionResponse, which in turn has a `result` union.
-        let results = response.get()?;
-        let connection_response = results.get_result()?;
-
-        match connection_response.get_result().which()? {
-            connection_response::result::Which::Error(error) => {
-                let error = error?;
-                let cause = error.get_cause()?.to_str()?.to_owned();
-                let retry_after = error.get_retry_after();
-                Err(RpcError::Refused {
-                    cause,
-                    // Nanoseconds. Treating this as milliseconds gives a 1000x wrong backoff.
-                    retry_after: u64::try_from(retry_after).ok().map(Duration::from_nanos),
-                    should_retry: error.get_should_retry(),
-                })
-            }
-            connection_response::result::Which::ConnectionDetails(details) => {
-                let details = details?;
-                Ok(ConnectionDetails {
-                    uuid: details.get_uuid()?.to_vec(),
-                    location_name: details.get_location_name()?.to_str()?.to_owned(),
-                    tunnel_is_remotely_managed: details.get_tunnel_is_remotely_managed(),
-                })
-            }
-        }
+        read_connection_response(response.get()?.get_result()?)
     };
 
     // `select!` drives the RpcSystem while the call is outstanding. If the system finishes
@@ -254,9 +229,129 @@ pub async fn register_connection(
     .map_err(|_| RpcError::Timeout)?
 }
 
+/// Turns a `ConnectionResponse` into a result.
+///
+/// Extracted so the one-shot [`register_connection`] and the long-lived [`Session`] cannot disagree
+/// about what the edge said. Two things in here have bitten before and must not drift:
+///
+/// - **Two hops with the same name.** The RPC results struct has a `result` *pointer* field holding a
+///   `ConnectionResponse`, which in turn has a `result` *union*. Reading the wrong one compiles.
+/// - **`retryAfter` is nanoseconds**, a Go `time.Duration`. Treating it as milliseconds gives a
+///   1000x wrong backoff — the kind of bug that only shows up during an incident.
+fn read_connection_response(
+    response: connection_response::Reader<'_>,
+) -> Result<ConnectionDetails, RpcError> {
+    match response.get_result().which()? {
+        connection_response::result::Which::Error(error) => {
+            let error = error?;
+            Err(RpcError::Refused {
+                cause: error.get_cause()?.to_str()?.to_owned(),
+                retry_after: u64::try_from(error.get_retry_after())
+                    .ok()
+                    .map(Duration::from_nanos),
+                should_retry: error.get_should_retry(),
+            })
+        }
+        connection_response::result::Which::ConnectionDetails(details) => {
+            let details = details?;
+            Ok(ConnectionDetails {
+                uuid: details.get_uuid()?.to_vec(),
+                location_name: details.get_location_name()?.to_str()?.to_owned(),
+                tunnel_is_remotely_managed: details.get_tunnel_is_remotely_managed(),
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Builds a `ConnectionResponse` in memory so the reader can be tested without an edge.
+    ///
+    /// Worth the scaffolding: this is the only part of registration that can be checked hermetically,
+    /// and it is where the two traps live. Everything else needs a live run (`-- --ignored`).
+    fn response_message() -> capnp::message::Builder<capnp::message::HeapAllocator> {
+        capnp::message::Builder::new_default()
+    }
+
+    #[test]
+    fn reads_connection_details_out_of_the_inner_union() {
+        // The two-hop shape: results.result is a pointer to a ConnectionResponse, whose own `result`
+        // is the union. Reading the outer one instead compiles and returns nonsense.
+        let mut message = response_message();
+        {
+            let mut response = message.init_root::<connection_response::Builder<'_>>();
+            let mut details = response.reborrow().get_result().init_connection_details();
+            details.set_uuid(&[1, 2, 3, 4]);
+            details.set_location_name("hkg09");
+            details.set_tunnel_is_remotely_managed(true);
+        }
+
+        let reader = message
+            .get_root_as_reader::<connection_response::Reader<'_>>()
+            .expect("root");
+        let details = read_connection_response(reader).expect("should be details");
+
+        assert_eq!(details.uuid, vec![1, 2, 3, 4]);
+        assert_eq!(details.location_name, "hkg09");
+        assert!(details.tunnel_is_remotely_managed);
+    }
+
+    #[test]
+    fn reads_retry_after_as_nanoseconds_not_milliseconds() {
+        // A Go `time.Duration`. Reading it as milliseconds gives a 1000x wrong backoff — a bug that
+        // only shows up during an incident, which is the worst time to find it.
+        let mut message = response_message();
+        {
+            let mut response = message.init_root::<connection_response::Builder<'_>>();
+            let mut error = response.reborrow().get_result().init_error();
+            error.set_cause("EDUPCONN");
+            // Two seconds, expressed the way Go does.
+            error.set_retry_after(2_000_000_000);
+            error.set_should_retry(true);
+        }
+
+        let reader = message
+            .get_root_as_reader::<connection_response::Reader<'_>>()
+            .expect("root");
+        let error = read_connection_response(reader).expect_err("should be a refusal");
+
+        match error {
+            RpcError::Refused {
+                cause,
+                retry_after,
+                should_retry,
+            } => {
+                assert_eq!(cause, "EDUPCONN");
+                assert_eq!(retry_after, Some(Duration::from_secs(2)));
+                assert!(should_retry);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_negative_retry_after_is_dropped_rather_than_wrapping() {
+        // `retryAfter` is signed on the wire. A negative value cast blindly to u64 becomes roughly
+        // 584 years, which would look like a permanent failure to every caller.
+        let mut message = response_message();
+        {
+            let mut response = message.init_root::<connection_response::Builder<'_>>();
+            let mut error = response.reborrow().get_result().init_error();
+            error.set_cause("nonsense");
+            error.set_retry_after(-1);
+            error.set_should_retry(false);
+        }
+
+        let reader = message
+            .get_root_as_reader::<connection_response::Reader<'_>>()
+            .expect("root");
+        match read_connection_response(reader).expect_err("should be a refusal") {
+            RpcError::Refused { retry_after, .. } => assert_eq!(retry_after, None),
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
 
     #[test]
     fn arch_uses_gos_vocabulary() {

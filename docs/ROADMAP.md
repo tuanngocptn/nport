@@ -137,8 +137,9 @@ One flaky test came out of the same work, worth recording for what it was assert
 - [x] `core::supervisor` — the pool's decisions: start order, reconnect, rotation, give-up
 - [x] `core::local_runtime` — ADR-0024's `!Send` thread boundary, implemented
 - [x] `TunnelManager` — the supervision tasks, event broadcast, and shutdown
-- [ ] **`rpc::Session`** — hold the control stream open and expose `unregisterConnection` (§12). Blocks the connector
 - [x] **`LocalRuntime::host`** — a long-lived `!Send` object on the confined thread, with a `Send` handle
+- [x] `rpc::read_connection_response` — the response reader, extracted and finally tested
+- [ ] **`rpc::Session`** — hold the control stream open and expose `unregisterConnection` (§12). Blocks the connector
 - [ ] the QUIC `Connector`: edge discovery, dial, register, serve — wiring the manager to a real edge
 - [ ] `core::inspector` behind an optional sink
 - [ ] the API client over `crates/contract`
@@ -181,6 +182,12 @@ That implied a second gap one layer down, now closed. `LocalRuntime::run` is run
 The property that makes it useful is that **`Hosted<T>` is `Send` even when `T` is not** — it carries no `T`, only the ability to ask for work on one — so an ordinary `tokio::spawn`ed connection task can own a handle to a capnp session it could never hold directly. Calls are served one at a time, which is correctness rather than a limitation: an `RpcSystem` is not safe to drive concurrently, and a session interleaving `unregisterConnection` with something else would be a protocol bug.
 
 Remaining order: `rpc::Session` → QUIC connector. Doing the connector first would still mean writing a shutdown path that silently cannot work.
+
+**The session cannot replace `register_connection`, so the response reader was extracted instead.** `examples/spike.rs` calls `register_connection` *outside* a `LocalSet`, and a session has to `spawn_local` its `RpcSystem` driver — so the two need different drivers and both must exist. What must not differ is their reading of what the edge said, which is now one function used by both.
+
+That function had never been tested. It is where both of registration's traps live: the response has **two hops with the same name** — the results struct's `result` pointer holds a `ConnectionResponse` whose own `result` is the union, and reading the outer one compiles — and `retryAfter` is **nanoseconds**, a Go `time.Duration`, where reading milliseconds gives a 1000x wrong backoff during an incident. Both now have hermetic tests built from in-memory capnp messages, plus one for a negative `retryAfter`: the field is signed, and casting blindly to `u64` turns `-1` into roughly 584 years, which every caller would read as a permanent failure.
+
+**Worth knowing about what comes next:** `Session` will be verifiable only against a live edge, exactly like `register_connection` — there is no capnp peer to test against, which is why `docs/TESTING.md` puts registration in the live tier. The response reader was the one part that could be pulled into the hermetic tier, and it has been.
 
 Worth noting what this does *not* block: the manager already treats a connection that returns from `serve` as safe to cut, so the only thing missing is the unregister call itself. The drain, the deadline, and the `Stopped { drained }` reporting are all in place and tested.
 
