@@ -199,6 +199,38 @@ describe("lookups", () => {
     expect(seen[0]).toBe("/client/v4/accounts/acc/cfd_tunnel/t9/connections")
     expect(seen.at(-1)).toBe("/client/v4/accounts/acc/cfd_tunnel/t9")
   })
+
+  it("treats an already-deleted tunnel as deleted", async () => {
+    // Alarms are at-least-once, so a teardown that succeeded and lost its response is redelivered.
+    // Without this, the retry throws on 404, the lease stays in RELEASING, and the watchdog
+    // reschedules every 30s forever — holding a subdomain nobody can reclaim. Found by leaving a
+    // dev stack running: the log filled with `teardown failed { status: 404 }` at 30s intervals.
+    const client = new CloudflareClient(CONFIG, (async (url: string) =>
+      url.endsWith("/connections")
+        ? ok(null)
+        : respond(404, {
+            success: false,
+            errors: [{ code: 1000, message: "tunnel not found" }],
+            result: null,
+          })) as unknown as typeof fetch)
+
+    await expect(client.deleteTunnel("gone")).resolves.toBeUndefined()
+  })
+
+  it("still reports a delete that failed for any other reason", async () => {
+    // The 404 tolerance above must not become "teardown never fails". A 403 is a real problem and
+    // the lease must stay in RELEASING rather than freeing a name whose tunnel is still alive.
+    const client = new CloudflareClient(CONFIG, (async (url: string) =>
+      url.endsWith("/connections")
+        ? ok(null)
+        : respond(403, {
+            success: false,
+            errors: [{ code: 10000, message: "no" }],
+            result: null,
+          })) as unknown as typeof fetch)
+
+    await expect(client.deleteTunnel("t9")).rejects.toBeInstanceOf(CloudflareError)
+  })
 })
 
 describe("fqdn", () => {

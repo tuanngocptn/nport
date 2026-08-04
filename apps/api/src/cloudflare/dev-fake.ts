@@ -67,6 +67,20 @@ function nextId(prefix: string): string {
   return `${prefix}${String(counter).padStart(8, "0")}dead0000beef0000cafe0000`.slice(0, 32)
 }
 
+/**
+ * A tunnel id in the shape the client will actually accept: a **UUID**.
+ *
+ * Not cosmetic. `TunnelToken::parse` runs `Uuid::parse_str` on this field, so a bare hex string
+ * fails there — and the CLI then reports `EDGE_PROTOCOL_ERROR` having never reached the edge at all,
+ * which makes a fake run prove much less than it appears to. Cloudflare's own tunnel ids are UUIDs,
+ * so this is also the more faithful fake.
+ */
+function nextTunnelId(): string {
+  counter += 1
+  const n = String(counter).padStart(8, "0")
+  return `${n}-dead-4000-8000-0000cafe0000`
+}
+
 function ok(result: unknown, resultInfo?: unknown): Response {
   return Response.json({
     success: true,
@@ -120,17 +134,25 @@ export const devFetch: typeof fetch = async (input, init) => {
     if (method === "POST" && !id) {
       const name = String(body.name ?? "")
       const tunnel: FakeTunnel = {
-        id: nextId("f"),
+        id: nextTunnelId(),
         name,
         created_at: new Date().toISOString(),
         deleted_at: null,
       }
       tunnels.set(tunnel.id, tunnel)
       // Shaped like the real thing (`docs/PROTOCOL.md` §3) so the CLI's token parser is exercised
-      // rather than bypassed — it decodes base64 JSON with these three fields. The secret is
-      // nonsense, which is exactly why the QUIC handshake will refuse it.
+      // rather than bypassed: base64 JSON, `t` a UUID, and `s` a secret of at least the 32 bytes
+      // `MIN_SECRET_LEN` requires. Get either wrong and the client fails at *parsing* while
+      // reporting EDGE_PROTOCOL_ERROR, so a dev run looks like it reached the edge when it did not.
+      //
+      // The secret is nonsense, which is the point — everything up to the QUIC handshake is
+      // exercised, and the handshake is what refuses it.
       const token = btoa(
-        JSON.stringify({ a: "0".repeat(32), t: tunnel.id, s: btoa("fake-not-a-real-secret") }),
+        JSON.stringify({
+          a: "0".repeat(32),
+          t: tunnel.id,
+          s: btoa("nport-dev-fake-secret-not-a-real-credential"),
+        }),
       )
       return ok({ id: tunnel.id, token })
     }

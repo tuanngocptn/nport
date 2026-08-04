@@ -16,7 +16,7 @@
  */
 
 import { access, copyFile, readFile } from "node:fs/promises"
-import { createServer } from "node:net"
+import { connect } from "node:net"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -38,14 +38,37 @@ async function exists(path) {
   }
 }
 
-/** Is anything listening on `port`? A bind, not a connect — nothing is meant to be up yet. */
-function inUse(port) {
-  return new Promise((resolve) => {
-    const server = createServer()
-    server.once("error", () => resolve(true))
-    server.once("listening", () => server.close(() => resolve(false)))
-    server.listen(port, "127.0.0.1")
-  })
+/**
+ * Is anything listening on `port`?
+ *
+ * **A connect, not a bind**, and both address families. Two things defeat the obvious
+ * try-to-bind-it version, and this check had each of them in turn:
+ *
+ * - Vite listens on `[::1]` **only**, while reporting `http://localhost:1420`. A probe against
+ *   `127.0.0.1` alone finds the port free while Vite is very much on it — and `strictPort` then
+ *   kills the desktop task rather than shifting, so the Tauri window points at nothing.
+ * - libuv sets `SO_REUSEADDR` on every TCP server it opens, so on macOS binding `127.0.0.1:3000`
+ *   **succeeds** while another process holds `0.0.0.0:3000`. A bind-based check therefore reported
+ *   a running Next dev server as free, which is worse than not checking: a false "free" is a
+ *   warning that will not appear when it matters.
+ *
+ * Connecting sidesteps both. If something answers, the port is taken, whatever it bound to.
+ */
+async function inUse(port) {
+  const reachable = (host) =>
+    new Promise((resolve) => {
+      const socket = connect({ port, host })
+      const done = (result) => {
+        socket.destroy()
+        resolve(result)
+      }
+      socket.setTimeout(400, () => done(false))
+      socket.once("connect", () => done(true))
+      socket.once("error", () => done(false))
+    })
+
+  const results = await Promise.all([reachable("127.0.0.1"), reachable("::1")])
+  return results.some(Boolean)
 }
 
 /** The `NAME=` keys a dotenv-style file declares, ignoring comments and blank lines. */
@@ -113,12 +136,12 @@ console.log("")
 console.log("    then, in another terminal:")
 console.log("      pnpm dev:cli            # tunnel the local site through the local control plane")
 console.log("")
-// Said here rather than discovered later. With FAKE_CLOUDFLARE the CLI provisions for real and
-// then cannot connect, and the code it prints — EDGE_PROTOCOL_ERROR, "please upgrade, then report
-// it" — reads like a genuine incident if you do not already know why.
-console.log("    with FAKE_CLOUDFLARE=1 the CLI provisions for real (challenge, claim, saga, URL)")
-console.log("    and then stops at EDGE_PROTOCOL_ERROR: the token is a fake, so no QUIC session")
-console.log("    can open. Put a real Cloudflare token in apps/api/.dev.vars for an actual tunnel.")
+// Said here rather than discovered later: a run that ends in retries and TUNNEL_LOST reads like a
+// genuine incident if you do not already know the credential is a fake.
+console.log("    with FAKE_CLOUDFLARE=1 the CLI provisions for real — challenge, claim, saga, URL,")
+console.log("    heartbeats — then dials Cloudflare's edge, which refuses the fake credential with")
+console.log("    EDGE_REGISTRATION_REFUSED. It retries, gives up, and releases the lease. That is")
+console.log("    the expected ending. For a real tunnel, put a real token in apps/api/.dev.vars.")
 console.log("")
 for (const notice of notices) {
   console.log(`    note: ${notice}`)

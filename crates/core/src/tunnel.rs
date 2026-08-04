@@ -117,23 +117,36 @@ impl Tunnel {
             .await
             .map_err(StartError::Provision)?;
 
-        let token = TunnelToken::parse(&lease.tunnel_token).map_err(|_| StartError::Token)?;
-        let endpoint = token.endpoint();
-
-        let connector = match QuicConnector::new(token, config.local_port, endpoint).await {
-            Ok(connector) => match inspector {
+        // Everything from here to a live connector can fail with the lease already claimed, and
+        // **every one of those paths must release it**. Written as one closure rather than a `?` per
+        // step because a `?` here is silent: it returns the error and leaves the name held for the
+        // full lease duration, which is precisely the bug this shape prevents. Adding a step below
+        // cannot reintroduce it.
+        let connector = async {
+            let token = TunnelToken::parse(&lease.tunnel_token).map_err(|_| StartError::Token)?;
+            let endpoint = token.endpoint();
+            let connector = QuicConnector::new(token, config.local_port, endpoint).await?;
+            Ok::<_, StartError>(match inspector {
                 Some(sink) => connector.watching(sink),
                 None => connector,
-            },
+            })
+        }
+        .await;
+
+        let connector = match connector {
+            Ok(connector) => connector,
             Err(error) => {
                 // The lease exists and nothing will ever connect to it. Releasing it now returns the
                 // name immediately instead of leaving it claimed for the whole lease duration —
                 // which, on a name the user asked for by hand, is the difference between "try again"
                 // and "wait an hour".
+                //
+                // The result is discarded deliberately: the caller is already being handed the
+                // failure that matters, and the lease expires on its own if this does not land.
                 let _ = api
                     .delete_tunnel(&lease.subdomain, &lease.owner_token)
                     .await;
-                return Err(StartError::Edge(error));
+                return Err(error);
             }
         };
 
@@ -443,6 +456,97 @@ mod tests {
         })
         .await;
         seen
+    }
+
+    #[tokio::test]
+    async fn a_lease_whose_token_cannot_be_parsed_is_released() {
+        // `start`'s own documentation promises "nothing has been left behind on any of these
+        // paths", and for the token-parse step that was false: a `?` returned the error and left
+        // the name claimed for the full four hours. The connector-failure path two lines below it
+        // released correctly, which is what made the gap invisible.
+        //
+        // Found by running the dev stack. The fake control plane minted a token with a non-UUID
+        // tunnel id, so every `nport -s devcheck` claimed the name, failed, and left it held —
+        // and the next attempt answered SUBDOMAIN_IN_USE with nothing to point at.
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let deletes = Arc::new(AtomicUsize::new(0));
+
+        let counted = Arc::clone(&deletes);
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let counted = Arc::clone(&counted);
+                tokio::spawn(async move {
+                    let mut head = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while !head.ends_with(b"\r\n\r\n") {
+                        match socket.read(&mut byte).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(_) => head.extend_from_slice(&byte),
+                        }
+                    }
+                    let request = String::from_utf8_lossy(&head).into_owned();
+
+                    // **Drain the declared body before answering.** The create request carries
+                    // JSON, and shutting the socket while the client is still writing it resets the
+                    // connection — the client then reports `Unreachable` and never reaches the
+                    // token at all. Not `read_to_end`: the client holds its write half open.
+                    let length = request
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.trim()
+                                .eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().ok())?
+                        })
+                        .unwrap_or(0);
+                    let mut body = vec![0u8; length];
+                    if length > 0 && socket.read_exact(&mut body).await.is_err() {
+                        return;
+                    }
+
+                    // Difficulty 1 so the solver returns immediately; this test is about the
+                    // release, not about proof of work.
+                    let response = if request.starts_with("GET /v1/challenge") {
+                        concat!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n",
+                            "connection: close\r\n\r\n",
+                            r#"{"challenge":"c.h","difficulty":1,"expiresAt":1785000000000}"#
+                        )
+                        .to_owned()
+                    } else if request.starts_with("DELETE ") {
+                        counted.fetch_add(1, Ordering::Relaxed);
+                        "HTTP/1.1 204 No Content\r\nconnection: close\r\n\r\n".to_owned()
+                    } else {
+                        // `tunnelToken` is not parseable — `not-a-token` is not even base64 JSON.
+                        concat!(
+                            "HTTP/1.1 201 Created\r\ncontent-type: application/json\r\n",
+                            "connection: close\r\n\r\n",
+                            r#"{"expiresAt":1785000000000,"ownerToken":"owner","#,
+                            r#""subdomain":"myapp","tunnelId":"t","tunnelToken":"not-a-token","#,
+                            r#""url":"https://myapp.nport.link"}"#
+                        )
+                        .to_owned()
+                    };
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+
+        let error = Tunnel::start(config(format!("http://{addr}")), ClientKind::Cli, None)
+            .await
+            .expect_err("an unparseable token must fail");
+
+        assert!(matches!(error, StartError::Token), "{error:?}");
+        assert_eq!(
+            deletes.load(Ordering::Relaxed),
+            1,
+            "the lease must be released, or the name is held for its full duration"
+        );
     }
 
     #[tokio::test]

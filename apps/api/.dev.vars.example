@@ -26,8 +26,8 @@ CF_DOMAIN="nport.test"
 
 # Routes every Cloudflare call to the in-memory fake in src/cloudflare/dev-fake.ts, so
 # `POST /v1/tunnels` succeeds without credentials and `pnpm dev` provisions offline. The lease, the
-# saga, the ownerToken and the URL are all real; the connector token is not, so `nport` cannot open a
-# QUIC session with it.
+# saga, the ownerToken, the heartbeats and the URL are all real; the connector token is not, so the
+# real edge refuses it at registration and the CLI retries, gives up, and releases the lease.
 #
 # This flag can only reach a Worker through this file, which `wrangler deploy` never uploads — and
 # the fake refuses to activate anyway when CF_API_TOKEN looks like a real one, so putting a genuine

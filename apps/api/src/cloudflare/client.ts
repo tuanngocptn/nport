@@ -244,12 +244,29 @@ export class CloudflareClient {
       })
     }
 
-    await this.#call<unknown>(
-      "delete-tunnel",
-      "DELETE",
-      `/accounts/${this.#config.accountId}/cfd_tunnel/${tunnelId}`,
-      null,
-    )
+    try {
+      await this.#call<unknown>(
+        "delete-tunnel",
+        "DELETE",
+        `/accounts/${this.#config.accountId}/cfd_tunnel/${tunnelId}`,
+        null,
+      )
+    } catch (error) {
+      // **A tunnel that is already gone is this method's whole purpose, achieved.** Alarms are
+      // at-least-once (rule 5), so a teardown that succeeded and then lost its response is
+      // redelivered — and without this the retry answers 404, the lease stays in `RELEASING`, and
+      // the alarm reschedules itself every 30 seconds forever while holding the subdomain. The DNS
+      // half of `#releaseCloudflare` never had this problem because it deletes only what
+      // `findDnsRecord` just returned; the tunnel half deletes straight from the stored ID.
+      //
+      // A 404 can also mean a wrong `CF_ACCOUNT_ID`, which this now swallows. That is the lesser
+      // failure by a distance: a wrong account fails at `createTunnel` long before anything is
+      // torn down, and the alternative is a name nobody can ever reclaim.
+      if (error instanceof CloudflareError && error.status === 404) {
+        return
+      }
+      throw error
+    }
   }
 
   /** The record for an exact name, or `null`. Any type — the caller decides what is acceptable. */

@@ -30,7 +30,9 @@ The two gaps are both "needs access I do not have" rather than "needs design": c
 
 No new code is the blocker. **Deployment and live verification are.**
 
-`pnpm dev` now brings the control plane, the site, and the desktop window up together, and with `FAKE_CLOUDFLARE=1` in `apps/api/.dev.vars` the CLI provisions against it for real: proof of work, claim, saga, `201 Created`, a URL. It then stops at `EDGE_PROTOCOL_ERROR`, because the token is a fake and no QUIC session can open with it. That moves the boundary usefully — everything up to the edge is now exercisable offline, and steps 1 and 2 below are what remains genuinely unverified.
+`pnpm dev` now brings the control plane, the site, and the desktop window up together, and with `FAKE_CLOUDFLARE=1` in `apps/api/.dev.vars` the CLI provisions against it for real: proof of work, claim, saga, `201 Created`, the URL banner, heartbeats, and a clean `DELETE` on exit. It then dials the **actual** Cloudflare edge over QUIC and is refused at registration, because the credential is a fake — so the retry ladder, the give-up, and the lease release are all exercised too.
+
+That moves the boundary a long way: everything except a valid credential is now verifiable offline, including the `ConnectionsExhausted` path. What steps 1 and 2 below still own is the only thing left — whether the Cloudflare API calls that mint a *real* token are correct.
 
 1. **Deploy `apps/api`.** Worker secrets via `wrangler secret put` (never CI), the DNS record for `api.nport.link`, and the zone-level rate limit that `docs/ARCHITECTURE.md` §7 puts in the dashboard rather than in code. `docs/OPERATIONS.md` owns all three.
 2. **Confirm the Cloudflare API paths against the live API.** 2a uses the current `cfd_tunnel` resource name where v2 used the legacy `/accounts/{id}/tunnels`. Every provisioning test to date has run against `test/fake-cloudflare.ts`, so the first real create is also the first check that the path is right. This is the single most likely thing to be wrong on first deploy.

@@ -54,7 +54,17 @@ A preflight runs first. It creates `apps/api/.dev.vars` if it is missing, says w
 
 `apps/api/.dev.vars` is created from `.dev.vars.example` on first run. It is gitignored, it holds no real secret, and `wrangler deploy` never uploads it — which is what makes it the right place for two settings that must never exist in production.
 
-**`FAKE_CLOUDFLARE="1"`** routes the four Cloudflare calls to an in-memory fake (`apps/api/src/cloudflare/dev-fake.ts`), so `POST /v1/tunnels` succeeds with no credentials. What that buys is most of the system: proof of work, the subdomain claim, the provisioning saga, the `ownerToken`, the lease, the heartbeat, and a correctly-shaped URL are all real and all exercised. What it does not buy is a tunnel — the connector token is a fake, so the CLI provisions, prints its URL, and then stops at `EDGE_PROTOCOL_ERROR` because no QUIC session can open with it. That error is the expected end of a fake run, not a bug to report.
+**`FAKE_CLOUDFLARE="1"`** routes the four Cloudflare calls to an in-memory fake (`apps/api/src/cloudflare/dev-fake.ts`), so `POST /v1/tunnels` succeeds with no credentials. What it buys is most of the system, and a full run looks like this:
+
+```
+challenge 200 → tunnels 201 → the URL banner → a real QUIC dial to Cloudflare's edge
+→ EDGE_REGISTRATION_REFUSED → jittered retries → gives up → TUNNEL_LOST
+→ heartbeat 200 throughout → DELETE 204, lease released
+```
+
+Everything there is real except the credential. The edge is the **actual** Cloudflare edge, discovered and dialled over QUIC; it refuses the fake token at registration, which is where a fake run is supposed to stop. The retries, the give-up, and the release are the production paths doing their job, not a fault. **That ending is expected — do not report it.**
+
+The fake's token is shaped to be *parseable* on purpose: `t` is a UUID and `s` decodes to at least 32 bytes, because `TunnelToken::parse` checks both. Get either wrong and the client fails at parsing while reporting `EDGE_PROTOCOL_ERROR`, so a run appears to have reached the edge when it never left the process.
 
 **`MIN_CLIENT_VERSION="3.0.0-dev"`** lowers the client-version floor to what the workspace builds. `wrangler.jsonc` sets `3.0.0` for production and `crates/cli` is `3.0.0-dev`, which semver orders *below* it — so without this the local CLI is refused by the local control plane with `CLIENT_TOO_OLD`. **Do not "fix" that in `src/middleware/client-gate.ts`.** The ordering is deliberate: it is what stops every `3.0.0-beta.N` client sailing through once the floor moves to `3.0.0`. `3.0.0-dev` rather than `0.0.0`, so the gate still runs and a real 2.x client is still refused.
 
