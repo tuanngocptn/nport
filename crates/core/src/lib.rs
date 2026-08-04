@@ -15,6 +15,7 @@
 
 pub mod event;
 pub mod local_runtime;
+pub mod manager;
 pub mod proxy;
 pub mod retry;
 pub mod supervisor;

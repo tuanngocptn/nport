@@ -220,10 +220,22 @@ impl Supervisor {
             .count()
     }
 
-    /// Whether every connection has given up, which is the only genuinely bad ending.
+    /// Whether the pool can no longer serve.
+    ///
+    /// Two ways, and the second is easy to miss. Every connection having given up is the obvious
+    /// one. The other is **the lead connection giving up before it ever registered**: §4 gates every
+    /// other index on connection 0 registering, so if 0 dies without ever succeeding, 1..N-1 sit in
+    /// `Waiting` forever and `all(GaveUp)` is never true.
+    ///
+    /// Without this branch the tunnel hangs, healthy-looking, having never carried a byte — which is
+    /// worse than failing, because a CLI would sit there rather than exiting non-zero. Found by a
+    /// test that fails every connection fatally and expected the tunnel to end.
     #[must_use]
     pub fn exhausted(&self) -> bool {
-        self.states.iter().all(|state| *state == State::GaveUp)
+        if self.states.iter().all(|state| *state == State::GaveUp) {
+            return true;
+        }
+        !self.lead_registered && self.states.first() == Some(&State::GaveUp)
     }
 
     /// The shutdown reason if the pool can no longer serve, or `None` while any connection remains.
@@ -394,6 +406,35 @@ mod tests {
             supervisor.terminal_reason(),
             Some(ShutdownReason::ConnectionsExhausted)
         );
+    }
+
+    #[test]
+    fn a_lead_that_never_registers_ends_the_pool() {
+        // §4 gates every other index on connection 0 registering. If 0 gives up having never
+        // succeeded, 1..3 wait forever and `all(GaveUp)` is never true — so without this the tunnel
+        // hangs looking healthy, having never carried a byte. Worse than failing: a CLI would sit
+        // there instead of exiting non-zero.
+        let mut supervisor = Supervisor::default();
+        supervisor.failed(0, &RpcError::Malformed("bad".into()), 1.0);
+
+        assert!(supervisor.exhausted());
+        assert_eq!(
+            supervisor.terminal_reason(),
+            Some(ShutdownReason::ConnectionsExhausted)
+        );
+    }
+
+    #[test]
+    fn a_lead_that_dies_after_registering_does_not_end_the_pool() {
+        // Once the lead has registered, the others are running and can carry traffic without it.
+        // Treating this as terminal would turn a routine loss into an outage.
+        let mut supervisor = Supervisor::default();
+        supervisor.registered(0, "hkg09".to_owned());
+        supervisor.registered(1, "hkg09".to_owned());
+        supervisor.failed(0, &RpcError::Malformed("bad".into()), 1.0);
+
+        assert!(!supervisor.exhausted());
+        assert_eq!(supervisor.healthy(), 1);
     }
 
     #[test]
