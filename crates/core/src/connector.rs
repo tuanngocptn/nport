@@ -33,6 +33,7 @@ use uuid::Uuid;
 
 use crate::event::ConnectionIndex;
 use crate::exchange;
+use crate::inspector::Observer;
 use crate::local_runtime::{Gone, Hosted, LocalRuntime};
 use crate::manager::{Connection, Connector, Shutdown};
 
@@ -63,6 +64,9 @@ pub struct QuicConnector {
     /// One socket per connection index, held for its life. See the module docs.
     endpoints: Mutex<HashMap<ConnectionIndex, quinn::Endpoint>>,
     key_exchange: KeyExchange,
+    /// The traffic inspector, if one is attached. The desktop app attaches one; the CLI does not,
+    /// and pays nothing for the difference (`crates/core`'s [`crate::inspector`]).
+    inspector: Option<Arc<dyn Observer>>,
 }
 
 impl QuicConnector {
@@ -100,7 +104,18 @@ impl QuicConnector {
             runtime: LocalRuntime::start(),
             endpoints: Mutex::new(HashMap::new()),
             key_exchange: KeyExchange::PostQuantumPreferred,
+            inspector: None,
         })
+    }
+
+    /// Sends a copy of every exchange to `sink`.
+    ///
+    /// Opt-in by construction rather than a flag: a connector without this call has no branch to
+    /// take and no record to assemble.
+    #[must_use]
+    pub fn watching(mut self, sink: Arc<dyn Observer>) -> Self {
+        self.inspector = Some(sink);
+        self
     }
 
     /// How many regions the pool is balancing across. For tests and diagnostics.
@@ -151,6 +166,7 @@ impl Connector for QuicConnector {
             origin: self.origin,
             index,
             pool: Arc::clone(&self.pool),
+            inspector: self.inspector.clone(),
         })
     }
 }
@@ -267,6 +283,7 @@ pub struct EdgeConnection {
     origin: SocketAddr,
     index: ConnectionIndex,
     pool: Arc<Mutex<AddressPool>>,
+    inspector: Option<Arc<dyn Observer>>,
 }
 
 impl Connection for EdgeConnection {
@@ -284,7 +301,12 @@ impl Connection for EdgeConnection {
                 () = shutdown.requested() => break,
                 accepted = self.connection.accept_bi() => match accepted {
                     Ok((send, recv)) => {
-                        in_flight.spawn(exchange::handle(send, recv, self.origin));
+                        in_flight.spawn(exchange::handle(
+                            send,
+                            recv,
+                            self.origin,
+                            self.inspector.clone(),
+                        ));
                     }
                     // The connection is gone. Nothing to unregister and nothing to drain — the
                     // manager reconnects this index, keeping the address it already holds.
@@ -368,6 +390,7 @@ mod tests {
             runtime: LocalRuntime::start(),
             endpoints: endpoints(),
             key_exchange: KeyExchange::PostQuantumPreferred,
+            inspector: None,
         }
     }
 

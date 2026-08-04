@@ -16,6 +16,7 @@
 pub mod connector;
 pub mod event;
 pub mod exchange;
+pub mod inspector;
 pub mod local_runtime;
 pub mod manager;
 pub mod proxy;

@@ -24,6 +24,7 @@
 //! as page content.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use nport_protocol::connect::{
     self, ConnectRequest, ConnectionType, FrameError, StreamKind, WEBSOCKET_ORIGIN_HEADERS,
@@ -33,6 +34,7 @@ use tokio::io::{
 };
 use tokio::net::TcpStream;
 
+use crate::inspector::{BodyPreview, Failure, Kind, Observer, Recorder};
 use crate::proxy::{OriginError, ResponseHead, chunk_size};
 
 /// Headers added to every origin request.
@@ -72,16 +74,62 @@ pub enum ExchangeError {
     Relay(#[from] std::io::Error),
 }
 
+impl ExchangeError {
+    /// How this failure appears in the traffic inspector.
+    fn failure(&self) -> Failure {
+        match self {
+            // What a Cloudflare protocol change looks like from here (risks P4/P5) — the one code
+            // whose documented action is "upgrade NPort".
+            Self::Frame(_) => Failure::Code(nport_contract::ErrorCode::EdgeProtocolError),
+            // The user's own server. Their next move is to look at their app, not at the tunnel.
+            Self::OriginUnreachable { .. } | Self::Origin(_) => {
+                Failure::Code(nport_contract::ErrorCode::LocalRequestFailed)
+            }
+            // One stream died. The tunnel itself is fine, which is why this has no registry code —
+            // see `inspector::Failure::CutShort`.
+            Self::Relay(_) => Failure::CutShort,
+        }
+    }
+}
+
 /// Serves one stream the edge opened.
 ///
 /// The caller owns concurrency: every exchange is independent, and `crates/core`'s connector spawns
 /// one task per stream.
 ///
+/// `sink` is the traffic inspector, or `None` — the CLI attaches nothing and pays nothing for it
+/// (`crates/core`'s [`crate::inspector`]).
+///
 /// # Errors
 ///
 /// See [`ExchangeError`]. A failure here concerns one request, never the connection — the caller
 /// keeps serving.
-pub async fn handle<S, R>(mut send: S, mut recv: R, origin: SocketAddr) -> Result<(), ExchangeError>
+pub async fn handle<S, R>(
+    send: S,
+    recv: R,
+    origin: SocketAddr,
+    sink: Option<Arc<dyn Observer>>,
+) -> Result<(), ExchangeError>
+where
+    S: AsyncWrite + Unpin + Send,
+    R: AsyncRead + Unpin + Send,
+{
+    // Recorded when this drops, whatever happens to the exchange — including a task aborted at
+    // shutdown, which no `return` here would ever see.
+    let mut record = Recorder::new(sink);
+    let outcome = serve(send, recv, origin, &mut record).await;
+    if let Err(error) = &outcome {
+        record.failed(error.failure());
+    }
+    outcome
+}
+
+async fn serve<S, R>(
+    mut send: S,
+    mut recv: R,
+    origin: SocketAddr,
+    record: &mut Recorder,
+) -> Result<(), ExchangeError>
 where
     S: AsyncWrite + Unpin + Send,
     R: AsyncRead + Unpin + Send,
@@ -98,9 +146,22 @@ where
     connect::read_version(&mut recv).await?;
     let request = connect::read_connect_request(&mut recv).await?;
 
+    record.request(
+        match request.kind {
+            ConnectionType::Http => Kind::Http,
+            ConnectionType::Websocket => Kind::Websocket,
+            ConnectionType::Tcp => Kind::Tcp,
+        },
+        request.method().unwrap_or("GET"),
+        &request.dest,
+        request
+            .headers()
+            .map(|(name, value)| (name.to_owned(), value.to_owned())),
+    );
+
     match request.kind {
-        ConnectionType::Http => http(send, recv, origin, &request).await,
-        ConnectionType::Websocket => websocket(send, recv, origin, &request).await,
+        ConnectionType::Http => http(send, recv, origin, &request, record).await,
+        ConnectionType::Websocket => websocket(send, recv, origin, &request, record).await,
         ConnectionType::Tcp => {
             // Trivial once the rest works, and deliberately not done: NPort 3.0 exposes HTTP only
             // (ADR-0020). Answering with an error beats leaving the edge waiting on a stream that
@@ -162,6 +223,7 @@ async fn http<S, R>(
     mut recv: R,
     origin: SocketAddr,
     request: &ConnectRequest,
+    record: &mut Recorder,
 ) -> Result<(), ExchangeError>
 where
     S: AsyncWrite + Unpin + Send,
@@ -191,11 +253,17 @@ where
         .write_all(connect::request_head(request, extra, length).as_bytes())
         .await?;
 
+    let limit = record.body_limit();
     match body {
         Body::None => {}
         Body::Length(length) => {
-            let copied =
-                tokio::io::copy(&mut (&mut recv).take(length as u64), &mut upstream).await?;
+            let copied = copy_recording(
+                &mut (&mut recv).take(length as u64),
+                &mut upstream,
+                record.request_body(),
+                limit,
+            )
+            .await?;
             if copied != length as u64 {
                 // The origin is now waiting for bytes that will never arrive. Failing here drops the
                 // connection, which is what upstream does; carrying on would hang until the origin's
@@ -214,6 +282,7 @@ where
                 if read == 0 {
                     break;
                 }
+                record.request_body().push(&scratch[..read], limit);
                 write_chunked(&scratch[..read], &mut upstream).await?;
             }
             // The terminating zero-length chunk. Without it the origin waits for a body that has
@@ -223,7 +292,7 @@ where
     }
 
     let head = ResponseHead::read(&mut upstream).await?;
-    relay(&mut send, head, upstream).await
+    relay(&mut send, head, upstream, record).await
 }
 
 /// A WebSocket upgrade, then a bidirectional byte pipe (§11).
@@ -241,6 +310,7 @@ async fn websocket<S, R>(
     mut recv: R,
     origin: SocketAddr,
     request: &ConnectRequest,
+    record: &mut Recorder,
 ) -> Result<(), ExchangeError>
 where
     S: AsyncWrite + Unpin + Send,
@@ -262,9 +332,10 @@ where
     if head.status != 101 {
         // The origin declined the upgrade. Relayed as the ordinary response it is, so the client
         // sees the origin's own status rather than a synthesised 502 that hides it.
-        return relay(&mut send, head, upstream).await;
+        return relay(&mut send, head, upstream, record).await;
     }
 
+    record.response(head.status, &head.headers);
     connect::write_connect_response(&mut send, head.status, &head.headers).await?;
     // Anything that arrived immediately after the head is already a frame.
     if !head.leftover.is_empty() {
@@ -272,14 +343,22 @@ where
     }
 
     let (mut origin_read, mut origin_write) = upstream.into_split();
+    let limit = record.body_limit();
+    // Split rather than borrowed twice: the two directions run concurrently, and each fills its own
+    // half of the record. Past the 101 those "bodies" are the raw frames of the pipe.
+    let (mut upward, mut downward) = (BodyPreview::default(), BodyPreview::default());
 
     let to_origin = async {
-        tokio::io::copy(&mut recv, &mut origin_write).await?;
+        copy_recording(&mut recv, &mut origin_write, &mut upward, limit).await?;
         // Half-close, so the origin sees end-of-input and closes its own side. Without it the
         // downstream copy never ends and the stream leaks until the process exits.
         origin_write.shutdown().await
     };
-    let to_edge = async { tokio::io::copy(&mut origin_read, &mut send).await.map(drop) };
+    let to_edge = async {
+        copy_recording(&mut origin_read, &mut send, &mut downward, limit)
+            .await
+            .map(drop)
+    };
 
     // `join!`, not `try_join!`: a close frame arrives on one direction first, and cancelling the
     // other half would truncate the close handshake the peer is waiting to complete.
@@ -288,6 +367,8 @@ where
     // that resets instead of closing cleanly is ordinary WebSocket behaviour, and the exchange is
     // over either way. The traffic inspector is where per-request detail will belong.
     let _ = tokio::join!(to_origin, to_edge);
+    *record.request_body() = upward;
+    *record.response_body() = downward;
     send.shutdown().await?;
     Ok(())
 }
@@ -304,6 +385,7 @@ async fn relay<S>(
     send: &mut S,
     head: ResponseHead,
     upstream: TcpStream,
+    record: &mut Recorder,
 ) -> Result<(), ExchangeError>
 where
     S: AsyncWrite + Unpin + Send,
@@ -315,6 +397,7 @@ where
         }
     }
 
+    record.response(head.status, &headers);
     connect::write_connect_response(send, head.status, &headers).await?;
 
     // The bytes read past the head come first, then the rest of the socket. Chained rather than
@@ -322,10 +405,11 @@ where
     // the boundary.
     let mut body = std::io::Cursor::new(head.leftover).chain(upstream);
 
+    let limit = record.body_limit();
     if head.chunked {
-        dechunk(&mut body, send).await?;
+        dechunk(&mut body, send, record.response_body(), limit).await?;
     } else {
-        tokio::io::copy(&mut body, send).await?;
+        copy_recording(&mut body, send, record.response_body(), limit).await?;
     }
 
     // End of body is stream FIN (§11). For QUIC this finishes the stream; for the HTTP/2 fallback it
@@ -342,7 +426,12 @@ where
 ///
 /// Trailers after the terminating chunk are dropped: nothing downstream can act on them, and
 /// forwarding them would mean inventing somewhere to put them.
-async fn dechunk<R, W>(src: &mut R, dst: &mut W) -> Result<(), ExchangeError>
+async fn dechunk<R, W>(
+    src: &mut R,
+    dst: &mut W,
+    preview: &mut BodyPreview,
+    limit: usize,
+) -> Result<(), ExchangeError>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -365,7 +454,7 @@ where
         }
 
         let mut chunk = (&mut src).take(size as u64);
-        let moved = tokio::io::copy(&mut chunk, dst).await?;
+        let moved = copy_recording(&mut chunk, dst, preview, limit).await?;
         if moved != size as u64 {
             return Err(OriginError::MalformedChunk {
                 reason: format!("chunk claims {size} bytes, {moved} arrived"),
@@ -376,6 +465,37 @@ where
         // Each chunk is followed by its own CRLF.
         let mut terminator = [0u8; 2];
         src.read_exact(&mut terminator).await?;
+    }
+}
+
+/// Copies `src` into `dst`, recording what passed.
+///
+/// A hand-rolled loop rather than [`tokio::io::copy`] because the inspector needs the bytes, and
+/// wrapping `dst` in a teeing `AsyncWrite` to get them would mean an `AsyncWrite` implementation
+/// whose only job is to be handed to a function that already does this. With no inspector attached
+/// `limit` is zero, so the recording is a counter.
+async fn copy_recording<R, W>(
+    src: &mut R,
+    dst: &mut W,
+    preview: &mut BodyPreview,
+    limit: usize,
+) -> std::io::Result<u64>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut scratch = vec![0u8; 16 * 1024];
+    let mut moved = 0u64;
+
+    loop {
+        let read = src.read(&mut scratch).await?;
+        if read == 0 {
+            return Ok(moved);
+        }
+        // Written before it is recorded: the inspector must never be able to delay a byte.
+        dst.write_all(&scratch[..read]).await?;
+        preview.push(&scratch[..read], limit);
+        moved += read as u64;
     }
 }
 
@@ -392,6 +512,8 @@ mod tests {
     use std::time::Duration;
 
     use capnp::message;
+
+    use crate::inspector::{Exchange, Inspector};
     use nport_protocol::connect::{DATA_PREAMBLE, HTTP_HEADER_PREFIX, HTTP_HOST, HTTP_METHOD};
     use nport_protocol::schema::quic_metadata_protocol_capnp::{
         ConnectionType as WireType, connect_request,
@@ -515,14 +637,26 @@ mod tests {
 
     /// Runs one exchange over an in-memory pipe and returns what went back to the edge.
     async fn exchange(request: Vec<u8>, origin: SocketAddr) -> Vec<u8> {
+        watched(request, origin).await.0
+    }
+
+    /// The same, with an inspector attached — so a test can assert both what the edge saw and what
+    /// was recorded about it.
+    async fn watched(request: Vec<u8>, origin: SocketAddr) -> (Vec<u8>, Vec<Exchange>) {
+        let inspector = Arc::new(Inspector::new(8));
         let (edge, connector) = duplex(64 * 1024);
         let (connector_recv, connector_send) = tokio::io::split(connector);
 
-        let served = tokio::spawn(handle(connector_send, connector_recv, origin));
+        let served = tokio::spawn(handle(
+            connector_send,
+            connector_recv,
+            origin,
+            Some(Arc::clone(&inspector) as Arc<dyn Observer>),
+        ));
         let answered = tokio::spawn(feed(edge, request));
 
         within(served).await.expect("task").expect("exchange");
-        within(answered).await.expect("task")
+        (within(answered).await.expect("task"), inspector.recent())
     }
 
     /// Plays the edge's half: write the request, half-close, read the answer.
@@ -926,6 +1060,114 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_inspected_exchange_records_both_directions() {
+        // The contract the desktop inspector's columns are built from. If a field the UI needs is
+        // missing, it is added to `inspector::Exchange` first and captured here.
+        let (addr, served) = origin(
+            b"HTTP/1.1 201 Created\r\ncontent-type: application/json\r\ncontent-length: 4\r\n\r\ndone",
+        )
+        .await;
+
+        let request = edge_request(
+            "https://x.nport.link/api/items?page=2",
+            WireType::Http,
+            &[
+                (HTTP_METHOD, "POST"),
+                (HTTP_HOST, "x.nport.link"),
+                (&format!("{HTTP_HEADER_PREFIX}content-length"), "7"),
+                (&format!("{HTTP_HEADER_PREFIX}x-trace"), "abc"),
+            ],
+            b"payload",
+        );
+        let (_, recorded) = watched(request, addr).await;
+        let _ = within(served).await.expect("origin task");
+
+        assert_eq!(recorded.len(), 1, "one stream is one exchange");
+        let exchange = &recorded[0];
+        assert_eq!(exchange.method, "POST");
+        assert_eq!(exchange.url, "https://x.nport.link/api/items?page=2");
+        assert_eq!(exchange.status, Some(201));
+        assert_eq!(exchange.failure, None);
+        assert_eq!(exchange.request_body.bytes, b"payload");
+        assert_eq!(exchange.response_body.bytes, b"done");
+        assert!(
+            exchange
+                .request_headers
+                .iter()
+                .any(|(name, value)| name == "x-trace" && value == "abc")
+        );
+        assert!(
+            exchange
+                .response_headers
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_dechunked_body_is_recorded_as_the_client_will_see_it() {
+        // Not as the origin framed it. Recording the chunk-size lines would show the inspector's
+        // reader a body no browser ever receives.
+        let (addr, served) = origin(
+            b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n",
+        )
+        .await;
+
+        let request = edge_request(
+            "https://x.nport.link/",
+            WireType::Http,
+            &[(HTTP_METHOD, "GET"), (HTTP_HOST, "x.nport.link")],
+            b"",
+        );
+        let (_, recorded) = watched(request, addr).await;
+        let _ = within(served).await.expect("origin task");
+
+        assert_eq!(recorded[0].response_body.bytes, b"hello world");
+        assert_eq!(recorded[0].response_body.total, 11);
+    }
+
+    #[tokio::test]
+    async fn a_failed_exchange_is_still_recorded_with_its_reason() {
+        // An exchange that fails is the one someone opens the inspector to look at. Recording only
+        // successes would hide exactly the rows that matter.
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        drop(listener);
+
+        let inspector = Arc::new(Inspector::new(4));
+        let request = edge_request(
+            "https://x.nport.link/",
+            WireType::Http,
+            &[(HTTP_METHOD, "GET"), (HTTP_HOST, "x.nport.link")],
+            b"",
+        );
+
+        let (edge, connector) = duplex(64 * 1024);
+        let (connector_recv, connector_send) = tokio::io::split(connector);
+        let served = tokio::spawn(handle(
+            connector_send,
+            connector_recv,
+            addr,
+            Some(Arc::clone(&inspector) as Arc<dyn Observer>),
+        ));
+        drop(tokio::spawn(feed(edge, request)));
+
+        within(served)
+            .await
+            .expect("task")
+            .expect_err("nothing is listening");
+
+        let recorded = inspector.recent();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].status, None);
+        assert_eq!(
+            recorded[0].failure,
+            Some(Failure::Code(nport_contract::ErrorCode::LocalRequestFailed)),
+            "an origin that is not listening is the user's own server, not the tunnel"
+        );
+    }
+
+    #[tokio::test]
     async fn an_origin_that_is_not_listening_is_named_as_the_cause() {
         // `LOCAL_REQUEST_FAILED`, not a tunnel error: the user's next move is to look at their own
         // app, and an error that blamed the edge would send them the wrong way.
@@ -942,7 +1184,7 @@ mod tests {
 
         let (edge, connector) = duplex(64 * 1024);
         let (connector_recv, connector_send) = tokio::io::split(connector);
-        let served = tokio::spawn(handle(connector_send, connector_recv, addr));
+        let served = tokio::spawn(handle(connector_send, connector_recv, addr, None));
         drop(tokio::spawn(feed(edge, request)));
 
         let error = within(served)
@@ -966,6 +1208,7 @@ mod tests {
             connector_send,
             connector_recv,
             "127.0.0.1:1".parse().expect("address"),
+            None,
         ));
         drop(tokio::spawn(feed(edge, stream)));
 
@@ -988,7 +1231,7 @@ mod tests {
 
         let (edge, connector) = duplex(64 * 1024);
         let (connector_recv, connector_send) = tokio::io::split(connector);
-        let exchanged = tokio::spawn(handle(connector_send, connector_recv, addr));
+        let exchanged = tokio::spawn(handle(connector_send, connector_recv, addr, None));
         drop(tokio::spawn(feed(edge, request)));
 
         let error = within(exchanged)
