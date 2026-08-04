@@ -55,7 +55,6 @@ rustls = "0.23"
 # the edge presents a Cloudflare Origin CA certificate, and a platform verifier cannot be
 # extended with the extra roots that requires (docs/PROTOCOL.md §5).
 rustls-native-certs = "0.8"
-rustls-pemfile = "2.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"

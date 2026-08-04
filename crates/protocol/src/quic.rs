@@ -11,6 +11,8 @@ use std::time::Duration;
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Endpoint, TransportConfig, VarInt};
 use rustls::crypto::aws_lc_rs;
+use rustls::pki_types::CertificateDer;
+use rustls::pki_types::pem::PemObject as _;
 
 /// Cloudflare's Origin CA roots, vendored from the pinned commit.
 ///
@@ -158,9 +160,11 @@ fn root_store() -> Result<rustls::RootCertStore, QuicError> {
         let _ = roots.add(cert);
     }
 
-    let mut pem = CLOUDFLARE_ROOT_CA.as_bytes();
+    // `CertificateDer::pem_slice_iter` rather than `rustls-pemfile`, which is unmaintained —
+    // RUSTSEC-2025-0134. Its functionality moved into `rustls-pki-types`, which `rustls` already
+    // re-exports, so dropping it removes a dependency rather than swapping one for another.
     let mut added = 0usize;
-    for cert in rustls_pemfile::certs(&mut pem) {
+    for cert in CertificateDer::pem_slice_iter(CLOUDFLARE_ROOT_CA.as_bytes()) {
         let cert = cert.map_err(|e| QuicError::RootBundle(Box::new(e)))?;
         roots
             .add(cert)

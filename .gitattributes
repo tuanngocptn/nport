@@ -1,0 +1,32 @@
+# Line endings are normalised in the repository and checked out as LF everywhere.
+#
+# Not cosmetic. Three things break without this, and the first one already did:
+#
+#   1. `rustfmt.toml` sets `newline_style = "Unix"`, so a CRLF checkout makes
+#      `cargo fmt --check` fail on every Rust file. The Windows CI job failed exactly this way
+#      on the first push, with 21 "Incorrect newline style" errors.
+#   2. `crates/protocol/tests/live/*.sh` will not execute with CRLF line endings.
+#   3. The golden byte fixtures must never be touched by text normalisation at all.
+
+* text=auto eol=lf
+
+# Explicit for the files where it is load-bearing.
+*.rs      text eol=lf
+*.toml    text eol=lf
+*.sh      text eol=lf diff=bash
+*.capnp   text eol=lf
+*.pem     text eol=lf
+
+# Binary. `-text` disables every form of normalisation, so a Windows checkout cannot corrupt
+# a fixture whose whole purpose is being byte-exact (crates/protocol/tests/fixtures/README.md).
+*.bin     -text
+*.png     -text
+*.ico     -text
+*.woff2   -text
+
+# Generated, and reviewed by diffing rather than by reading. Marked so GitHub collapses them
+# in a pull request without hiding them from `git diff`.
+schema/*.json                     linguist-generated=true
+crates/contract/src/generated.rs  linguist-generated=true
+docs/ERRORS.md                    linguist-generated=true
+pnpm-lock.yaml                    linguist-generated=true
