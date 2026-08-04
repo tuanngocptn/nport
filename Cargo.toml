@@ -65,6 +65,9 @@ tokio = { version = "1.53", features = [
   "macros",
   "signal",
   "time",
+  # Channels. `crates/core` confines `capnp-rpc`'s non-`Send` region behind a thread boundary
+  # (ADR-0024), and channels are what the two sides talk over.
+  "sync",
 ] }
 tokio-util = { version = "0.7", features = ["compat"] }
 # Test scaffolding only, and it must stay that way: the connector never speaks WebSocket

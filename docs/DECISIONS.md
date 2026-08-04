@@ -382,7 +382,7 @@ Separately, the testing policy existed only as prose. Nothing made it happen.
 
 ## ADR-0024 — Confine `capnp-rpc`'s non-`Send` region behind a thread boundary in `crates/core`
 
-**Date.** 2026-08-03. **Status.** Accepted, pending implementation in Phase 2b.
+**Date.** 2026-08-03. **Status.** Accepted; implemented 2026-08-04 as `core::local_runtime`.
 
 **Context.** `capnp-rpc` holds `Rc` internally, so `RpcSystem` and every future derived from it are `!Send`. `crates/protocol`'s `register_connection` awaits one, which makes *its* future `!Send`, which makes any future awaiting *that* `!Send`. `tokio::spawn` requires `Send` and rejects the lot.
 
