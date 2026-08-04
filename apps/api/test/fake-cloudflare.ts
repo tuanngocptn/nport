@@ -56,6 +56,7 @@ export class FakeCloudflare {
   readonly calls: Operation[] = []
 
   #failures = new Map<Operation, { spec: FailureSpec; remaining: number }>()
+  #delays = new Map<Operation, number>()
   #nextId = 1
   #original: typeof fetch | undefined
 
@@ -67,6 +68,17 @@ export class FakeCloudflare {
   /** Stops injecting failures. Needed to assert that a name is reclaimable after a failed saga. */
   recover(): void {
     this.#failures.clear()
+  }
+
+  /**
+   * Makes `operation` take `ms` before answering.
+   *
+   * The only way to test what happens *during* a saga. A slow Cloudflare is not hypothetical — the
+   * client retries each call up to three times with backoff, so an incident where every request hangs
+   * puts a saga well past the watchdog window.
+   */
+  slow(operation: Operation, ms: number): void {
+    this.#delays.set(operation, ms)
   }
 
   /** Pre-existing DNS record, for the conflict paths. */
@@ -102,6 +114,11 @@ export class FakeCloudflare {
 
     const operation = classify(url.pathname, method)
     this.calls.push(operation)
+
+    const delay = this.#delays.get(operation)
+    if (delay !== undefined) {
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
 
     const failure = this.#failures.get(operation)
     if (failure !== undefined && failure.remaining > 0) {

@@ -110,6 +110,8 @@ Three things worth knowing before this deploys:
 - **The global cap is soft.** `MAX_ACTIVE_TUNNELS` is checked before the claim, so a burst of simultaneous creates can overshoot by roughly its own concurrency. It is a capacity guard, not a security boundary; the per-source caps in the next slice are what bound a single abuser.
 - **A permanently failing teardown holds its name.** Deliberate — the alternative is issuing a URL that points at a tunnel we could not confirm is gone. The watchdog alarm retries, and the reconciliation cron is the backstop that does not exist yet.
 
+The saga's concurrency has now had two review passes, each of which found a reachable bug in code that had already passed the full gate — an absent-row window across an outbound RPC, and a mid-saga lease being reclaimed on a wall-clock check that never verified the saga was actually dead. Both are fixed and tested. The pattern in both is the same: **an `await` inside a state transition**, and the surrounding comment asserting an invariant the code did not check. Treat any new `await` in `subdomain-lease.ts` as needing the same scrutiny, and note that the passing test suite did not catch either one — they were found by reading.
+
 ### 2b · `crates/core` + `crates/cli`
 
 Promote the spike into `crates/protocol` proper behind the `Transport` trait; build `TunnelManager` with the connection pool, reconnect, and local proxy; the `TunnelEvent` stream; `core::inspector` behind an optional sink; the API client over `crates/contract`; then the CLI — `clap` parsing, terminal rendering, `~/.nport/config.toml`, i18n (en/vi/es, auto-detected), signal handling and graceful shutdown.

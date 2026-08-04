@@ -26,6 +26,9 @@ import { FakeCloudflare } from "./fake-cloudflare"
 
 const env = testEnv as unknown as Env
 
+/** Comfortably past `WATCHDOG_MS`, which is 30 s and not exported. */
+const WATCHDOG_OVERSHOOT_MS = 60_000
+
 let cloudflare: FakeCloudflare
 
 beforeEach(() => {
@@ -339,5 +342,45 @@ describe("reclaiming an expired lease", () => {
     expect(stale.ok).toBe(false)
     const fresh = await lease("changedhands").heartbeat(await hashOwnerToken(second.ownerToken))
     expect(fresh.ok).toBe(true)
+  })
+})
+
+describe("a saga slower than its watchdog window", () => {
+  it("keeps its name, and never leaves a tunnel without a lease", async () => {
+    // The reachable version of the bug the `#inFlight` guard exists to stop, and the one the guard
+    // was missing from. `#isReclaimable` judged a mid-saga row purely on the wall clock, and its
+    // comment claimed that meant "the isolate that started it is gone" — without checking. A saga
+    // slower than the watchdog window is not exotic: twelve Cloudflare calls with backoff, during an
+    // incident where each one hangs, gets there easily.
+    //
+    // With the guard missing, the second claim tore the first saga's lease out from under it. The
+    // first saga then wrote its own ACTIVE row back over the second's, and the loser's compensation
+    // deleted the row entirely — leaving a live tunnel and DNS record with **no lease**, so nothing
+    // would ever reap them. That is defect R3 arriving from the opposite direction.
+    cloudflare.slow("create-tunnel", 400)
+
+    const first = claim("slowsaga")
+    // Let the saga get inside `createTunnel`, then age its journal entry past the watchdog window.
+    // Rewriting `created_at` stands in for 30 seconds passing.
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    await patchRow("slowsaga", { created_at: Date.now() - WATCHDOG_OVERSHOOT_MS })
+
+    const second = await claim("slowsaga")
+    const firstResult = await first
+
+    // The in-flight saga keeps its name — it was there first, and it is still running. Asserting this
+    // rather than merely "one of them won" is what separates the two guards: the row-identity check
+    // alone would also avoid the orphan, but by making the *first* caller lose.
+    expect(firstResult.result.ok).toBe(true)
+    expect(second.result.ok).toBe(false)
+    if (!second.result.ok) {
+      expect(second.result.code).toBe("SUBDOMAIN_IN_USE")
+    }
+
+    // And the invariant that matters most: a tunnel that exists has a lease that will reap it.
+    const row = await readRow("slowsaga")
+    expect(cloudflare.tunnels.size).toBe(1)
+    expect(row, "a surviving tunnel must have a lease, or nothing will ever reap it").toBeDefined()
+    expect(String(row?.tunnel_id)).toBe([...cloudflare.tunnels.keys()][0])
   })
 })

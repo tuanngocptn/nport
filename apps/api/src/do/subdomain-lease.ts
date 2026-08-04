@@ -395,6 +395,9 @@ export class SubdomainLease extends DurableObject<Env> {
       const created = await client.createTunnel(name)
       tunnelId = created.id
       tunnelToken = created.token
+      if (!this.#stillOurs(row)) {
+        return this.#abandon(row, tunnelId, "create-tunnel")
+      }
       this.#write({ ...row, tunnel_id: tunnelId, state: "TUNNEL_CREATED", saga_step: "none" })
     } catch (error) {
       await this.#compensate(row, "create-tunnel")
@@ -429,6 +432,10 @@ export class SubdomainLease extends DurableObject<Env> {
       }
     }
 
+    if (!this.#stillOurs(row)) {
+      return this.#abandon(withTunnel, tunnelId, "create-dns")
+    }
+
     const now = Date.now()
     const active: LeaseRow = {
       ...withTunnel,
@@ -441,7 +448,19 @@ export class SubdomainLease extends DurableObject<Env> {
     const final: LeaseRow = { ...active, state: "ACTIVE" }
     this.#write(final)
     await this.#ensureAlarmAt(this.#deadline(final))
-    await this.#registry().record(row.subdomain, final.expires_at)
+
+    // A Registry failure must not fail a provision that worked. The index is a derived view, and
+    // losing one increment degrades a soft global cap rather than a guarantee — whereas returning an
+    // error here would leave the caller without the `ownerToken` for a tunnel that exists, so nobody
+    // could release it and the name would sit until its heartbeat grace period expired.
+    try {
+      await this.#registry().record(row.subdomain, final.expires_at)
+    } catch (error) {
+      console.error("registry record failed; lease is active but unindexed", {
+        subdomain: row.subdomain,
+        error: String(error),
+      })
+    }
 
     return {
       ok: true,
@@ -450,6 +469,52 @@ export class SubdomainLease extends DurableObject<Env> {
       tunnelToken,
       expiresAt: final.expires_at,
     }
+  }
+
+  /**
+   * Whether the row still belongs to the saga that journaled it.
+   *
+   * Defence in depth behind `#isReclaimable`. A saga awaits Cloudflare many times, and every one of
+   * those awaits is a chance for something else — a reclaim, a release, an alarm — to have taken the
+   * lease over. Writing a journal entry then would clobber the new holder's row and hand two callers
+   * the same name, so each write checks first that the row is still the one it started with.
+   *
+   * The **owner token hash** is the identity, not `created_at`. It is 32 random bytes minted per
+   * claim, so it changes exactly when ownership does and never otherwise — whereas `created_at` is a
+   * clock value, and anything that adjusts a clock (a test simulating elapsed time, a future
+   * lease-extension feature) would read as a takeover that never happened.
+   */
+  #stillOurs(row: LeaseRow): boolean {
+    const current = this.#read()
+    return (
+      current !== undefined &&
+      hashesMatch(new Uint8Array(current.owner_token_hash), new Uint8Array(row.owner_token_hash))
+    )
+  }
+
+  /**
+   * Gives up a saga whose lease was taken over, cleaning up only what this saga created.
+   *
+   * Deliberately does **not** touch the lease row or the DNS record: both belong to whoever holds the
+   * lease now. Only the tunnel this saga made is ours to remove, and it is identified by the ID we
+   * received rather than by name — the name now refers to the new holder's tunnel too.
+   */
+  async #abandon(row: LeaseRow, tunnelId: string, step: SagaStep): Promise<LeaseFailure> {
+    console.warn("abandoning a saga whose lease was taken over", {
+      subdomain: row.subdomain,
+      step,
+    })
+    try {
+      await this.#cloudflare().deleteTunnel(tunnelId)
+    } catch (error) {
+      // Left for reconciliation. Nothing routes to it — the DNS record points at the new holder's
+      // tunnel — so it costs an orphan rather than a wrong answer.
+      console.error("could not remove an abandoned saga's tunnel", {
+        subdomain: row.subdomain,
+        error: String(error),
+      })
+    }
+    return { ok: false, code: "SUBDOMAIN_IN_USE" }
   }
 
   /**
@@ -656,8 +721,20 @@ export class SubdomainLease extends DurableObject<Env> {
     if (row.state === "ACTIVE") {
       return now >= this.#deadline(row)
     }
-    // Mid-saga. Reclaimable only once the watchdog window has passed without the saga finishing,
-    // which means the isolate that started it is gone.
+    // Mid-saga. A live saga is never reclaimable, however old its journal entry is: `#inFlight` says
+    // one is running in this isolate *right now*, and a Durable Object has exactly one instance, so
+    // that answer is authoritative.
+    //
+    // Checking the clock alone was a real bug. Provisioning makes twelve Cloudflare calls in the worst
+    // case, and during an incident where each one hangs it passes the watchdog window easily — at
+    // which point a second claim tore the first saga's lease out from under it, the first saga wrote
+    // its ACTIVE row back over the second's, and the loser's compensation deleted the row outright.
+    // That left a live tunnel and DNS record with no lease, so nothing would ever reap them.
+    if (this.#inFlight) {
+      return false
+    }
+    // No saga running, so the isolate that journaled this entry is gone and cannot resume. The clock
+    // is now a sound test: past the window means abandoned.
     return now >= row.created_at + WATCHDOG_MS
   }
 
