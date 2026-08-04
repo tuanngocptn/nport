@@ -9,7 +9,7 @@ applies_to:
 
 The strategy spans two languages, three runtimes (Node, `workerd`, native), and a live external service. That is why it lives in one document instead of being scattered across five `CLAUDE.md` files.
 
-**Status: no tests exist yet.** This is the plan Phase 0 and later implement.
+**Status: implemented for `apps/api`, `crates/protocol`, and `crates/core`.** `apps/web`, `apps/desktop`, and `crates/cli` are still the plan rather than the practice.
 
 ## Tiers
 
@@ -63,7 +63,7 @@ crates/protocol/tests/fixtures/
 └── control_stream_bootstrap.bin     ⬜ needs cloudflared
 ```
 
-`tests/golden_fixtures.rs` decodes each one with the real codecs and asserts its structure. Each `.bin` also pairs with an annotated hexdump in `docs/PROTOCOL.md` or the fixtures README, so a human can see what each byte means without a capture tool.
+`tests/golden_fixtures.rs` decodes each one with the real codecs and asserts its structure, and `crates/core`'s `exchange` tests replay the two request fixtures **end to end** into a loopback origin — the same bytes driving the whole proxy rather than only the decoder, which is the closest thing to an integration test that needs no network. Each `.bin` also pairs with an annotated hexdump in `docs/PROTOCOL.md` or the fixtures README, so a human can see what each byte means without a capture tool.
 
 ### The two directions have different provenance rules
 

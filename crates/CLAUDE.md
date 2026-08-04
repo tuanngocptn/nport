@@ -4,7 +4,7 @@ The Rust workspace: the connector, the tunnel manager, and the CLI.
 
 Style rules are in `docs/conventions/rust.md`. This file covers layering and the crate-specific rules that document cannot.
 
-**Status: `protocol` works; `core` has its origin-side proxy; `cli` is empty.** Phase 1 is done — the connector speaks the wire end to end against the live edge. Phase 2b has the `Transport` trait and `core::proxy`; `TunnelManager`, the event stream, and the CLI are next.
+**Status: `protocol` works; `core` connects, proxies, and shuts down; `cli` is empty.** Phase 1 is done — the connector speaks the wire end to end against the live edge. Phase 2b has the whole client path: `Transport`, `core::proxy`, the event stream, the supervisor, `TunnelManager`, and the QUIC connector that joins them. The traffic inspector, the API client, and the CLI are what remain.
 
 ## Crates
 

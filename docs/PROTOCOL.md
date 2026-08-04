@@ -514,8 +514,13 @@ Bodies are **raw byte streams with no tunnel-layer framing**. `Content-Length` a
 >
 > Two consequences beyond the decode itself:
 >
-> - **`Content-Length` must be re-derived, never copied.** A dechunked body has a different length
->   than the framing announced, and a stale length truncates the response.
+> - **`Content-Length` must never disagree with the bytes actually sent.** A dechunked body has a
+>   different length than the framing announced, and a stale length truncates the response in the
+>   browser. Which way to satisfy that depends on whether the relay buffers: an implementation
+>   holding the whole body recomputes the length, while one streaming it **drops the header** and
+>   lets end-of-stream delimit the body, exactly as this section already specifies. The header may
+>   be passed through only when the body is relayed untouched. `crates/core` streams, so it does
+>   the latter — `core::exchange::relay`.
 > - **`Content-Encoding` is end-to-end and passes through untouched.** Only the *transfer* coding
 >   is the proxy's business. Verified byte-identical both ways: with `gzip` relayed to the edge and
 >   with the edge decompressing for a client that did not ask for it.

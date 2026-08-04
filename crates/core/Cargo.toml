@@ -19,5 +19,15 @@ workspace = true
 # A `nport` (cli) entry here is the architectural regression to watch for.
 nport-contract = { workspace = true }
 nport-protocol = { workspace = true }
+# The connector dials QUIC itself. `crates/protocol` owns the wire; the connection object it
+# hands back is quinn's, so this is the same dependency seen from one layer up.
+quinn = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+# Test scaffolding only. `crates/core` never encodes a Cap'n Proto message in production — that is
+# `crates/protocol`'s job — but `exchange`'s tests have to play the edge, and decoding the response
+# the connector wrote is the only way to assert what it actually said.
+capnp = { workspace = true }

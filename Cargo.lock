@@ -896,10 +896,13 @@ dependencies = [
 name = "nport-core"
 version = "3.0.0-dev"
 dependencies = [
+ "capnp",
  "nport-contract",
  "nport-protocol",
+ "quinn",
  "thiserror",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

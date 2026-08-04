@@ -21,6 +21,7 @@
 //! Next.js app render its chunk-size lines as page content.
 
 use nport_protocol::connect::is_hop_by_hop;
+use tokio::io::{AsyncRead, AsyncReadExt as _};
 
 /// Ceiling on an origin's response head.
 ///
@@ -43,6 +44,8 @@ pub enum OriginError {
     NoStatus,
     #[error("the origin sent a malformed chunked body: {reason}")]
     MalformedChunk { reason: String },
+    #[error("the origin's response could not be read")]
+    Read(#[source] std::io::Error),
 }
 
 /// A parsed origin response head, with hop-by-hop headers already removed.
@@ -59,6 +62,14 @@ pub struct ResponseHead {
     /// the framing is still in the body, and forwarding it raw sends chunk-size lines to the browser
     /// as content.
     pub chunked: bool,
+    /// What the origin claimed the body's length was, if it said.
+    ///
+    /// Surfaced for the same reason as [`ResponseHead::chunked`], and with the same discipline: the
+    /// header is stripped from [`ResponseHead::headers`] so it can never be *copied* past a
+    /// transformation, but a relay forwarding the body untouched still needs the number. Absent on a
+    /// chunked response, and absent means the body is delimited by end-of-stream
+    /// (`docs/PROTOCOL.md` §11).
+    pub content_length: Option<usize>,
 }
 
 impl ResponseHead {
@@ -99,6 +110,11 @@ impl ResponseHead {
                 && value.to_ascii_lowercase().contains("chunked")
         });
 
+        let content_length = all
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+            .and_then(|(_, value)| value.trim().parse().ok());
+
         let headers = all
             .into_iter()
             .filter(|(name, _)| {
@@ -111,8 +127,76 @@ impl ResponseHead {
             headers,
             leftover,
             chunked,
+            content_length,
         })
     }
+
+    /// Reads one response head from the origin, stopping at the `\r\n\r\n`.
+    ///
+    /// Incremental rather than read-to-end for two independent reasons. A `101` has no body to read
+    /// to the end *of* — the socket becomes a byte pipe — and even an ordinary response should start
+    /// reaching the browser before the origin has finished producing it.
+    ///
+    /// Whatever arrived past the terminator comes back in [`ResponseHead::leftover`] rather than
+    /// being dropped: after a `101` those bytes are already WebSocket frames, and a scratch buffer
+    /// that goes out of scope loses the origin's first frame with nothing to show for it.
+    ///
+    /// # Errors
+    ///
+    /// [`OriginError::HeadTruncated`] if the origin closed first, [`OriginError::HeadTooLarge`] past
+    /// [`MAX_RESPONSE_HEAD`] — which is what stops a non-HTTP server on the port from making the
+    /// connector buffer without bound — and [`OriginError::Read`] on an I/O failure.
+    pub async fn read<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self, OriginError> {
+        let mut raw = Vec::new();
+        let mut scratch = [0u8; 4096];
+        // Where to resume scanning. Rescanning the whole buffer per read is quadratic in the head's
+        // size, and the terminator can straddle two reads by at most three bytes.
+        let mut scanned = 0usize;
+
+        loop {
+            if raw[scanned..]
+                .windows(4)
+                .any(|window| window == b"\r\n\r\n")
+            {
+                break;
+            }
+            scanned = raw.len().saturating_sub(3);
+
+            if raw.len() > MAX_RESPONSE_HEAD {
+                return Err(OriginError::HeadTooLarge);
+            }
+            let read = reader.read(&mut scratch).await.map_err(OriginError::Read)?;
+            if read == 0 {
+                return Err(OriginError::HeadTruncated);
+            }
+            raw.extend_from_slice(&scratch[..read]);
+        }
+
+        Self::parse(&raw)
+    }
+}
+
+/// Reads a chunk-size line: hexadecimal, with optional `;ext=value` extensions.
+///
+/// Shared with the streaming decoder in [`crate::exchange`], which reads the same lines off a socket
+/// one at a time. Two decoders that disagreed about the radix would be a bug nobody would find
+/// twice: `1c8d` read as decimal is where the whole class starts.
+///
+/// # Errors
+///
+/// [`OriginError::MalformedChunk`] if the line is not UTF-8 or not hexadecimal.
+pub fn chunk_size(line: &[u8]) -> Result<usize, OriginError> {
+    // Extensions are ignored, but must not be allowed to corrupt the size.
+    let text = line.split(|byte| *byte == b';').next().unwrap_or(line);
+    let text = std::str::from_utf8(text)
+        .map_err(|_| OriginError::MalformedChunk {
+            reason: "size line is not UTF-8".to_owned(),
+        })?
+        .trim();
+
+    usize::from_str_radix(text, 16).map_err(|_| OriginError::MalformedChunk {
+        reason: format!("size {text:?} is not hexadecimal"),
+    })
 }
 
 /// Removes HTTP/1.1 chunked framing, yielding the body the origin meant to send.
@@ -132,20 +216,7 @@ pub fn decode_chunked(body: &[u8]) -> Result<Vec<u8>, OriginError> {
             .ok_or_else(|| OriginError::MalformedChunk {
                 reason: "ended mid-size-line".to_owned(),
             })?;
-        let line = &rest[..line_end];
-
-        // A chunk-size line may carry `;ext=value` extensions. Ignore them, but do not let one
-        // corrupt the size.
-        let size_text = line.split(|byte| *byte == b';').next().unwrap_or(line);
-        let size_text = std::str::from_utf8(size_text)
-            .map_err(|_| OriginError::MalformedChunk {
-                reason: "size line is not UTF-8".to_owned(),
-            })?
-            .trim();
-        let size =
-            usize::from_str_radix(size_text, 16).map_err(|_| OriginError::MalformedChunk {
-                reason: format!("size {size_text:?} is not hexadecimal"),
-            })?;
+        let size = chunk_size(&rest[..line_end])?;
 
         rest = &rest[line_end + 2..];
         if size == 0 {
