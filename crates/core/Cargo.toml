@@ -22,8 +22,16 @@ nport-protocol = { workspace = true }
 # The connector dials QUIC itself. `crates/protocol` owns the wire; the connection object it
 # hands back is quinn's, so this is the same dependency seen from one layer up.
 quinn = { workspace = true }
+# The control-plane client speaks HTTP/1.1 itself (ADR-0029). Every crate below is already linked
+# for the connector, so this is a client built from what the binary carries rather than a new stack.
+aws-lc-rs = { workspace = true }
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-rustls = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]

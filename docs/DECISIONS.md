@@ -36,6 +36,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0026 | Derived tunnel names are the saga's idempotency key | Accepted |
 | 0027 | Redeemed proof-of-work challenges are recorded | Accepted |
 | 0028 | Proof-of-work difficulty escalates per source, not globally | Accepted |
+| 0029 | The control-plane client speaks HTTP itself, rather than adding an HTTP stack | Accepted |
 
 ---
 
@@ -494,3 +495,28 @@ The **global** lever remains manual: raise `POW_DIFFICULTY_BITS` and deploy. `do
 - Escalation counts **attempts**, not successes, so failing on purpose does not dodge it.
 
 **Rejected.** *A global signal read per challenge* — a hot singleton on the cheapest path, and free Durable Object work for an attacker. *Caching the difficulty in the isolate* — module-level mutable state, which rule 10 forbids and which is per-isolate rather than per-anything-meaningful. *Escalating on challenge issuance rather than on creates* — it would make issuing a write, which is the property worth keeping; the rate limiter already bounds issuance. *Leaving difficulty static* — then it is not a lever, and §7's claim about it is false.
+
+## ADR-0029 — The control-plane client speaks HTTP itself, rather than adding an HTTP stack
+
+**Date.** 2026-08-04. **Status.** Accepted. **Affects** `crates/core/src/api.rs`, and by extension the size of every artifact in `docs/RELEASE.md`.
+
+**Context.** `crates/core` has to call five JSON endpoints on `api.nport.link` (`docs/API.md`). The obvious answer is `reqwest`, and the obvious answer costs more here than it usually does.
+
+`reqwest` brings `hyper`, `http`, `h2`, `tower`, and a TLS integration — and the TLS integration is the part that bites. This workspace pins `rustls` to `aws-lc-rs` deliberately, because offering `X25519MLKEM768` requires it (`docs/PROTOCOL.md` §5). A second crypto provider in the graph makes `rustls` refuse to pick one at runtime, which is a failure that shows up as a panic in a released binary rather than as a compile error — the same trap that already forced `default-features = false` on `tokio-tungstenite`. Getting `reqwest`'s feature flags to land on exactly one provider is possible and it is a standing maintenance obligation on every dependency bump.
+
+The size matters too. The CLI ships to npm, Homebrew, Scoop, and GitHub Releases, and a general HTTP client is a large fraction of a binary whose entire job is one protocol we implement ourselves.
+
+Against that, what is actually needed: five endpoints on our own server, request bodies that are small JSON, responses that are a few hundred bytes, `connection: close` so end-of-socket delimits every body, and no redirects, no cookies, no keep-alive pool, no multipart, no compression. `crates/core` **already** parses HTTP/1.1 response heads and chunked bodies — `crate::proxy` exists for the origin side of the tunnel and is tested against real servers.
+
+**Decision.** The API client is written against `tokio-rustls`, `rustls-native-certs`, `aws-lc-rs`, and `serde_json` — every one of which the binary already links for the connector. It reuses `crate::proxy::ResponseHead` and `decode_chunked` rather than reimplementing them.
+
+`aws-lc-rs` also becomes a direct dependency for one thing: SHA-256, for solving the proof of work. It is already compiled in through `rustls`, so this adds no code to the binary and no third-party crate to the audit.
+
+**Consequences.**
+
+- Zero new crates in the dependency graph, and no second TLS or crypto stack to keep aligned on every bump.
+- The client is about 300 lines and every line of it is ours to debug. It handles exactly the shapes the API produces, which means an API that starts issuing redirects, or keep-alive without `content-length`, would need work here — both are changes to our own server, made by us, with a test in this file.
+- Plaintext `http://` is supported because `wrangler dev` serves it and `--backend` points at it. It is opt-in through the URL scheme and never a fallback: a silent downgrade would put a tunnel token on the wire in the clear.
+- If a future need arrives that genuinely wants an HTTP client — streaming uploads to something that is not the tunnel, OAuth, an SDK — this decision should be revisited rather than extended. The argument here is "five small endpoints on our own server", and it stops being true the moment that is not the shape.
+
+**Rejected.** *`reqwest`* — the provider-alignment obligation and the binary size, for five endpoints. *`hyper` directly* — most of the dependency weight and most of the API surface, without the ergonomics that make `reqwest` worth it. *`ureq` or another blocking client* — blocking I/O inside an async runtime that is also serving a tunnel, which `docs/conventions/rust.md` forbids for good reason. *A `sha2` crate for the proof of work* — a second SHA-256 implementation in a binary that already links a certified one.
