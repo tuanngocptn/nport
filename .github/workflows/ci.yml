@@ -62,7 +62,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features
+      # `--all-targets`, matching clippy above. Without it, `cargo test` skips tests that live
+      # inside examples — and `crates/protocol/examples/support/proxy.rs` holds the 11 chunked
+      # transfer-coding tests written for a bug that reached a browser as a page of binary
+      # garbage. Verified: plain `cargo test --all-features` runs none of them.
+      - run: cargo test --all-targets --all-features
+      # `--all-targets` skips doctests, so they need their own run. Nothing has one yet; the step
+      # exists so the first one added is not silently unrun.
+      - run: cargo test --doc --all-features
       - name: Documentation consistency
         if: runner.os == 'Linux'
         run: cargo xtask verify-docs
