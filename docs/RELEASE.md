@@ -19,7 +19,7 @@ The desktop app versions independently: it ships on a slower clock and its relea
 ### Pre-flight
 
 - [ ] `main` is green, including the nightly smoke run
-- [ ] `protocol-canary.yml` green for the last 24 h
+- [ ] `protocol-canary.yml` green for the last 24 h *(Phase 3; the workflow does not exist yet)*
 - [ ] `CHANGELOG.md` regenerated and read for accuracy
 - [ ] `docs/PROTOCOL.md` "last verified" date refreshed if the protocol changed
 - [ ] version bumped in `crates/cli/Cargo.toml`, `Cargo.lock` updated
@@ -27,7 +27,7 @@ The desktop app versions independently: it ships on a slower clock and its relea
 
 ### Run
 
-Push `cli-v3.x.y`. `release-cli.yml` then:
+Push `cli-v3.x.y`. `release-cli.yml` (Phase 3, not yet written) then:
 
 1. Builds 8 targets — `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`, `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`. Native runners throughout; `cross` only for the two musl targets, because cross-linking `ring`/`quinn` is where this breaks.
 2. Generates SHA-256 checksums and `actions/attest-build-provenance` attestations.
@@ -73,7 +73,7 @@ Slower clock, and every release needs manual verification because WebView behavi
 
 ### Run
 
-Push `desktop-v3.x.y`. `release-desktop.yml` builds via `tauri-action` on `macos-14` (universal, signed, notarized, stapled), `ubuntu-24.04` (`.deb` + `.AppImage`), and `windows-latest` (`.msi`, signed), then publishes the release and uploads the updater `latest.json` to R2.
+Push `desktop-v3.x.y`. `release-desktop.yml` (Phase 4, not yet written) builds via `tauri-action` on `macos-14` (universal, signed, notarized, stapled), `ubuntu-24.04` (`.deb` + `.AppImage`), and `windows-latest` (`.msi`, signed), then publishes the release and uploads the updater `latest.json` to R2.
 
 ### Verify
 

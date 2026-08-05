@@ -296,6 +296,19 @@ async function waitForHealth(deadlineMs = 90_000) {
   return false
 }
 
+/// Whether `port` is *still* held after giving the kernel time to release it.
+///
+/// Three seconds is far longer than the ~100 ms observed and far shorter than anything a person waits
+/// for. Returns as soon as the port frees, so the common case costs one probe.
+async function stillHeld(port, deadlineMs = 3_000) {
+  const until = Date.now() + deadlineMs
+  while (Date.now() < until) {
+    if (!(await inUse(port))) return false
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  return await inUse(port)
+}
+
 function cleanup() {
   for (const child of children) {
     try {
@@ -742,7 +755,13 @@ try {
 
 // A leaked `workerd` makes the *next* run measure the wrong server, and the port guard above turns
 // that into a clear refusal — but saying so here is what connects the two.
-if (await inUse(API_PORT)) {
+//
+// **Waited for, not sampled once.** `cleanup()` sends SIGKILL and the kernel then reaps the group and
+// releases the listening socket, which does not happen in the same tick. Checking immediately reported
+// a leak on *every* run — the port is free about a tenth of a second later — so the warning was noise,
+// and a genuine leak looked exactly like it. A check that fires when nothing is wrong cannot tell you
+// when something is.
+if (await stillHeld(API_PORT)) {
   console.log(
     `\nwarning: something still holds port ${API_PORT}. Stop it before the next run:\n` +
       `  lsof -ti:${API_PORT} | xargs kill -9`,

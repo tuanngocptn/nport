@@ -24,8 +24,10 @@ The strategy spans two languages, three runtimes (Node, `workerd`, native), and 
 | **Golden fixtures** | `crates/protocol/tests/fixtures` | `cargo test` | ms | every commit |
 | Live edge | `crates/protocol/tests/live` | `cargo test -- --ignored` | ~30 s | nightly, releases |
 | **Smoke (local stack)** | `scripts/smoke.mjs` | `pnpm smoke` | ~40 s | before a push, after any dev-fake or CLI change |
-| Smoke (end-to-end) | `.github/workflows/smoke.yml` | real tunnels, 6 OS | minutes | nightly, releases |
-| Canary (protocol) | `.github/workflows/protocol-canary.yml` | live handshake | seconds | every 6 h |
+| Smoke (end-to-end) | `.github/workflows/smoke.yml` | real tunnels, 6 OS | minutes | nightly, releases — **Phase 3, not yet written** |
+| Canary (protocol) | `.github/workflows/protocol-canary.yml` | live handshake | seconds | every 6 h — **Phase 3, not yet written** |
+
+The two Phase 3 rows describe what will exist, not what runs today. `.github/workflows/` currently holds `ci.yml` and `codegen-drift.yml`; everything above those two rows is real and gated. Both need a deployed control plane (`docs/ROADMAP.md` § The critical path), so neither can be written before G2.
 
 ## What must be which
 
@@ -188,13 +190,13 @@ There are two, and they answer different questions.
 
 The credential is fake, so the edge refuses registration on purpose: everything up to the lease is real, the QUIC dial genuinely happens, and what gets exercised past that point is the retry ladder and the release. A tunnel that carries traffic needs a deployment.
 
-### `smoke.yml` — the published artifact, nightly
+### `smoke.yml` — the published artifact, nightly (Phase 3, not yet written)
 
 Nightly and on every release, across six runners. Installs the published artifact — not a local build — creates a tunnel under a **generated** name, asserts a **byte-exact** response through it, exercises a WebSocket echo, then shuts down gracefully and verifies the lease is gone.
 
 v2's smoke test only checked that the process stayed alive for 30 s and that the log contained no error strings. It would have passed while serving nothing. Assert on the response body.
 
-## Protocol canary
+## Protocol canary (Phase 3, not yet written)
 
 `protocol-canary.yml`, every 6 hours: minimal handshake against the live edge, no local server, no HTTP request. Just discovery → QUIC → register → unregister.
 
