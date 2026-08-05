@@ -232,7 +232,7 @@ This is an invariant because v2's takeover path was a *deliberate feature*: any 
 | Layer | Mechanism |
 | --- | --- |
 | Edge | Cloudflare zone rate limiting on `api.nport.link` |
-| Per-source | Workers rate-limit binding keyed on `HMAC(ip, rotating_secret)` + ASN. **Raw IPs are never stored.** |
+| Per-source | Workers rate-limit binding keyed on `HMAC(source, rotating_secret)` + ASN, where `source` is an IPv4 address whole or an IPv6 address narrowed to its 64-bit prefix. **Raw IPs are never stored.** |
 | Cost | Stateless proof-of-work on create: `GET /v1/challenge` returns an HMAC'd challenge; create requires a nonce with N leading zero bits. ~100 ms for one user, prohibitive at scale, invisible in the CLI, difficulty raised dynamically under load |
 | Concurrency | Per-source cap on simultaneous leases and hourly creates |
 | Global | `MAX_ACTIVE_TUNNELS` → `503 CAPACITY_EXHAUSTED` |
@@ -240,6 +240,10 @@ This is an invariant because v2's takeover path was a *deliberate feature*: any 
 | Client | Required client identification with a minimum-version gate → `426 CLIENT_TOO_OLD` |
 
 Proof-of-work is the load-bearing control: it is the only one that raises attacker cost without an account or a stored identifier.
+
+**Every per-source layer is only as good as what "a source" means, and over IPv6 the obvious answer is wrong.** Keyed on the full address, the per-source rate limit, the concurrency cap and the hourly quota were all free to bypass: a client is allocated a 64-bit prefix at the very smallest and picks the remaining bits itself, so each request could arrive as a new source at no cost. Identity is therefore keyed on the **prefix** — the part the client does not choose — with IPv4 addresses used whole and IPv4-mapped addresses treated as IPv4 (ADR-0033). Grouping too coarsely puts a few unrelated customers behind one provider's shared prefix on one cap; grouping too finely means there is no cap at all, so the trade-off only runs one way.
+
+The ASN is additional key material and **not** a defence against a distributed attacker: adding it can only split one identity into two, never merge two into one, so hosts spread across one network still key separately. What bounds a botnet is the global cap and proof of work.
 
 ### Reserved subdomains
 

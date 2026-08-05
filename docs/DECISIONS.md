@@ -40,6 +40,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0030 | Tauri's transitive licences and advisories, scoped rather than blanket-allowed | Accepted |
 | 0031 | A registry of independent nodes, rather than one control plane | Accepted |
 | 0032 | The connector token is fetched from its own endpoint, and an inline one still accepted | Accepted |
+| 0033 | Source identity is keyed on an IPv6 prefix, not a full address | Accepted |
 
 ---
 
@@ -610,3 +611,26 @@ That does not settle it, because the same schema documents **no POST at all** on
 - **The branch not taken must be deleted once the live API answers.** A permanently dead path in the most important call in the system is worse than either half of it, and the first successful provision is the observation that resolves it.
 
 **Rejected.** *Betting on the schema alone* — if the field is in fact returned, an unnecessary subrequest on every provision, which is the cheap mistake. *Betting on v2 alone* — if it is not, **every** provision fails on first deploy, which is the expensive one, and the failure would look like a Cloudflare outage rather than a wrong assumption. *Reverting to the legacy `/tunnels` alias* to match v2 exactly — it is the undocumented path of the two, and building on the alias Cloudflare has stopped describing trades a known unknown for an unknown one.
+
+## ADR-0033 — Source identity is keyed on an IPv6 prefix, not a full address
+
+**Status.** Accepted, 2026-08-05.
+
+**Context.** With no accounts, "who is this" is `HMAC(ip, IP_HASH_SECRET)` and nothing else, and three of the five abuse controls in `docs/ARCHITECTURE.md` §7 are keyed on it: the Workers rate limiter, the per-source concurrency cap, and the hourly create quota. The lease's stored `ip_hash` is the same value.
+
+Keyed on the **full** client address, all three are free to bypass over IPv6. A residential or mobile allocation is a 64-bit prefix at the very smallest — commonly a /56 or /48 — so the client owns at least 2^64 addresses and can present a different one on every request. Each becomes a different hash, a different `SourceQuota` Durable Object, and a different rate-limiter bucket. No botnet, no cost, no configuration: just use the addresses you were given. A test confirmed it before the fix — three tunnels against a cap of three, then a fourth accepted from the same /64.
+
+IPv4 never had this problem, which is why it went unnoticed: a client controls exactly one address, so the address *is* the identity.
+
+**Decision.** Narrow the address to the part the client does not choose before hashing it. IPv4 addresses are used whole. IPv6 addresses are truncated to their leading four groups. IPv4-mapped addresses (`::ffff:a.b.c.d`) are keyed on all 32 bits of the embedded IPv4, because they are IPv4 clients. An address that does not parse is hashed unchanged.
+
+The comparison is on **values**, not on the text: `2001:db8::1` and `2001:0db8:0:0:0:0:0:1` are one address, and a string compare would call them two identities and reopen the hole.
+
+**Consequences.**
+
+- The per-source caps mean something over IPv6 for the first time. Nothing changes for IPv4.
+- **A few unrelated customers can share a cap.** Some providers hand out single addresses from a shared /64, and those now key together — three concurrent tunnels between them. Accepted deliberately: the trade-off runs one way only, since grouping too finely means there is no cap at all. A /64 is also the smallest block anyone is guaranteed to have, and what Cloudflare's own rate limiting keys IPv6 on.
+- Existing `ip_hash` values change meaning, which costs nothing here: no lease outlives its own hash, and rotating `IP_HASH_SECRET` already invalidates every stored value by design.
+- **A claim in the code was wrong and had to be withdrawn.** The ASN was documented as being in the key "so that a botnet spread across one network cannot present as thousands of unrelated sources". It does the opposite of that: extra key material can only split one identity into two, never merge two into one. The ASN stays — it is harmless and is the documented design — but the reason given for it was backwards, and a wrong reason in a comment is how the next person builds on a property that was never there.
+
+**Rejected.** *Keying on the ASN alone* — this is what the old comment's justification actually describes, and it would put an entire ISP on one bucket of 60 requests a minute. *A longer prefix (/128, /96)* — leaves the hole open for anyone with more than a handful of addresses, which is everyone on IPv6. *A shorter prefix (/48, /32)* — bounds a determined attacker with a large allocation, at the price of capping large numbers of unrelated customers against each other; if abuse from single allocations is ever observed, the right response is a manual measure in `docs/OPERATIONS.md`, not a permanently coarser key for everybody.

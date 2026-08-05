@@ -111,6 +111,33 @@ describe("per-source concurrent lease cap", () => {
     expect((await create(ip, "reused")).status).toBe(201)
   })
 
+  it("cannot be evaded by an IPv6 client changing the bits it owns", async () => {
+    // **The cap was free to bypass over IPv6.** A residential or mobile allocation is a 64-bit prefix
+    // at the very smallest, so the client picks the rest of the address itself — a different one per
+    // request meant a different `SourceQuota` object, and therefore a fresh cap, a fresh hourly quota
+    // and a fresh rate-limit bucket, at no cost and with no botnet. Identity is now keyed on the
+    // prefix, so all of these are one source.
+    const limit = Number(env.MAX_CONCURRENT_PER_SOURCE)
+    for (let index = 0; index < limit; index += 1) {
+      const rotated = `2001:db8:1234:5678::${index + 1}`
+      expect((await create(rotated, `v6hold${index}`)).status, rotated).toBe(201)
+    }
+
+    const refused = await create("2001:db8:1234:5678:dead:beef:cafe:f00d", "v6toomany")
+    expect(refused.status).toBe(429)
+    expect(await codeOf(refused)).toBe("CONCURRENCY_LIMIT")
+    expect(cloudflare.tunnels.size).toBe(limit)
+  })
+
+  it("still separates two different IPv6 prefixes", async () => {
+    // The fix must not go the other way and cap unrelated networks against each other.
+    const limit = Number(env.MAX_CONCURRENT_PER_SOURCE)
+    for (let index = 0; index < limit; index += 1) {
+      expect((await create("2001:db8:aaaa:1::7", `pfxa${index}`)).status).toBe(201)
+    }
+    expect((await create("2001:db8:aaaa:2::7", "pfxb")).status).toBe(201)
+  })
+
   it("does not consume a slot for a create that was refused", async () => {
     const ip = "203.0.113.40"
     expect((await create(ip, "taken")).status).toBe(201)
