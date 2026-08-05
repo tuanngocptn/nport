@@ -7,11 +7,12 @@ pre-commit:
   jobs:
     - name: biome
       glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,css}"
-      # Mirrors the `!docs/mockup` exclusion in biome.jsonc. Stated twice on purpose: lefthook
-      # passes explicit paths, and a hook that reformats a vendored design export on commit is a
-      # diff nobody asked for.
+      # Mirrors the exclusions in biome.jsonc. Stated twice on purpose: lefthook passes explicit
+      # paths, and a hook that reformats a vendored design export — or a file `codegraph upgrade`
+      # rewrites — is a diff nobody asked for.
       exclude:
         - "docs/mockup/**"
+        - ".mcp.json"
       run: pnpm exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
       stage_fixed: true
 

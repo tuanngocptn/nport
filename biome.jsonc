@@ -19,6 +19,9 @@
       "!**/worker-configuration.d.ts",
       // Written by `next dev`/`next build` on every run, same as the line above.
       "!**/next-env.d.ts",
+      // Rewritten by `codegraph install`, which `codegraph upgrade` re-runs. Formatting it would
+      // just mean lint failing after every upgrade (docs/CONTRIBUTING.md § Dev loop).
+      "!.mcp.json",
       // Vendored shadcn/ui source — upstream formatting is left alone (ADR-0021).
       "!apps/desktop/src/components/ui",
       // The approved UI mockup, exported from Claude Design (docs/mockup/README.md). It is a

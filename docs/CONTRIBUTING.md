@@ -83,6 +83,15 @@ pnpm codegen && cargo xtask codegen   # must leave the tree clean
 
 In Claude Code sessions, a `Stop` hook (`.claude/hooks/require-tests.sh`) additionally refuses to end a turn that changed source in an area without touching that area's tests, and test authoring is delegated to a Sonnet-pinned subagent (ADR-0023). It does not affect ordinary `git` use.
 
+The repo is also wired for [CodeGraph](https://github.com/colbymchenry/codegraph), which indexes every symbol and call edge into a local SQLite graph so an agent answers "who calls this" from the index instead of grepping. `.mcp.json`, `.claude/CLAUDE.md`, the `UserPromptSubmit` hook, and `codegraph.json` are all committed, so it is set up for you — **it is optional**, and the hook exits silently when the binary is absent. To use it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh
+codegraph init          # once per clone; the index lives in .codegraph/ and is gitignored
+```
+
+`codegraph.json` excludes `docs/mockup/` — a vendored export, excluded from every other check too — and the `server/`, `website/`, and `bin/` directories a v2 checkout leaves behind.
+
 ## Where to work
 
 `CLAUDE.md`'s routing table is the fastest way to find the right file. Two things to know before your first PR:

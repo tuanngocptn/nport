@@ -33,6 +33,15 @@ apps/desktop/src-tauri/gen/
 !.env.example
 .direnv/
 
+# CodeGraph's index: a derived SQLite database, rebuilt from source in seconds and stale the
+# moment anyone else commits. Everything else CodeGraph writes — `codegraph.json`, `.mcp.json`,
+# `.claude/CLAUDE.md`, the `UserPromptSubmit` hook in `.claude/settings.json` — is committed on
+# purpose, so the tool is set up for everyone who clones. `docs/CONTRIBUTING.md` says how to get it.
+.codegraph/
+
+# Personal Claude Code overrides. The committed `.claude/settings.json` is the team's.
+.claude/settings.local.json
+
 # Editors and OS
 .DS_Store
 Thumbs.db

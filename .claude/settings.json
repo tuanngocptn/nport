@@ -11,6 +11,19 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'command -v codegraph >/dev/null 2>&1 || exit 0; exec codegraph prompt-hook'"
+          }
+        ]
+      }
     ]
+  },
+  "permissions": {
+    "allow": ["mcp__codegraph__*"]
   }
 }
