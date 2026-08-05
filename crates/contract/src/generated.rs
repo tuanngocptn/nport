@@ -373,7 +373,7 @@ pub struct CreateTunnelRequest {
 }
 
 /// A provisioned tunnel. Both tokens are shown exactly once.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTunnelResponse {
     /// Server-authoritative. The client only displays it.
@@ -394,8 +394,21 @@ pub struct CreateTunnelResponse {
     pub url: String,
 }
 
+impl std::fmt::Debug for CreateTunnelResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateTunnelResponse")
+            .field("expires_at", &self.expires_at)
+            .field("owner_token", &"<redacted>")
+            .field("subdomain", &self.subdomain)
+            .field("tunnel_id", &self.tunnel_id)
+            .field("tunnel_token", &"<redacted>")
+            .field("url", &self.url)
+            .finish()
+    }
+}
+
 /// Release a lease and tear the tunnel down. Idempotent.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteTunnelRequest {
     /// The `ownerToken` returned when the tunnel was created.
@@ -403,13 +416,29 @@ pub struct DeleteTunnelRequest {
     pub owner_token: String,
 }
 
+impl std::fmt::Debug for DeleteTunnelRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeleteTunnelRequest")
+            .field("owner_token", &"<redacted>")
+            .finish()
+    }
+}
+
 /// Renew a lease.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HeartbeatRequest {
     /// Proves this caller created the lease.
     #[serde(rename = "ownerToken")]
     pub owner_token: String,
+}
+
+impl std::fmt::Debug for HeartbeatRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HeartbeatRequest")
+            .field("owner_token", &"<redacted>")
+            .finish()
+    }
 }
 
 /// The lease's current expiry.

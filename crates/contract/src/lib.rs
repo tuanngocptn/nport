@@ -217,4 +217,59 @@ mod tests {
         assert_eq!(response.subdomain, "myapp");
         assert_eq!(response.expires_at, 1_767_225_600_000);
     }
+
+    /// A credential must never reach a `Debug` output — including through a struct that merely holds
+    /// one.
+    ///
+    /// `docs/conventions/rust.md` forbids deriving `Debug` on a struct with a secret in it, and the
+    /// generated `tunnel_token` field's own doc comment says "Never logged". The generator emits a
+    /// redacting impl instead, keyed on the field *name* so a credential added later is covered
+    /// without anyone editing a list. This asserts the output rather than the generator, because the
+    /// output is what a stray `{:?}` would actually print.
+    #[test]
+    fn a_debug_output_never_carries_a_credential() {
+        let response = CreateTunnelResponse {
+            expires_at: 1_767_225_600_000,
+            owner_token: "owner-secret-do-not-print".to_owned(),
+            subdomain: "myapp".to_owned(),
+            tunnel_id: "1d2e3f40-0000-4000-8000-000000000000".to_owned(),
+            tunnel_token: "connector-secret-do-not-print".to_owned(),
+            url: "https://myapp.nport.link".to_owned(),
+        };
+
+        let rendered = format!("{response:?}");
+
+        assert!(
+            !rendered.contains("owner-secret-do-not-print"),
+            "{rendered}"
+        );
+        assert!(
+            !rendered.contains("connector-secret-do-not-print"),
+            "{rendered}"
+        );
+        // The rest still has to be there, or the redaction has cost the debugging it exists to serve.
+        assert!(rendered.contains("myapp"), "{rendered}");
+        assert!(rendered.contains("1767225600000"), "{rendered}");
+        assert!(rendered.contains("redacted"), "{rendered}");
+    }
+
+    #[test]
+    fn the_request_types_redact_their_owner_token_too() {
+        // `CreateTunnelResponse` is the obvious one; the two request types carry the same bearer proof
+        // and would leak it just as readily.
+        let delete = DeleteTunnelRequest {
+            owner_token: "owner-secret-do-not-print".to_owned(),
+        };
+        let heartbeat = HeartbeatRequest {
+            owner_token: "owner-secret-do-not-print".to_owned(),
+        };
+
+        for rendered in [format!("{delete:?}"), format!("{heartbeat:?}")] {
+            assert!(
+                !rendered.contains("owner-secret-do-not-print"),
+                "{rendered}"
+            );
+            assert!(rendered.contains("redacted"), "{rendered}");
+        }
+    }
 }

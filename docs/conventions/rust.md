@@ -95,6 +95,8 @@ impl fmt::Debug for TunnelToken {
 
 Never `#[derive(Debug)]` on a struct holding a token or secret. Never log one, at any level.
 
+**In `crates/contract` this is generated, not remembered.** `cargo xtask codegen` omits the `Debug` derive for any struct with a `*Token` field and emits a redacting impl instead, so `{:?}` prints `<redacted>` for the credential and the real value for everything else. Keyed on the field *name*, so a credential added to the contract tomorrow is covered without anyone editing a list here. Do not hand-edit the result — invariant 6.
+
 ## Tests
 
 Unit tests inline in `#[cfg(test)] mod tests`. Integration tests in `tests/`. `insta` for snapshots of every wire encoder, `proptest` for codec roundtrips. See `docs/TESTING.md`.

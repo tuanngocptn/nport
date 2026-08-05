@@ -346,14 +346,33 @@ fn emit_type(
         .map(|items| items.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
 
+    // **A struct holding a credential does not get a derived `Debug`.**
+    // `docs/conventions/rust.md`: "Never `#[derive(Debug)]` on a struct holding a token or secret."
+    // `CreateTunnelResponse` carries both the `ownerToken` and the connector `tunnelToken`, and the
+    // generated field's own doc comment says "Never logged" — a derive contradicting the line above it.
+    // Nothing formats one today, so this closes the hole before it is a leak rather than after.
+    //
+    // Decided from the field name, not a list of struct names kept here. `*Token` is this contract's
+    // word for a credential, so a field added tomorrow is covered without anyone remembering to come
+    // back — the failure mode of every hand-maintained list in this repository.
+    let secrets: Vec<String> = properties
+        .keys()
+        .filter(|property| property.to_ascii_lowercase().ends_with("token"))
+        .map(|property| snake_case(property))
+        .collect();
+
     if let Some(description) = schema.get("description").and_then(Value::as_str) {
         writeln!(out, "/// {description}").unwrap();
     }
-    writeln!(
-        out,
-        "#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]"
-    )
-    .unwrap();
+    if secrets.is_empty() {
+        writeln!(
+            out,
+            "#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]"
+        )
+        .unwrap();
+    } else {
+        writeln!(out, "#[derive(Clone, PartialEq, Serialize, Deserialize)]").unwrap();
+    }
     writeln!(out, "#[serde(rename_all = \"camelCase\")]").unwrap();
     writeln!(out, "pub struct {name} {{").unwrap();
 
@@ -391,6 +410,35 @@ fn emit_type(
         }
     }
     writeln!(out, "}}\n").unwrap();
+
+    if !secrets.is_empty() {
+        // Redacting rather than absent: `Debug` is what a consumer reaches for when a request looks
+        // wrong, and removing it entirely pushes them toward printing the fields one by one — which is
+        // how the secret ends up in a log anyway. The shape matches `TunnelToken` in
+        // `crates/protocol/src/token.rs`, which solved this once already for the parsed credential.
+        writeln!(out, "impl std::fmt::Debug for {name} {{").unwrap();
+        writeln!(
+            out,
+            "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{"
+        )
+        .unwrap();
+        writeln!(out, "        f.debug_struct(\"{name}\")").unwrap();
+        for (property, definition) in properties {
+            let field = snake_case(property);
+            let optional = !required.contains(&property.as_str());
+            if secrets.contains(&field) {
+                writeln!(out, "            .field(\"{field}\", &\"<redacted>\")").unwrap();
+            } else {
+                let _ = definition;
+                let _ = optional;
+                writeln!(out, "            .field(\"{field}\", &self.{field})").unwrap();
+            }
+        }
+        writeln!(out, "            .finish()").unwrap();
+        writeln!(out, "    }}").unwrap();
+        writeln!(out, "}}\n").unwrap();
+    }
+
     Ok(())
 }
 
