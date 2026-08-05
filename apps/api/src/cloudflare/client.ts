@@ -136,6 +136,32 @@ export class CloudflareError extends Error {
   }
 }
 
+/**
+ * The longest `Retry-After` this client will wait out rather than give up on.
+ *
+ * The whole ladder is ~1.2 s before jitter, and a Worker request has a user waiting at the end of it,
+ * so anything longer is not a delay we can absorb. Past this the remaining attempts are spent, not
+ * saved: two more subrequests aimed at a service that just said stop.
+ */
+const MAX_HONOURED_RETRY_AFTER_MS = 1_000
+
+/**
+ * `Retry-After` in milliseconds, or `undefined` when there is nothing usable to read.
+ *
+ * Delta-seconds only. The HTTP-date form is legal and Cloudflare does not send it; treating it as
+ * absent falls back to the fixed ladder, which is the safe direction — a slightly short wait beats
+ * mis-parsing a date into a wait of zero.
+ */
+function retryAfterMs(header: string | null): number | undefined {
+  if (header === null) return undefined
+  const text = header.trim()
+  // `Number("")` is `0`, which would read as "retry immediately".
+  if (text === "") return undefined
+  const seconds = Number(text)
+  if (!Number.isInteger(seconds) || seconds < 0) return undefined
+  return seconds * 1_000
+}
+
 /** 408, 429, and 5xx are worth another attempt; everything else is our request being wrong. */
 function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500
@@ -376,10 +402,14 @@ export class CloudflareClient {
     tolerate: readonly number[] = [],
   ): Promise<T> {
     let lastError: CloudflareError | undefined
+    /** Set when Cloudflare named a delay, so the next wait is its number rather than ours. */
+    let honouredDelayMs: number | undefined
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
       if (attempt > 1) {
-        await sleep(BACKOFF_MS[attempt - 2] ?? 600)
+        // `sleep` jitters upward, so honouring a delay always waits at least as long as asked.
+        await sleep(honouredDelayMs ?? BACKOFF_MS[attempt - 2] ?? 600)
+        honouredDelayMs = undefined
       }
 
       let response: Response
@@ -437,6 +467,19 @@ export class CloudflareClient {
       lastError = new CloudflareError(operation, response.status, codes, retryable)
       if (!retryable) {
         throw lastError
+      }
+
+      // **What Cloudflare asked for beats what we guessed.** Retrying a 429 on a fixed 150 ms ladder
+      // ignores the one number the upstream actually supplied, and the account this whole service runs
+      // on is the thing being rate-limited (ADR-0031) — hammering through a 429 is how a short block
+      // becomes a long one. Honour a delay we can absorb; stop immediately when we cannot, because
+      // spending two more subrequests on a service that said "wait 30 s" helps nobody.
+      const asked = retryAfterMs(response.headers.get("retry-after"))
+      if (asked !== undefined) {
+        if (asked > MAX_HONOURED_RETRY_AFTER_MS) {
+          throw lastError
+        }
+        honouredDelayMs = asked
       }
     }
 
