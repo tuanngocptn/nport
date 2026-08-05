@@ -30,12 +30,13 @@ use nport_protocol::connect::{
     self, ConnectRequest, ConnectionType, FrameError, StreamKind, WEBSOCKET_ORIGIN_HEADERS,
 };
 use tokio::io::{
-    AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
+    AsyncBufRead, AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncWrite,
+    AsyncWriteExt as _,
 };
 use tokio::net::TcpStream;
 
 use crate::inspector::{BodyPreview, Failure, Kind, Observer, Recorder};
-use crate::proxy::{OriginError, ResponseHead, chunk_size};
+use crate::proxy::{MAX_CHUNK_SIZE_LINE, OriginError, ResponseHead, chunk_size};
 
 /// Headers added to every origin request.
 ///
@@ -441,7 +442,7 @@ where
 
     loop {
         line.clear();
-        if src.read_until(b'\n', &mut line).await? == 0 {
+        if read_size_line(&mut src, &mut line).await? == 0 {
             return Err(OriginError::MalformedChunk {
                 reason: "ended before the terminating chunk".to_owned(),
             }
@@ -465,6 +466,46 @@ where
         // Each chunk is followed by its own CRLF.
         let mut terminator = [0u8; 2];
         src.read_exact(&mut terminator).await?;
+    }
+}
+
+/// Reads one chunk-size line, refusing to buffer without bound.
+///
+/// **`read_until` has no ceiling**, which is the gap this closes: an origin that streams bytes and
+/// never sends a newline grows `line` until the process runs out of memory. `MAX_RESPONSE_HEAD` exists
+/// for precisely that reason one layer up — "a non-HTTP server listening on the port must not make the
+/// connector buffer without bound" — and the same sentence is true of a size line, which is where the
+/// reasoning had not been applied. A size line is at most sixteen hex digits plus extensions nobody
+/// sends, so [`MAX_CHUNK_SIZE_LINE`] is generous; what matters is that it is finite.
+///
+/// Returns the number of bytes read, `0` at end of stream, mirroring `read_until`.
+async fn read_size_line<R: AsyncBufRead + Unpin>(
+    src: &mut R,
+    line: &mut Vec<u8>,
+) -> Result<usize, ExchangeError> {
+    loop {
+        let available = src.fill_buf().await?;
+        if available.is_empty() {
+            return Ok(line.len());
+        }
+
+        // How much of what is on offer belongs to this line: everything up to and including a newline,
+        // or the whole buffer while still looking for one.
+        let newline_at = available.iter().position(|byte| *byte == b'\n');
+        let wanted = newline_at.map_or(available.len(), |at| at + 1);
+        // Checked *before* copying, so the buffer never exceeds the bound by a whole read — otherwise
+        // the ceiling would really be `MAX_CHUNK_SIZE_LINE` plus whatever the reader handed over.
+        if line.len() + wanted > MAX_CHUNK_SIZE_LINE {
+            return Err(OriginError::MalformedChunk {
+                reason: format!("chunk-size line exceeded {MAX_CHUNK_SIZE_LINE} bytes"),
+            }
+            .into());
+        }
+        line.extend_from_slice(&available[..wanted]);
+        src.consume(wanted);
+        if newline_at.is_some() {
+            return Ok(line.len());
+        }
     }
 }
 
@@ -522,6 +563,86 @@ mod tests {
     use tokio::net::TcpListener;
 
     use super::*;
+
+    /// A chunk-size line that never ends must be refused rather than buffered.
+    ///
+    /// `read_until` has no ceiling, so an origin streaming bytes with no newline grew the line buffer
+    /// until the process ran out of memory. `MAX_RESPONSE_HEAD` bounds the *head* for exactly that
+    /// reason — "a non-HTTP server listening on the port must not make the connector buffer without
+    /// bound" — and the same sentence is true of a size line, where the bound was missing.
+    #[tokio::test]
+    async fn a_runaway_chunk_size_line_is_refused() {
+        let flood = b"a".repeat(MAX_CHUNK_SIZE_LINE * 4);
+        let mut src = tokio::io::BufReader::new(&flood[..]);
+        let mut line = Vec::new();
+
+        let error = read_size_line(&mut src, &mut line)
+            .await
+            .expect_err("must refuse a size line with no newline");
+        assert!(
+            matches!(
+                &error,
+                ExchangeError::Origin(OriginError::MalformedChunk { reason })
+                    if reason.contains("exceeded")
+            ),
+            "{error:?}"
+        );
+        // And it refused before copying, so the buffer never exceeded the bound.
+        assert!(
+            line.len() <= MAX_CHUNK_SIZE_LINE,
+            "buffered {} bytes",
+            line.len()
+        );
+    }
+
+    /// The bound has to be reached through `dechunk`, not only through the helper.
+    ///
+    /// Asserting on `read_size_line` alone proves the helper is bounded, not that the production
+    /// decoder calls it — a swap back to `read_until` at the one call site would leave that test
+    /// green *if it only matched the variant*. This one goes through the function the connector runs
+    /// and pins the reason.
+    #[tokio::test]
+    async fn dechunk_refuses_a_runaway_size_line() {
+        let flood = b"a".repeat(MAX_CHUNK_SIZE_LINE * 4);
+        let mut src = &flood[..];
+        let mut dst = Vec::new();
+        let mut preview = BodyPreview::default();
+
+        let error = dechunk(&mut src, &mut dst, &mut preview, 0)
+            .await
+            .expect_err("must refuse");
+        // The *reason*, not just the variant: with an unbounded read this still fails, but later and
+        // for a different cause — `read_until` hits EOF and `chunk_size` then rejects the hex. Both are
+        // `MalformedChunk`, so matching the variant alone would go green on the bug.
+        assert!(
+            matches!(
+                &error,
+                ExchangeError::Origin(OriginError::MalformedChunk { reason })
+                    if reason.contains("exceeded")
+            ),
+            "{error:?}"
+        );
+        assert!(dst.is_empty(), "nothing should have reached the tunnel");
+    }
+
+    #[tokio::test]
+    async fn a_size_line_split_across_reads_still_arrives_whole() {
+        // The bounded reader replaced `read_until`, so the straddling case it handled for free has to
+        // be asserted rather than assumed: `fill_buf` returns whatever happens to be available.
+        let (mut client, mut server) = duplex(64);
+        tokio::spawn(async move {
+            server.write_all(b"1c").await.expect("write");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            server.write_all(b"8d\r\n").await.expect("write");
+        });
+
+        let mut src = tokio::io::BufReader::new(&mut client);
+        let mut line = Vec::new();
+        read_size_line(&mut src, &mut line)
+            .await
+            .expect("should read");
+        assert_eq!(chunk_size(line.trim_ascii_end()).expect("hex"), 0x1c8d);
+    }
 
     /// Fails a hung test in seconds rather than wedging the suite.
     async fn within<F: std::future::Future>(future: F) -> F::Output {

@@ -29,6 +29,14 @@ use tokio::io::{AsyncRead, AsyncReadExt as _};
 /// the connector buffer without bound. 64 KiB is far past any real head.
 pub const MAX_RESPONSE_HEAD: usize = 64 * 1024;
 
+/// Ceiling on one chunk-size line.
+///
+/// The same reasoning as [`MAX_RESPONSE_HEAD`], applied where it had not been: a chunk-size line is
+/// read until a newline, so an origin that never sends one makes the connector buffer without bound.
+/// Sixteen hex digits is the largest a `usize` can be, and extensions are ignored — a kilobyte is far
+/// past anything real, and the point is that it is finite.
+pub const MAX_CHUNK_SIZE_LINE: usize = 1024;
+
 /// What went wrong reading the origin's response.
 ///
 /// Every variant means the *local* server misbehaved or vanished, never the edge — which is why they
@@ -222,7 +230,17 @@ pub fn decode_chunked(body: &[u8]) -> Result<Vec<u8>, OriginError> {
         if size == 0 {
             break;
         }
-        if rest.len() < size + 2 {
+        // **Checked, because `size` comes off the wire.** A size line of `ffffffffffffffff` parses to
+        // `usize::MAX`, and `size + 2` then overflows: a panic in debug, and in release a wrap to 1
+        // that sails past this check and panics on the slice below instead. Either way a malformed
+        // origin response takes the process down, and `crates/CLAUDE.md` is explicit that a panic here
+        // kills the desktop app's window.
+        let needed = size
+            .checked_add(2)
+            .ok_or_else(|| OriginError::MalformedChunk {
+                reason: format!("chunk size {size} cannot be framed"),
+            })?;
+        if rest.len() < needed {
             return Err(OriginError::MalformedChunk {
                 reason: format!("chunk claims {size} bytes but only {} remain", rest.len()),
             });
@@ -241,6 +259,31 @@ mod tests {
 
     fn head(raw: &str) -> ResponseHead {
         ResponseHead::parse(raw.as_bytes()).expect("should parse")
+    }
+
+    /// A size a malformed origin can simply send, and the arithmetic that used to follow it.
+    ///
+    /// `ffffffffffffffff` is `usize::MAX`. `size + 2` overflowed: a panic in debug, and in release a
+    /// wrap to 1 that sailed past the bounds check and panicked on the slice instead. `crates/CLAUDE.md`
+    /// is explicit that a panic in `crates/core` takes the desktop app's window with it, so an origin's
+    /// bad framing must be an error, never a crash.
+    #[test]
+    fn an_impossible_chunk_size_is_an_error_not_a_panic() {
+        let error = decode_chunked(b"ffffffffffffffff\r\nx").expect_err("must refuse");
+        assert!(
+            matches!(error, OriginError::MalformedChunk { .. }),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn a_chunk_larger_than_the_body_is_an_error() {
+        // The ordinary case the overflow check must not have broken.
+        let error = decode_chunked(b"10\r\nshort\r\n").expect_err("must refuse");
+        assert!(
+            matches!(error, OriginError::MalformedChunk { .. }),
+            "{error:?}"
+        );
     }
 
     #[test]
