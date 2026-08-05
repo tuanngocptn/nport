@@ -54,7 +54,7 @@ A preflight runs first. It creates `apps/api/.dev.vars` if it is missing, says w
 
 `apps/api/.dev.vars` is created from `.dev.vars.example` on first run. It is gitignored, it holds no real secret, and `wrangler deploy` never uploads it — which is what makes it the right place for two settings that must never exist in production.
 
-**`FAKE_CLOUDFLARE="1"`** routes the four Cloudflare calls to an in-memory fake (`apps/api/src/cloudflare/dev-fake.ts`), so `POST /v1/tunnels` succeeds with no credentials. What it buys is most of the system, and a full run looks like this:
+**`FAKE_CLOUDFLARE="1"`** routes the five Cloudflare calls to an in-memory fake (`apps/api/src/cloudflare/dev-fake.ts`), so `POST /v1/tunnels` succeeds with no credentials. What it buys is most of the system, and a full run looks like this:
 
 ```
 challenge 200 → tunnels 201 → the URL banner → a real QUIC dial to Cloudflare's edge

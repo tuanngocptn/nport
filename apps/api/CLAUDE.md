@@ -72,6 +72,7 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 ## Gotchas
 
 - **DO alarms are at-least-once.** A handler that deletes on second delivery must tolerate the record already being gone.
+- **`test/fake-cloudflare.ts` is only worth what it gets right, and it must never be more generous than Cloudflare.** It once returned a `result_info.total_pages` on the tunnels list, which that endpoint does not send — so the sweep silently never left page 1 and the suite agreed with the bug. Before trusting a fake response shape, check it: `docs/OPERATIONS.md` § Verifying the Cloudflare API surface.
 - **The sweep advances its cursor *before* doing the work, not after.** Advancing only on success looks tidier and lets one undeletable orphan pin the sweep to its page forever, starving every other page — v2's defect R8 through a different door.
 - **`.dev.vars` reaches the test isolate**, because `vitest-pool-workers` reads it alongside `wrangler.jsonc`. A local `FAKE_CLOUDFLARE=1` therefore routed the saga past `test/fake-cloudflare.ts` and failed 36 tests, all pointing at the saga rather than the config. Anything the suite's meaning depends on is pinned in `vitest.config.ts` (`docs/TESTING.md`).
 - **Durable Object state leaks between tests.** `vitest-pool-workers` 0.20 removed `isolatedStorage`, and passing it is *silently ignored* — so a suite that writes any DO state must call `reset()` from `cloudflare:test` in an `afterEach`, or you get failures that depend on test order.

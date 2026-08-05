@@ -39,7 +39,7 @@ import type { Env } from "./types"
  * Tunnels examined per run.
  *
  * Sized against the free plan's 50 subrequests. One list call, one `Registry` hop for the whole page,
- * one `SubdomainLease` hop per candidate, and up to four Cloudflare calls per orphan removed. Ten and
+ * one `SubdomainLease` hop per candidate, and up to five Cloudflare calls per orphan removed. Ten and
  * three keeps the worst case near 25, which leaves room for the platform's own overhead.
  */
 const PAGE_SIZE = 10

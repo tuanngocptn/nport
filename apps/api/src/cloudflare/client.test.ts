@@ -40,7 +40,7 @@ describe("naming", () => {
 })
 
 describe("createTunnel", () => {
-  it("asks for a remotely managed tunnel and returns its token", async () => {
+  it("asks for a remotely managed tunnel and uses an inline token without a second call", async () => {
     const fetcher = vi.fn(async () => ok({ id: "t1", token: "tok" }))
     const client = new CloudflareClient(CONFIG, fetcher as unknown as typeof fetch)
 
@@ -51,14 +51,82 @@ describe("createTunnel", () => {
     // `config_src: "cloudflare"` is what makes a token sufficient — no cert.pem, no local config.
     expect(JSON.parse(String(init.body))).toEqual({ name: "nport-app", config_src: "cloudflare" })
     expect(init.headers).toMatchObject({ authorization: "Bearer test-token" })
+    // The subrequest budget is the reason this branch exists at all: an inline token costs nothing.
+    expect(fetcher).toHaveBeenCalledTimes(1)
   })
 
-  it("treats a tunnel with no token as a failure, not a success", async () => {
+  it("fetches the token separately when the create response omits it", async () => {
+    // The documented shape. Cloudflare's schema for a create returns the shared tunnel object, which
+    // has no token field, and `GET .../token` answers with a **bare string** rather than an object —
+    // the only endpoint here that does.
+    const fetcher = vi.fn(async (url: string) =>
+      url.endsWith("/token") ? ok("tok-from-endpoint") : ok({ id: "t1", name: "nport-app" }),
+    )
+    const client = new CloudflareClient(CONFIG, fetcher as unknown as typeof fetch)
+
+    expect(await client.createTunnel("nport-app")).toEqual({ id: "t1", token: "tok-from-endpoint" })
+
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    const [tokenUrl] = fetcher.mock.calls[1] as unknown as [string]
+    expect(tokenUrl).toBe("https://api.cloudflare.com/client/v4/accounts/acc/cfd_tunnel/t1/token")
+  })
+
+  it("treats a tunnel with no usable token as a failure, not a success", async () => {
     // A tunnel we cannot connect to is worse than no tunnel: it would strand the caller with an
-    // orphan that no compensation was triggered to clean up.
+    // orphan that no compensation was triggered to clean up. An object where a token string belongs
+    // is the shape a Cloudflare change would most plausibly take, so it must not read as success.
     const client = new CloudflareClient(CONFIG, (async () =>
       ok({ id: "t1" })) as unknown as typeof fetch)
     await expect(client.createTunnel("nport-app")).rejects.toBeInstanceOf(CloudflareError)
+  })
+
+  it("treats an empty token string as no token", async () => {
+    const client = new CloudflareClient(CONFIG, (async (url: string) =>
+      url.endsWith("/token") ? ok("") : ok({ id: "t1" })) as unknown as typeof fetch)
+    await expect(client.createTunnel("nport-app")).rejects.toBeInstanceOf(CloudflareError)
+  })
+})
+
+describe("listTunnels", () => {
+  it("reads more pages from a full page, not from pagination metadata", async () => {
+    // The tunnels list sends `count`, `page`, `per_page` and `total_count` — and **no `total_pages`**,
+    // which the DNS list does send. Reading a field this endpoint never sends pinned the sweep cursor
+    // to page 1 forever, so the envelope below is deliberately the real one: complete, and without it.
+    const fetcher = vi.fn(async () =>
+      respond(200, {
+        success: true,
+        result: [
+          { id: "t1", name: "nport-a" },
+          { id: "t2", name: "nport-b" },
+        ],
+        result_info: { page: 1, per_page: 2, count: 2, total_count: 7 },
+      }),
+    )
+    const client = new CloudflareClient(CONFIG, fetcher as unknown as typeof fetch)
+
+    expect(await client.listTunnels(1, 2)).toEqual({
+      tunnels: [
+        { id: "t1", name: "nport-a" },
+        { id: "t2", name: "nport-b" },
+      ],
+      hasMore: true,
+    })
+
+    const [url] = fetcher.mock.calls[0] as unknown as [string]
+    expect(url).toContain("is_deleted=false&page=1&per_page=2")
+  })
+
+  it("stops at a short page", async () => {
+    const client = new CloudflareClient(CONFIG, (async () =>
+      ok([{ id: "t1", name: "nport-a" }])) as unknown as typeof fetch)
+    expect(await client.listTunnels(3, 10)).toMatchObject({ hasMore: false })
+  })
+
+  it("treats a null result as an empty last page", async () => {
+    // Cloudflare answers `result: null` rather than `[]` on some list endpoints, and `hasMore` must
+    // not read `null` as a full page — the sweep would never wrap.
+    const client = new CloudflareClient(CONFIG, (async () => ok(null)) as unknown as typeof fetch)
+    expect(await client.listTunnels(2, 10)).toEqual({ tunnels: [], hasMore: false })
   })
 })
 

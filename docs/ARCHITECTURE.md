@@ -101,6 +101,7 @@ CLI                          apps/api                    Cloudflare API
  │                               │   ├─ state must be free     │
  │                               │   ├─ journal CLAIMING       │
  │                               │   ├─ create tunnel ────────►│
+ │                               │   ├─ fetch its token ──────►│
  │                               │   ├─ journal TUNNEL_CREATED │
  │                               │   ├─ create CNAME ─────────►│
  │                               │   ├─ journal DNS_CREATED    │
@@ -204,7 +205,7 @@ The design goal is that **tunnel traffic costs nothing on the Workers side**, be
 
 | Resource | Constraint | Consequence |
 | --- | --- | --- |
-| Worker subrequests | 50 (free) / 1000 (paid) per invocation | Provisioning uses ~4; reconciliation pages deliberately |
+| Worker subrequests | 50 (free) / 1000 (paid) per invocation | Provisioning uses ~5; reconciliation pages deliberately |
 | DO alarms | one pending per object | Sufficient — expiry and heartbeat timeout share `min()` |
 | DO SQLite | free-plan eligible since Apr 2025 | Storage cost is not a blocker |
 | Heartbeats | 1 per tunnel per 30 s | The dominant request cost; tune the interval, not the architecture |

@@ -99,6 +99,35 @@ describe("POST /v1/tunnels", () => {
     expect(record).toMatchObject({ type: "CNAME", content: `${body.tunnelId}.cfargotunnel.com` })
   })
 
+  it("provisions the same way when Cloudflare returns the token inline", async () => {
+    // Which of the two shapes the live API answers with is unknown — the schema documents a create
+    // response with no token and a dedicated token endpoint, while v2 read the token straight off a
+    // create in production for years (`CloudflareClient.createTunnel`). Whichever it turns out to be,
+    // the other branch is the one that will be dead code, so a passing suite must not depend on the
+    // default. Every other test here covers the documented shape; this one covers v2's.
+    cloudflare.tokenOnCreate = true
+
+    const response = await createTunnel("inline")
+    expect(response.status).toBe(201)
+    expect(((await response.json()) as CreatedTunnel).tunnelToken.length).toBeGreaterThan(0)
+    expect(cloudflare.calls).not.toContain("tunnel-token")
+  })
+
+  it("leaves nothing behind when the token cannot be fetched", async () => {
+    // The failure this branch adds: the tunnel exists and its credential does not, which is the one
+    // outcome worse than a failed create. `#provision`'s `create-tunnel` compensation has to cover it,
+    // and it can only do so by name — which is why the name is derived rather than random.
+    cloudflare.fail("tunnel-token", { status: 500 })
+
+    const response = await createTunnel("notoken")
+    expect(response.status).toBe(502)
+    expect(cloudflare.tunnels.size).toBe(0)
+
+    // And the name is free afterwards, which is what `PROVISION_FAILED` promises the caller.
+    cloudflare.recover()
+    expect((await createTunnel("notoken")).status).toBe(201)
+  })
+
   it("never lets a credential be cached", async () => {
     // This body is the only time either token is issued. A cache on the path would be a credential
     // store nobody chose to build.

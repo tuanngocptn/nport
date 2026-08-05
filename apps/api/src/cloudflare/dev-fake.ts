@@ -3,7 +3,7 @@
  *
  * ## Why this exists
  *
- * `POST /v1/tunnels` calls Cloudflare four times. Without a real scoped token every one of those is
+ * `POST /v1/tunnels` calls Cloudflare five times. Without a real scoped token every one of those is
  * rejected upstream, so the whole interesting half of the control plane — the saga, the lease, the
  * `ownerToken`, the CLI's provisioning path — cannot be exercised locally at all. That is a poor
  * trade for a project whose first-run promise is that nothing needs configuring.
@@ -119,7 +119,7 @@ export function useDevFake(env: { FAKE_CLOUDFLARE?: string; CF_API_TOKEN?: strin
   return true
 }
 
-/** A `fetch`-shaped handler for the seven endpoints `CloudflareClient` calls. */
+/** A `fetch`-shaped handler for the eight endpoints `CloudflareClient` calls. */
 export const devFetch: typeof fetch = async (input, init) => {
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : "")
   const method = init?.method ?? "GET"
@@ -127,9 +127,11 @@ export const devFetch: typeof fetch = async (input, init) => {
   const body: Record<string, unknown> = typeof init?.body === "string" ? JSON.parse(init.body) : {}
 
   // --- Tunnels -------------------------------------------------------------
-  const tunnelMatch = /^\/accounts\/[^/]+\/cfd_tunnel(?:\/([^/]+))?(\/connections)?$/.exec(path)
+  const tunnelMatch = /^\/accounts\/[^/]+\/cfd_tunnel(?:\/([^/]+))?(\/connections|\/token)?$/.exec(
+    path,
+  )
   if (tunnelMatch) {
-    const [, id, connections] = tunnelMatch
+    const [, id, suffix] = tunnelMatch
 
     if (method === "POST" && !id) {
       const name = String(body.name ?? "")
@@ -140,24 +142,34 @@ export const devFetch: typeof fetch = async (input, init) => {
         deleted_at: null,
       }
       tunnels.set(tunnel.id, tunnel)
-      // Shaped like the real thing (`docs/PROTOCOL.md` §3) so the CLI's token parser is exercised
-      // rather than bypassed: base64 JSON, `t` a UUID, and `s` a secret of at least the 32 bytes
-      // `MIN_SECRET_LEN` requires. Get either wrong and the client fails at *parsing* while
-      // reporting EDGE_PROTOCOL_ERROR, so a dev run looks like it reached the edge when it did not.
+      // **No token in this response**, matching Cloudflare's documented create — the client then asks
+      // `GET .../token` for it. Handing one back here would work just as well for a dev run and would
+      // mean the branch production most likely takes is the one nobody ever exercises by hand
+      // (`CloudflareClient.createTunnel`).
+      return ok({ id: tunnel.id, name: tunnel.name, created_at: tunnel.created_at })
+    }
+
+    if (method === "GET" && id && suffix === "/token") {
+      // A bare string, as the real endpoint answers, and shaped like a real credential
+      // (`docs/PROTOCOL.md` §3) so the CLI's token parser is exercised rather than bypassed: base64
+      // JSON, `t` a UUID, and `s` a secret of at least the 32 bytes `MIN_SECRET_LEN` requires. Get
+      // either wrong and the client fails at *parsing* while reporting EDGE_PROTOCOL_ERROR, so a dev
+      // run looks like it reached the edge when it did not.
       //
       // The secret is nonsense, which is the point — everything up to the QUIC handshake is
       // exercised, and the handshake is what refuses it.
-      const token = btoa(
-        JSON.stringify({
-          a: "0".repeat(32),
-          t: tunnel.id,
-          s: btoa("nport-dev-fake-secret-not-a-real-credential"),
-        }),
+      return ok(
+        btoa(
+          JSON.stringify({
+            a: "0".repeat(32),
+            t: id,
+            s: btoa("nport-dev-fake-secret-not-a-real-credential"),
+          }),
+        ),
       )
-      return ok({ id: tunnel.id, token })
     }
 
-    if (method === "DELETE" && id && connections) {
+    if (method === "DELETE" && id && suffix === "/connections") {
       return ok(null)
     }
 

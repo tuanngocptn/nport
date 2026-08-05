@@ -12,14 +12,16 @@
  *
  * ## Which endpoints, and why these
  *
- * Exactly the four operations provisioning needs, plus the two lookups that make teardown
- * verifiable. That is a deliberate ceiling: `docs/ARCHITECTURE.md` §6 budgets provisioning at ~4
- * subrequests out of the free plan's 50.
+ * Exactly the operations provisioning needs, plus the two lookups that make teardown verifiable.
+ * That is a deliberate ceiling: `docs/ARCHITECTURE.md` §6 budgets provisioning at ~4–5 subrequests
+ * out of the free plan's 50.
  *
  * v2 used the older `/accounts/{id}/tunnels` alias. `cfd_tunnel` is the current documented name for
- * the same resource; both were live at the time of writing. **Unverified against the live API** —
- * nothing in this repository has been deployed yet, so the first deploy must confirm it
- * (`docs/ROADMAP.md` §2a).
+ * the same resource, and every path, parameter and response field used here was checked against
+ * Cloudflare's published OpenAPI schema and its generated Go SDK on 2026-08-05 (`docs/OPERATIONS.md`
+ * § Verifying the Cloudflare API surface). That is not the same as having run against the live API,
+ * which has still never happened — but it is what turned two guesses into one known-good call and
+ * one documented divergence, both handled below.
  *
  * ## Idempotency
  *
@@ -105,8 +107,8 @@ interface CloudflareEnvelope<T> {
   readonly success: boolean
   readonly result: T
   readonly errors?: readonly { readonly code: number; readonly message: string }[]
-  /** Present on list endpoints. `total_pages` is what tells the sweep when it has wrapped. */
-  readonly result_info?: { readonly page?: number; readonly total_pages?: number }
+  // No `result_info`: nothing here reads pagination metadata any more, and the field that used to be
+  // read off it does not exist on the endpoint that was being paginated (see `listTunnels`).
 }
 
 /**
@@ -159,8 +161,26 @@ export class CloudflareClient {
     return `${subdomain}.${this.#config.domain}`
   }
 
+  /**
+   * Creates a tunnel and returns it with a usable connector credential.
+   *
+   * **The token is fetched separately when the create response does not carry one, and that branch is
+   * the documented path rather than the fallback.** Cloudflare's schema for `POST .../cfd_tunnel`
+   * returns the shared tunnel object, which has no `token` field — and its generated Go SDK agrees,
+   * so `GET .../cfd_tunnel/{id}/token` is where a remotely-managed tunnel's credential officially
+   * comes from. v2 nevertheless read `result.token` straight off a create, against the legacy
+   * `/accounts/{id}/tunnels` alias, and did so in production for years. Since `/tunnels` documents no
+   * POST at all yet plainly serves one, the two paths are the same handler with the schema describing
+   * only one of them — which leaves it genuinely unknown whether the create response carries a token.
+   *
+   * So both are accepted: the field if it is there, the endpoint if it is not. Betting on either alone
+   * risks a control plane where **every** provision fails on the first deploy, which is the single
+   * largest first-deploy risk in `docs/ROADMAP.md` § The critical path. The cost of being right twice
+   * is one conditional subrequest. Once the live API has answered, delete the branch it does not take
+   * — a permanently dead path is worse than either half.
+   */
   async createTunnel(name: string): Promise<CreatedTunnel> {
-    const result = await this.#call<{ id: string; token?: string }>(
+    const created = await this.#call<{ id: string; token?: string }>(
       "create-tunnel",
       "POST",
       `/accounts/${this.#config.accountId}/cfd_tunnel`,
@@ -170,12 +190,33 @@ export class CloudflareClient {
       // routes by the DNS CNAME (`docs/ARCHITECTURE.md` §3b).
       { name, config_src: "cloudflare" },
     )
-    if (typeof result.token !== "string" || result.token.length === 0) {
+    if (typeof created.token === "string" && created.token.length > 0) {
+      return { id: created.id, token: created.token }
+    }
+    return { id: created.id, token: await this.#tunnelToken(created.id) }
+  }
+
+  /**
+   * The connector credential for an existing tunnel.
+   *
+   * Unlike every other endpoint here, `result` is a bare **string** rather than an object — the token
+   * itself. A throw leaves an orphan tunnel behind, which is exactly what `#provision`'s `create-tunnel`
+   * compensation is for: it finds the tunnel by its derived name and deletes it, so this failing is no
+   * worse than the create failing.
+   */
+  async #tunnelToken(tunnelId: string): Promise<string> {
+    const result = await this.#call<unknown>(
+      "tunnel-token",
+      "GET",
+      `/accounts/${this.#config.accountId}/cfd_tunnel/${tunnelId}/token`,
+      null,
+    )
+    if (typeof result !== "string" || result.length === 0) {
       // A tunnel with no token is unusable and would strand the caller with an orphan, so treat it
       // as a failed call and let the saga compensate.
-      throw new CloudflareError("create-tunnel", 502, [], true)
+      throw new CloudflareError("tunnel-token", 502, [], true)
     }
-    return { id: result.id, token: result.token }
+    return result
   }
 
   /**
@@ -204,6 +245,18 @@ export class CloudflareClient {
    * bounded per run, unbounded over time, which is the fix for v2's starving cleanup (defect R8).
    *
    * Cloudflare offers no prefix filter, only exact `name`, so the caller filters `nport-` itself.
+   *
+   * **`hasMore` is page fullness, not pagination metadata, and that is not a shortcut.** The tunnels
+   * list answers with a `result_info` holding `count`, `page`, `per_page` and `total_count` — and no
+   * `total_pages`. The DNS list *does* have `total_pages`, which is where the original assumption came
+   * from, and reading a field the endpoint never sends made `hasMore` permanently `false`: the sweep
+   * cursor reset to page 1 on every run and nothing past the first page was ever examined. That is
+   * v2's starving cleanup (defect R8) for the third time, so the replacement deliberately depends on
+   * no metadata at all. `total_count` would not do either — the schema defines it as the count
+   * *without* search parameters, and this call filters on `is_deleted`.
+   *
+   * A full page means there may be more; a short page is the last one. The one imprecision is a total
+   * that divides exactly by `perPage`, which costs one extra run over an empty page before wrapping.
    */
   async listTunnels(page: number, perPage: number): Promise<TunnelPage> {
     const query = new URLSearchParams({
@@ -211,14 +264,16 @@ export class CloudflareClient {
       page: String(page),
       per_page: String(perPage),
     })
-    const { result, info } = await this.#callWithInfo<TunnelSummary[] | null>(
+    const result = await this.#call<TunnelSummary[] | null>(
       "list-tunnels",
       "GET",
       `/accounts/${this.#config.accountId}/cfd_tunnel?${query}`,
       null,
     )
-    const totalPages = info?.total_pages ?? 1
-    return { tunnels: result ?? [], hasMore: page < totalPages }
+    const tunnels = result ?? []
+    // `>=` rather than `===` so a page longer than requested — a clamped `per_page`, a future default
+    // — still reads as "keep going" instead of silently ending the sweep.
+    return { tunnels, hasMore: tunnels.length >= perPage }
   }
 
   /**
@@ -320,22 +375,6 @@ export class CloudflareClient {
     body: object | null,
     tolerate: readonly number[] = [],
   ): Promise<T> {
-    return (await this.#callWithInfo<T>(operation, method, path, body, tolerate)).result
-  }
-
-  /**
-   * As `#call`, but keeps the envelope's `result_info`.
-   *
-   * Only the list endpoints have pagination metadata, and only reconciliation needs it, so the common
-   * path stays free of a field almost nobody reads.
-   */
-  async #callWithInfo<T>(
-    operation: string,
-    method: "GET" | "POST" | "DELETE",
-    path: string,
-    body: object | null,
-    tolerate: readonly number[] = [],
-  ): Promise<{ result: T; info: CloudflareEnvelope<T>["result_info"] }> {
     let lastError: CloudflareError | undefined
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
@@ -372,7 +411,7 @@ export class CloudflareClient {
       }
 
       if (response.ok && envelope?.success === true) {
-        return { result: envelope.result, info: envelope.result_info }
+        return envelope.result
       }
 
       const codes = (envelope?.errors ?? []).map((error) => error.code)

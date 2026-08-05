@@ -37,6 +37,9 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0027 | Redeemed proof-of-work challenges are recorded | Accepted |
 | 0028 | Proof-of-work difficulty escalates per source, not globally | Accepted |
 | 0029 | The control-plane client speaks HTTP itself, rather than adding an HTTP stack | Accepted |
+| 0030 | Tauri's transitive licences and advisories, scoped rather than blanket-allowed | Accepted |
+| 0031 | A registry of independent nodes, rather than one control plane | Accepted |
+| 0032 | The connector token is fetched from its own endpoint, and an inline one still accepted | Accepted |
 
 ---
 
@@ -586,3 +589,24 @@ Enrolment is **anonymous and open**: any node self-registers, with no shared sec
 - Three new error codes and a discovery step are additive to `contract-v1`; nothing existing changes shape.
 
 **Rejected.** *One shared zone across accounts* — does not route, per the constraint above; this is a property of Cloudflare Tunnel, not a configuration we could fix. *Subdomain zones per node* (`*.hk.nport.link`) — keeps one brand domain, but Cloudflare's subdomain setup has historically been Enterprise-gated and universal SSL does not cover a third label, so it trades a domain purchase for a plan dependency and a certificate problem. *Secret-based enrolment* — a shared secret that every prospective operator must obtain is a manual gate that defeats the point of open contribution, and a leaked one is worth no more than no secret at all. *Registry-assigned selection* — makes the registry load-bearing at provision time; client-side selection with a cached list keeps it advisory.
+
+## ADR-0032 — The connector token is fetched from its own endpoint, and an inline one still accepted
+
+**Status.** Accepted, 2026-08-05.
+
+**Context.** `POST /v1/tunnels` is worthless unless it can return a connector credential, so where that credential comes from is the load-bearing question in the whole provisioning saga. v2 read it straight off the create response — `POST /accounts/{id}/tunnels` → `result.token` — and did so in production for years. 2a moved to `cfd_tunnel`, the current name for the same resource, and kept reading `result.token`.
+
+Checking that against Cloudflare's published OpenAPI schema and its generated Go SDK found no such field. A create answers with the shared tunnel object — `id`, `name`, `status`, `config_src`, `created_at` and the rest — and the credential has an endpoint of its own, `GET /accounts/{id}/cfd_tunnel/{tunnel_id}/token`, whose `result` is a bare string rather than an object.
+
+That does not settle it, because the same schema documents **no POST at all** on the legacy `/accounts/{id}/tunnels` that v2 demonstrably posts to. The two paths are one handler with the schema describing one of them, so a create-only field could exist and simply not be written down. The question cannot be answered without the live API, and nothing here has met it.
+
+**Decision.** Accept both. Use `result.token` when the create response carries one; otherwise fetch it from the token endpoint. A response that yields neither is a failed create, compensated by the existing `create-tunnel` step, which finds the orphan by its derived name (ADR-0026) and deletes it.
+
+**Consequences.**
+
+- Provisioning is at most five Cloudflare calls rather than four, against a free-plan budget of fifty — and exactly four whenever the inline field is present, because the second call is conditional.
+- **Both branches are tested, and that is not optional.** Whichever shape production turns out to answer with, the other becomes dead code — so a suite that covered only one would be exercising the path that never runs. `test/fake-cloudflare.ts` defaults to the documented shape and has a switch for v2's; `src/cloudflare/dev-fake.ts` takes the documented path, so `pnpm dev` exercises it by hand.
+- A failure fetching the token is a new way to end up holding an orphan tunnel with no credential. It compensates identically to a failed create, which is why the token fetch lives inside `createTunnel` rather than beside it: the saga sees one operation either way.
+- **The branch not taken must be deleted once the live API answers.** A permanently dead path in the most important call in the system is worse than either half of it, and the first successful provision is the observation that resolves it.
+
+**Rejected.** *Betting on the schema alone* — if the field is in fact returned, an unnecessary subrequest on every provision, which is the cheap mistake. *Betting on v2 alone* — if it is not, **every** provision fails on first deploy, which is the expensive one, and the failure would look like a Cloudflare outage rather than a wrong assumption. *Reverting to the legacy `/tunnels` alias* to match v2 exactly — it is the undocumented path of the two, and building on the alias Cloudflare has stopped describing trades a known unknown for an unknown one.

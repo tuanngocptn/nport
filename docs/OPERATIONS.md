@@ -70,6 +70,25 @@ For a fresh deployment (also the basis of `docs/SELF_HOSTING.md`):
 7. Zone rate-limiting rule on `api.<domain>` — _TBD_ threshold.
 8. Verify `api` and the rest of the reserved list cannot be claimed.
 
+## Verifying the Cloudflare API surface
+
+Every path, query parameter and response field `apps/api/src/cloudflare/client.ts` uses was checked against Cloudflare's published schema on **2026-08-05**, before any deploy. Two of them were wrong, and one of those would have broken every provision — so this is worth repeating whenever that file changes, and it needs no credentials:
+
+```bash
+curl -sL -o /tmp/cf-openapi.json \
+  https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.json
+jq -r '.paths | keys[]' /tmp/cf-openapi.json | grep cfd_tunnel
+```
+
+Cross-check anything surprising against `cloudflare/cloudflare-go`, which is generated from the same source: `shared.CloudflareTunnel` is the struct a create and a list both return, and a field absent there is a field the schema does not promise.
+
+**Two divergences are known and deliberate**, both recorded where the code makes the choice:
+
+- **The create response's `token`.** Not in the schema, not in the SDK, and read by v2 in production for years. Both shapes are accepted — ADR-0032.
+- **`DELETE /zones/{id}/dns_records/{id}` documents a 200 body with no `success` field.** Every call here requires `success === true`, so taken literally this would fail every DNS delete and strand every lease in `RELEASING`. It is a documentation gap: v2 ran the identical call, with the identical check, in production. **Do not "fix" this against the schema** — the schema is the weaker evidence of the two, and the first live teardown is what confirms it.
+
+The reverse lesson is also worth keeping. The tunnels list sends **no `total_pages`** — the DNS list does, and reading it off the wrong endpoint left the reconciliation sweep pinned to page 1 forever. Where the schema and a fake disagree, the fake is what needs changing.
+
 ## Pages → Workers cutover
 
 The site moves from the `nport-site` Pages project to the `nport-web` Worker (ADR-0006). The apex is live, so order matters.

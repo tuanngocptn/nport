@@ -66,7 +66,7 @@ export type SagaStep = "none" | "create-tunnel" | "create-dns" | "teardown"
 /**
  * How long a saga or a teardown may be in flight before the watchdog alarm assumes it died.
  *
- * Generous relative to the work: provisioning is four Cloudflare calls, each retried at most three
+ * Generous relative to the work: provisioning is at most five Cloudflare calls, each retried at most three
  * times with sub-second backoff. The in-memory guard in `#inFlight` covers a merely *slow* saga, so
  * this bound only has to be longer than a plausible one, not longer than the worst conceivable one.
  */
