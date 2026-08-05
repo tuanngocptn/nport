@@ -248,7 +248,8 @@ impl ConnectRequest {
 /// into a request line and headers belongs beside the codec that decoded them. What the caller does with
 /// the head — which socket it goes down, how the body is framed — is `crates/core`'s.
 ///
-/// Three rules, each of which has cost a real bug:
+/// Four rules. The first three have each cost a real bug; the fourth is the one that had not, and
+/// that is the interesting thing about it:
 ///
 /// 1. **`Host` comes from the `HttpHost` metadata key, not the header list.** The edge sends it as
 ///    metadata, and a stale `host` header would send the origin's virtual-host routing somewhere else.
@@ -258,6 +259,10 @@ impl ConnectRequest {
 ///    edge's `transfer-encoding: chunked` header while sending an unchunked body made a Next.js app
 ///    render as hex chunk sizes. The caller passes the length of what it actually has, and a `0` or
 ///    `None` emits no header at all — a bodyless `GET` must not carry `content-length: 0`.
+///
+/// 4. **A name or value that would split the head is dropped** ([`splits_a_head`]). This one had not
+///    cost a bug, because the edge cannot currently send one — which is exactly why it was the rule
+///    nobody had written down. See that function for why it is enforced anyway.
 ///
 /// `extra` is for headers the caller must add and that must win over anything the edge sent — the
 /// WebSocket upgrade set in [`WEBSOCKET_ORIGIN_HEADERS`], which the edge strips before forwarding.
@@ -280,6 +285,13 @@ pub fn request_head(
         if name.eq_ignore_ascii_case("host")
             || name.eq_ignore_ascii_case("content-length")
             || is_hop_by_hop(name)
+            // Belt to the reader's braces. `read_connect_request` rejects these outright, and this
+            // function is `pub` and takes a `ConnectRequest` anyone can build — including the h2
+            // fallback that is not written yet. Skipping here rather than returning an error keeps the
+            // signature, and a header that cannot be written safely is a header the origin is better
+            // off not seeing.
+            || splits_a_head(name)
+            || splits_a_head(value)
             || extra
                 .iter()
                 .any(|(override_name, _)| name.eq_ignore_ascii_case(override_name))
@@ -328,6 +340,34 @@ pub async fn read_version<R: AsyncRead + Unpin>(recv: &mut R) -> Result<(), Fram
     }
 }
 
+/// Whether `text` holds a byte that would change the *structure* of the head it is written into.
+///
+/// CR and LF end a field line; NUL truncates the value inside any origin whose parser is C-based.
+/// A field value containing one of these is malformed per RFC 9110 §5.5, and a proxy must not forward
+/// it — written out verbatim it stops being a value and becomes a new header, or a second request.
+///
+/// **There is no known path by which the real edge sends one.** Cloudflare parses the client's request
+/// first, and neither HTTP/1.1 (where a bare CR ends the field) nor HTTP/2 (RFC 9113 §8.2.1: a field
+/// value "MUST NOT contain" CR, LF or NUL, and a receiver must treat the message as malformed) can
+/// carry one to us. That is the argument for why this is not urgent, and it is not an argument for
+/// leaving it out: `crates/protocol/CLAUDE.md` says this protocol is "owned by someone else" and may
+/// change "without notice", so the guarantee that made it safe is one we neither control nor stated.
+/// It is stated here now, and enforced, which costs one pass over bytes already in cache.
+fn splits_a_head(text: &str) -> bool {
+    text.bytes()
+        .any(|byte| matches!(byte, b'\r' | b'\n' | b'\0'))
+}
+
+/// Whether `dest` holds a byte that would change the structure of the **request line**.
+///
+/// The request line is space-delimited (`method SP request-target SP HTTP/1.1`), so on top of
+/// [`splits_a_head`] a space or tab inside the target silently reframes it — the origin reads a
+/// shorter target and a nonsense version. A real request-target cannot contain either; both are
+/// percent-encoded long before they reach the edge.
+fn splits_a_request_line(dest: &str) -> bool {
+    splits_a_head(dest) || dest.bytes().any(|byte| matches!(byte, b' ' | b'\t'))
+}
+
 /// Reads the `ConnectRequest` that follows the preamble.
 pub async fn read_connect_request<R: AsyncRead + Unpin>(
     recv: &mut R,
@@ -345,6 +385,11 @@ pub async fn read_connect_request<R: AsyncRead + Unpin>(
     let request: connect_request::Reader = message.get_root()?;
 
     let dest = request.get_dest()?.to_str()?.to_owned();
+    if splits_a_request_line(&dest) {
+        return Err(FrameError::Malformed(
+            "dest contains a byte that would reframe the request line".to_owned(),
+        ));
+    }
     let kind = match request.get_type()? {
         WireConnectionType::Http => ConnectionType::Http,
         WireConnectionType::Websocket => ConnectionType::Websocket,
@@ -353,10 +398,17 @@ pub async fn read_connect_request<R: AsyncRead + Unpin>(
 
     let mut metadata = Vec::new();
     for entry in request.get_metadata()? {
-        metadata.push((
-            entry.get_key()?.to_str()?.to_owned(),
-            entry.get_val()?.to_str()?.to_owned(),
-        ));
+        let key = entry.get_key()?.to_str()?.to_owned();
+        let value = entry.get_val()?.to_str()?.to_owned();
+        // Rejected here rather than dropped, so nothing downstream has to wonder whether a missing
+        // header was never sent or quietly discarded. One malformed entry means the whole request is
+        // not one the edge should have been able to send.
+        if splits_a_head(&key) || splits_a_head(&value) {
+            return Err(FrameError::Malformed(
+                "metadata contains a byte that would split the request head".to_owned(),
+            ));
+        }
+        metadata.push((key, value));
     }
 
     Ok(ConnectRequest {
@@ -456,6 +508,139 @@ mod tests {
         let mut out = Vec::new();
         capnp::serialize::write_message(&mut out, &builder).expect("a Vec never fails to write");
         out
+    }
+
+    /// A header value carrying a CRLF must not become a second header.
+    ///
+    /// Written verbatim, `X-Evil: a\r\nX-Injected: yes` is two headers, and a longer payload is a whole
+    /// second request on the origin's socket. Not reachable through the real edge today — see
+    /// [`splits_a_head`] for why, and for why that is not a reason to write it out unchecked.
+    #[test]
+    fn a_header_value_cannot_inject_a_second_header() {
+        let head = request_head(
+            &built_request(&[(
+                &format!("{HTTP_HEADER_PREFIX}X-Evil"),
+                "a\r\nX-Injected: yes",
+            )]),
+            &[],
+            None,
+        );
+
+        assert!(!head.contains("X-Injected"), "{head}");
+        assert!(
+            !head.contains("X-Evil"),
+            "the whole header is dropped: {head}"
+        );
+    }
+
+    #[test]
+    fn a_header_name_cannot_inject_a_second_header() {
+        // The name comes from a metadata *key*, which is arbitrary capnp text — so the same hole exists
+        // on the side that looks like it could only ever be a token.
+        let head = request_head(
+            &built_request(&[(&format!("{HTTP_HEADER_PREFIX}X-Ok\r\nX-Injected"), "yes")]),
+            &[],
+            None,
+        );
+
+        assert!(!head.contains("X-Injected"), "{head}");
+    }
+
+    #[test]
+    fn a_nul_in_a_value_is_dropped() {
+        // Not a split, a truncation: an origin parsing with C string semantics stops at the NUL and
+        // reads a different value than the one that was checked.
+        let head = request_head(
+            &built_request(&[(&format!("{HTTP_HEADER_PREFIX}X-Trunc"), "safe\0evil")]),
+            &[],
+            None,
+        );
+
+        assert!(!head.contains("X-Trunc"), "{head}");
+    }
+
+    #[test]
+    fn an_ordinary_header_still_survives() {
+        // The bound has to reject the malformed without eating the normal case.
+        let head = request_head(
+            &built_request(&[(&format!("{HTTP_HEADER_PREFIX}X-Fine"), "a value")]),
+            &[],
+            None,
+        );
+
+        assert!(head.contains("X-Fine: a value\r\n"), "{head}");
+    }
+
+    #[tokio::test]
+    async fn the_reader_refuses_metadata_that_would_split_the_head() {
+        // The boundary check, so nothing downstream — the inspector, the unwritten h2 transport — has
+        // to repeat it. Rejected rather than dropped: a request the edge could not have sent is not a
+        // request to serve with one header missing.
+        let bytes = encode_request(
+            "https://x.nport.link/",
+            WireConnectionType::Http,
+            &[("HttpHeader:X-Evil", "a\r\nX-Injected: yes")],
+        );
+
+        let error = read_connect_request(&mut bytes.as_slice())
+            .await
+            .expect_err("must refuse");
+        assert!(
+            matches!(&error, FrameError::Malformed(reason) if reason.contains("split")),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_reader_refuses_a_dest_that_would_reframe_the_request_line() {
+        // The request line is space-delimited, so a raw space in the target is the same class of
+        // problem as a CRLF in a header — the origin reads a shorter target and a nonsense version.
+        for dest in [
+            "https://x.nport.link/a b",
+            "https://x.nport.link/a\r\nGET /b",
+        ] {
+            let bytes = encode_request(dest, WireConnectionType::Http, &[]);
+            let error = read_connect_request(&mut bytes.as_slice())
+                .await
+                .expect_err("must refuse");
+            assert!(
+                matches!(&error, FrameError::Malformed(reason) if reason.contains("reframe")),
+                "{dest:?}: {error:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_reader_accepts_an_ordinary_request() {
+        let bytes = encode_request(
+            "https://x.nport.link/a?b=1",
+            WireConnectionType::Http,
+            &[(HTTP_METHOD, "GET"), ("HttpHeader:Accept", "*/*")],
+        );
+
+        let request = read_connect_request(&mut bytes.as_slice())
+            .await
+            .expect("an ordinary request still decodes");
+        assert_eq!(request.path_and_query(), "/a?b=1");
+        assert_eq!(request.method(), Some("GET"));
+    }
+
+    /// A `ConnectRequest` built directly, bypassing the reader — the way the h2 fallback will.
+    fn built_request(headers: &[(&str, &str)]) -> ConnectRequest {
+        let mut metadata = vec![
+            (HTTP_METHOD.to_owned(), "GET".to_owned()),
+            (HTTP_HOST.to_owned(), "x.nport.link".to_owned()),
+        ];
+        metadata.extend(
+            headers
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned())),
+        );
+        ConnectRequest {
+            dest: "https://x.nport.link/".to_owned(),
+            kind: ConnectionType::Http,
+            metadata,
+        }
     }
 
     /// `xxd`-style dump, so a snapshot diff is readable by a human at 2am.

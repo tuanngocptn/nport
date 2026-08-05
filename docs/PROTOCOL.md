@@ -344,6 +344,14 @@ Messages are **single-segment** (`capnp.SingleSegment(nil)`) with the struct as 
 
 The edge may also send `FlowConnectRateLimited: "true"` (`tunnelrpc/pogs/quic_metadata_protocol.go` → `ErrorFlowConnectRateLimitedMetadata`) — surface this distinctly, since it means the edge rate-limited the flow rather than the origin failing.
 
+### What the metadata may not contain
+
+Keys and values are Cap'n Proto `Text`, so the wire permits any UTF-8 — including bytes that are structural in the HTTP/1.1 head they are turned back into. NPort **rejects the whole `ConnectRequest`** if any metadata key or value contains CR, LF or NUL, or if `dest` contains one of those or a space or tab.
+
+This is not a rule read out of cloudflared; upstream does not enforce it, because the Go `http.Request` it builds carries headers as a map and never reconstitutes a raw head. NPort writes an HTTP/1.1 request line and header block toward the origin (§7 above), where a CRLF in a value stops being a value and becomes a second header — or a second request. Nothing in the observed protocol prevents the edge from sending one, and nothing in Cloudflare's published behaviour promises it will not; what makes it unreachable today is that the edge parses the client's request first, and neither HTTP/1.1 nor HTTP/2 (RFC 9113 §8.2.1) can carry a CR or LF inside a field value. That is a property of a peer this project does not control, so it is asserted on arrival rather than assumed.
+
+An implementation of this protocol that hands metadata to a structured HTTP client instead of a text head does not need the check. One that builds a head does.
+
 ## 8. Registration RPC
 
 Cap'n Proto RPC — two-party vat, Level 1, standard `rpc.capnp`. The **edge** exports the interface; the client calls `bootstrap` on the control stream and invokes methods on the result.
