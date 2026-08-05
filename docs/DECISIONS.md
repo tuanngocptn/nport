@@ -42,6 +42,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0032 | The connector token is fetched from its own endpoint, and an inline one still accepted | Accepted |
 | 0033 | Source identity is keyed on an IPv6 prefix, not a full address | Accepted |
 | 0034 | Resource bounds on request input live in the contract, not in callers | Accepted |
+| 0035 | DNS-over-TLS discovery fallback, on the workspace's single crypto provider | Accepted |
 
 ---
 
@@ -663,3 +664,34 @@ Separately, `challenge`, `nonce` and `ownerToken` were unbounded strings. Each i
 - `isReserved` now answers `false` for absurd input rather than normalizing it. Its caller is the reconciliation sweep, whose input comes from Cloudflare rather than from a request, so nothing changes in practice — it is bounded because it is the third entry point, not because it was reachable.
 
 **Rejected.** *Bounding only in the zod schemas* — the shim cannot use them, which is how this happened. *Bounding only in the shim* — leaves the next hand-written caller to remember. *A new `input-too-long` rejection reason* — `too-long` is already accurate, and a code in a frozen registry is not worth spending on a distinction no client can act on differently. *Relying on the platform's body-size limit* — it is two orders of magnitude above anything legitimate here, and a quadratic function turns any of it into CPU time.
+
+## ADR-0035 — DNS-over-TLS discovery fallback, on the workspace's single crypto provider
+
+**Status.** Accepted, 2026-08-05.
+
+**Context.** `docs/PROTOCOL.md` §4 specifies three ways to find an edge address and two were implemented: the A/AAAA shortcut and the SRV lookup cloudflared actually does. The DoT fallback was deferred through Phase 1 with the note "needs a hickory TLS feature", and `crates/protocol/CLAUDE.md` had been describing `src/edge.rs` as doing "SRV / DoT / A-AAAA discovery" the whole time — a claim ahead of the code.
+
+It is not a nicety. The networks that break edge discovery break **SRV lookups specifically**: captive portals, hotel Wi-Fi, and corporate resolvers that answer A records happily and `SERVFAIL` anything unusual. For those users there is no working path at all, and the failure looks like Cloudflare being down rather than like their network.
+
+The reason it was deferred is real. This workspace pins rustls to **`aws-lc-rs`**, because offering `X25519MLKEM768` requires it, and a second crypto provider in the graph makes rustls refuse to choose one **at runtime** rather than at compile time — a failure that appears as a panic in a released binary, not as a build error. `hickory-resolver` offers `tls-ring` and `tls-aws-lc-rs`, and taking the wrong one would have been exactly that mistake.
+
+**Decision.** Enable `hickory-resolver`'s `tls-aws-lc-rs`, and retry both discovery functions over DoT when the system resolver fails.
+
+Four properties are load-bearing, and each is the opposite of the obvious implementation:
+
+- **SNI is `cloudflare-dns.com`, never `1.1.1.1`.** No certificate is issued for the address. Getting this wrong makes the fallback a permanent TLS failure that appears *only* on the networks where it is the only path — so normal use would never reveal it.
+- **The DoT resolver is built from an empty `ResolverConfig`**, not the system's. The reason to be there is that the system configuration is unusable.
+- **Its trust anchors are the platform roots only.** `quic.rs`'s config adds Cloudflare's Origin CA and pins ALPN `argotunnel` because it dials the tunnel edge; reusing it here would widen the trust anchors used to resolve names.
+- **The system resolver is tried first**, because it is faster and respects split-horizon DNS. A fallback that always runs is a hard dependency on `1.1.1.1` wearing a fallback's clothes, and a test asserts it does not.
+
+When both fail, the **system** resolver's error is what surfaces.
+
+**Consequences.**
+
+- All three of §4's discovery paths now exist, and the layout comment that claimed so is true.
+- **One dependency feature, no new crate and no second provider.** Verified: `cargo tree` shows one `rustls` and zero `ring` in `nport-protocol`'s graph.
+- DoT reaches port 853 directly, so it survives broken DNS but not filtered TCP egress. A fallback, not a guarantee.
+- The fallback policy is **testable without a network**, because the primary resolver is a parameter: which resolver wins, and which error survives, are asserted hermetically. Only "does `1.1.1.1:853` actually answer" needs the live tier, and it drives the DoT resolver directly — through the fallback, a working system resolver would answer first and the test would pass without exercising what it names.
+- `aws-lc-rs` linkage on the two musl targets is now load-bearing for DNS as well as for QUIC. `Cargo.toml` already flags that as the thing to watch at release time (Phase 3).
+
+**Rejected.** *`tls-ring`* — the second-provider trap above, and the failure mode is a runtime panic in a shipped binary. *DoH instead of DoT* — cloudflared uses DoT and §4 pins it; matching upstream costs nothing and diverging would need its own justification. *Always resolving over DoT* — discards split-horizon DNS, is slower, and turns a fallback into a hard dependency on one IP address. *A hardcoded edge IP list as the real fallback* — forbidden by §4 and by the module's own invariant: upstream has none, and inventing one means shipping an address that will one day route somewhere else.

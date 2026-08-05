@@ -109,7 +109,18 @@ Query `_v2-origintunneld._tcp.argotunnel.com` (SRV). Regional variants prepend t
 
 > `edgediscovery/allregions/discovery.go` → `dotServerName`, `dotServerAddr`, `dotTimeout`
 
-If the system resolver fails, retry over DNS-over-TLS: TCP `1.1.1.1:853`, TLS SNI `cloudflare-dns.com`, 15 s timeout. This exists because some networks break SRV lookups.
+If the system resolver fails, retry over DNS-over-TLS: TCP `1.1.1.1:853`, TLS SNI `cloudflare-dns.com`, 15 s timeout. This exists because some networks break SRV lookups — captive portals, hotel Wi-Fi, and corporate resolvers that answer A records happily and `SERVFAIL` anything unusual. Without it those users have no working path at all, and the failure looks like Cloudflare being down.
+
+**Implemented** in `crates/protocol/src/edge.rs`, verified against the live resolver on 2026-08-05: `discover_direct` and `discover_srv` both retry over DoT. Four things about it are load-bearing:
+
+- **The SNI is the hostname, never the address.** No certificate is issued for `1.1.1.1`, so sending the address as SNI turns the fallback into a permanent TLS failure — and one that only appears on the networks where the fallback is the only path, so nobody would see it in normal use.
+- **The DoT resolver is built from an empty configuration, not the system's.** The reason to be there is that the system configuration is unusable; inheriting its search domains or nameservers would carry the problem across.
+- **Its trust anchors are the platform roots only.** `crates/protocol/src/quic.rs` adds Cloudflare's Origin CA and pins ALPN `argotunnel` because it dials the tunnel edge; `cloudflare-dns.com` is an ordinary public endpoint, and widening the trust anchors used to *resolve names* is the last place to be generous.
+- **The system resolver is still tried first**, because it is faster and respects split-horizon DNS. A fallback that always runs is a hard dependency on `1.1.1.1` wearing a fallback's clothes, and there is a test asserting it does not.
+
+When both fail, the error reported is the **system** resolver's. It names the problem in the environment the user controls; reporting the DoT failure instead would point every broken-resolver report at Cloudflare.
+
+DoT reaches port 853 directly, so it survives broken DNS but not filtered TCP egress. It is a second way to *ask*, never a hardcoded answer — which is what keeps it consistent with the rule below.
 
 ### Direct A/AAAA shortcut
 
@@ -639,7 +650,7 @@ Note `cf-cloudflared-request-headers` is declared upstream but no longer read �
 | Protocol element | Module | Tests |
 | --- | --- | --- |
 | Token parse, redaction, zeroize | `src/token.rs` | unit + a test asserting `Debug` never leaks |
-| SRV/DoT/A discovery, address pool | `src/edge.rs` | unit with a stub resolver |
+| SRV/DoT/A discovery, address pool | `src/edge.rs` | unit for the pinned DoT configuration and the fallback policy — which resolver wins, and which error survives when both fail; live `#[ignore]` for each of the three discovery paths, DoT included |
 | QUIC dial, TLS, transport params | `src/quic.rs` | integration, live edge |
 | HTTP/2 dial and h2 server | `src/h2.rs` | integration, live edge |
 | Signatures, version, capnp framing | `src/connect.rs` | `insta` snapshots + golden fixtures + `proptest` roundtrip |

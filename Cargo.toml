@@ -42,7 +42,12 @@ clap = { version = "4.6", features = ["derive", "env", "wrap_help"] }
 futures = "0.3"
 h2 = "0.4"
 # DoT feature selection depends on the crypto provider chosen below — Phase 1.
-hickory-resolver = "0.26"
+# `tls-aws-lc-rs`, not `tls-ring`, and not for style: `docs/PROTOCOL.md` §4's DoT fallback needs a
+# TLS-capable resolver, and hickory's ring variant would pull a *second* rustls crypto provider
+# alongside the aws-lc-rs one this workspace pins for X25519MLKEM768. rustls then refuses to pick one
+# **at runtime** rather than at compile time — the same trap `tokio-rustls` and `tokio-tungstenite`
+# are argued down for below.
+hickory-resolver = { version = "0.26", features = ["tls-aws-lc-rs"] }
 insta = "1.48"
 proptest = "1.11"
 # aws-lc-rs, not quinn's default ring: offering X25519MLKEM768 requires it, and rustls

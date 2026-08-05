@@ -8,15 +8,32 @@
 //! 2. [`discover_srv`] — the SRV lookup cloudflared actually does, which is how
 //!    Cloudflare steers traffic. Required before shipping.
 //!
+//! Both retry over **DNS-over-TLS** when the system resolver cannot answer, because the
+//! networks that break edge discovery are the ones that break SRV lookups specifically —
+//! captive portals, hotel Wi-Fi, and corporate resolvers that answer A records happily and
+//! `SERVFAIL` anything unusual. Without the fallback those users have no working path at
+//! all, and the failure looks like Cloudflare being down.
+//!
 //! **There are no hardcoded fallback edge IPs anywhere in the upstream source, and there
-//! must be none here.** If discovery fails, the tunnel fails.
+//! must be none here.** If discovery fails, the tunnel fails. The DoT fallback is a second
+//! way to *ask*, not a hardcoded answer — that distinction is the whole point.
+//!
+//! ## The one live dependency this adds
+//!
+//! DoT reaches `1.1.1.1:853` directly, so it works where DNS is broken but not where TCP
+//! egress is filtered. It is a fallback, not a guarantee, and the system resolver is still
+//! tried first — a working local resolver is faster and respects split-horizon DNS.
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use hickory_resolver::config::{NameServerConfig, ResolverConfig};
+use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::proto::rr::RData;
 use hickory_resolver::{Resolver, TokioResolver};
+use rustls::crypto::aws_lc_rs;
 
 use crate::token::Endpoint;
 
@@ -118,11 +135,146 @@ pub struct Region {
     pub addresses: Vec<SocketAddr>,
 }
 
-fn resolver() -> Result<TokioResolver, EdgeError> {
+/// The DoT resolver's address.
+///
+/// cloudflared: `edgediscovery/allregions/discovery.go` → `dotServerAddr`.
+const DOT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1));
+
+/// The DoT port, set explicitly rather than left to the library's default for the protocol.
+///
+/// cloudflared: `edgediscovery/allregions/discovery.go` → `dotServerAddr`.
+const DOT_PORT: u16 = 853;
+
+/// The TLS server name presented to the DoT resolver.
+///
+/// **Not `1.1.1.1`.** The certificate is issued for the hostname, so sending the address as
+/// SNI fails verification — and this is exactly the kind of value that looks redundant next
+/// to [`DOT_IP`] right up until someone removes it.
+///
+/// cloudflared: `edgediscovery/allregions/discovery.go` → `dotServerName`.
+const DOT_SERVER_NAME: &str = "cloudflare-dns.com";
+
+/// How long a DoT lookup may take before it is abandoned.
+///
+/// cloudflared: `edgediscovery/allregions/discovery.go` → `dotTimeout`.
+const DOT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// The resolver from the operating system's configuration.
+fn system_resolver() -> Result<TokioResolver, EdgeError> {
     Resolver::builder_tokio()
         .map_err(|e| EdgeError::Resolver(Box::new(e)))?
         .build()
         .map_err(|e| EdgeError::Resolver(Box::new(e)))
+}
+
+/// A resolver that talks DNS-over-TLS to `1.1.1.1`, ignoring the system configuration.
+///
+/// Built from a **default** [`ResolverConfig`] with one nameserver added, rather than from the
+/// system's: the whole reason to be here is that the system configuration is unusable, so
+/// inheriting any of it — search domains included — would inherit the problem.
+/// Cloudflare's DoT nameserver, as cloudflared configures it.
+///
+/// Split out from [`dot_resolver`] because `Resolver` does not expose the configuration it was
+/// built from, so this is the only seam at which the pinned constants can be asserted. Every one
+/// of them fails *silently* if wrong — a bad SNI or port surfaces as a generic connection error,
+/// on a network that by definition nobody is testing on.
+fn dot_nameserver() -> NameServerConfig {
+    let mut nameserver = NameServerConfig::tls(DOT_IP, Arc::from(DOT_SERVER_NAME));
+    // The library already defaults a TLS connection to 853. Set anyway, so the value cloudflared
+    // hardcodes is stated here rather than inherited from a dependency's idea of the protocol.
+    for connection in &mut nameserver.connections {
+        connection.port = DOT_PORT;
+    }
+    nameserver
+}
+
+/// The TLS configuration for the DoT connection.
+///
+/// **Not `quic::tls_config`.** That one adds Cloudflare's Origin CA to the root set and pins ALPN
+/// `argotunnel`, because it dials the tunnel edge. `cloudflare-dns.com` is an ordinary public
+/// endpoint with an ordinary public certificate, so it needs the platform roots and nothing more —
+/// and widening the trust anchors used to *resolve names* is the last place to be generous.
+///
+/// `aws_lc_rs` explicitly rather than by default, for the same reason the whole workspace pins it:
+/// a second crypto provider in the graph makes rustls refuse to choose one at runtime.
+fn dot_tls_config() -> Result<rustls::ClientConfig, EdgeError> {
+    let mut roots = rustls::RootCertStore::empty();
+    let native = rustls_native_certs::load_native_certs();
+    for cert in native.certs {
+        // Individual failures ignored: platform stores routinely contain oddities, and upstream
+        // tolerates them too. An empty store is the failure that matters, and it is caught below.
+        let _ = roots.add(cert);
+    }
+    if roots.is_empty() {
+        return Err(EdgeError::Resolver(Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "no usable system certificate roots, so DNS-over-TLS cannot be verified",
+        ))));
+    }
+
+    rustls::ClientConfig::builder_with_provider(Arc::new(aws_lc_rs::default_provider()))
+        .with_safe_default_protocol_versions()
+        .map_err(|e| EdgeError::Resolver(Box::new(e)))
+        .map(|builder| builder.with_root_certificates(roots).with_no_client_auth())
+}
+
+fn dot_resolver() -> Result<TokioResolver, EdgeError> {
+    let mut config = ResolverConfig::default();
+    config.add_name_server(dot_nameserver());
+
+    let mut builder = Resolver::builder_with_config(config, TokioRuntimeProvider::default())
+        .with_tls_config(dot_tls_config()?);
+    builder.options_mut().timeout = DOT_TIMEOUT;
+    builder
+        .build()
+        .map_err(|e| EdgeError::Resolver(Box::new(e)))
+}
+
+/// Runs `discover` against the system resolver, then over DoT if that failed.
+///
+/// **The error returned on total failure is the *system* resolver's**, not the fallback's. It
+/// names the lookup that failed in the environment the user actually controls, which is the
+/// first thing worth investigating; a DoT failure on top of it usually just means the same
+/// network also blocks port 853. The alternative — reporting the second failure — would point
+/// every broken-resolver report at Cloudflare.
+async fn with_dot_fallback<F, Fut>(discover: F) -> Result<Vec<Region>, EdgeError>
+where
+    F: Fn(TokioResolver) -> Fut,
+    Fut: Future<Output = Result<Vec<Region>, EdgeError>>,
+{
+    with_fallback(system_resolver(), discover).await
+}
+
+/// [`with_dot_fallback`] with the primary resolver passed in, so the policy is testable.
+///
+/// The fallback only runs when the system resolver fails, which on any machine a test runs on it
+/// does not — so without this seam the interesting half could only be exercised by breaking the
+/// host's DNS. The policy is what has to be right: which resolver is tried first, and which error
+/// survives when both fail.
+async fn with_fallback<F, Fut>(
+    primary: Result<TokioResolver, EdgeError>,
+    discover: F,
+) -> Result<Vec<Region>, EdgeError>
+where
+    F: Fn(TokioResolver) -> Fut,
+    Fut: Future<Output = Result<Vec<Region>, EdgeError>>,
+{
+    let primary = match primary {
+        Ok(resolver) => match discover(resolver).await {
+            Ok(regions) => return Ok(regions),
+            Err(error) => error,
+        },
+        // A resolver that could not even be constructed is the strongest case for the
+        // fallback: a broken `resolv.conf` is precisely what DoT does not need.
+        Err(error) => error,
+    };
+
+    // A DoT resolver that cannot even be constructed leaves the primary failure as the only
+    // thing worth reporting — there is no second story to tell.
+    let Ok(resolver) = dot_resolver() else {
+        return Err(primary);
+    };
+    discover(resolver).await.map_err(|_| primary)
 }
 
 /// Resolves the region hostnames directly, skipping SRV.
@@ -130,7 +282,13 @@ fn resolver() -> Result<TokioResolver, EdgeError> {
 /// `docs/PROTOCOL.md` §4 recommends this for the spike: one fewer moving part, and it
 /// exercises the same address shape the QUIC dial needs.
 pub async fn discover_direct(endpoint: Endpoint) -> Result<Vec<Region>, EdgeError> {
-    let resolver = resolver()?;
+    with_dot_fallback(|resolver| direct_with(resolver, endpoint)).await
+}
+
+async fn direct_with(
+    resolver: TokioResolver,
+    endpoint: Endpoint,
+) -> Result<Vec<Region>, EdgeError> {
     let mut regions = Vec::with_capacity(2);
 
     for name in region_hostnames(endpoint) {
@@ -162,7 +320,10 @@ pub async fn discover_direct(endpoint: Endpoint) -> Result<Vec<Region>, EdgeErro
 ///
 /// The port comes from the SRV record, never from [`EDGE_PORT`].
 pub async fn discover_srv(endpoint: Endpoint) -> Result<Vec<Region>, EdgeError> {
-    let resolver = resolver()?;
+    with_dot_fallback(|resolver| srv_with(resolver, endpoint)).await
+}
+
+async fn srv_with(resolver: TokioResolver, endpoint: Endpoint) -> Result<Vec<Region>, EdgeError> {
     let service = srv_name(endpoint);
 
     let lookup = resolver
@@ -606,6 +767,43 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn the_dot_resolver_matches_the_pinned_source() {
+        // Every one of these is a value cloudflared hardcodes, and none of them is checkable at
+        // runtime: a wrong SNI or port fails as a generic connection error long after the fact.
+        // Asserting the *configuration* is the only hermetic way to pin them.
+        let server = dot_nameserver();
+        assert_eq!(server.ip, DOT_IP);
+        assert_eq!(
+            server.connections.len(),
+            1,
+            "TLS only — no plaintext fallback"
+        );
+
+        let connection = &server.connections[0];
+        assert_eq!(connection.port, DOT_PORT);
+        // The name, not the address. A certificate is not issued for `1.1.1.1`, so getting this
+        // wrong turns the fallback into a permanent TLS failure that only shows up off-network.
+        assert!(
+            format!("{:?}", connection.protocol).contains(DOT_SERVER_NAME),
+            "SNI must be {DOT_SERVER_NAME}, got {:?}",
+            connection.protocol
+        );
+    }
+
+    #[test]
+    fn the_dot_resolver_builds_without_the_system_configuration() {
+        // The reason it exists is that the system configuration may be unusable, so constructing it
+        // must not consult `resolv.conf` at all — otherwise the fallback fails for exactly the
+        // people who need it.
+        assert!(dot_resolver().is_ok());
+    }
+
+    #[test]
+    fn the_dot_timeout_matches_the_pinned_source() {
+        assert_eq!(DOT_TIMEOUT, Duration::from_secs(15));
+    }
+
     /// Live DNS. `#[ignore]` so `cargo test` stays hermetic and offline
     /// (`docs/TESTING.md`).
     #[tokio::test]
@@ -620,6 +818,80 @@ mod tests {
             for address in &region.addresses {
                 assert_eq!(address.port(), EDGE_PORT);
             }
+        }
+    }
+
+    /// A primary resolver that could not be built at all — the broken-`resolv.conf` case.
+    fn unusable_resolver() -> Result<TokioResolver, EdgeError> {
+        Err(EdgeError::Resolver(Box::new(std::io::Error::other(
+            "no system resolver",
+        ))))
+    }
+
+    fn one_region() -> Vec<Region> {
+        vec![Region {
+            name: "region1.v2.argotunnel.com.".to_owned(),
+            addresses: vec![SocketAddr::from(([198, 51, 100, 1], EDGE_PORT))],
+        }]
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_dot_when_the_system_resolver_cannot_be_built() {
+        // The whole point of the fallback: a machine whose DNS configuration is unusable still
+        // reaches the edge, because DoT needs nothing from that configuration.
+        let regions = with_fallback(unusable_resolver(), |_| async { Ok(one_region()) })
+            .await
+            .expect("the fallback should have answered");
+        assert_eq!(regions.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn does_not_use_the_fallback_when_the_system_resolver_answers() {
+        // A working local resolver is faster and respects split-horizon DNS, so it must win. The
+        // counter proves the fallback was not also consulted — a fallback that always runs is a
+        // hard dependency on `1.1.1.1` wearing a fallback's clothes.
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let regions = with_fallback(system_resolver(), |_| {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async { Ok(one_region()) }
+        })
+        .await
+        .expect("the primary should have answered");
+
+        assert_eq!(regions.len(), 1);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn reports_the_primary_failure_when_both_resolvers_fail() {
+        // Which error surfaces is a real decision, not a detail. The system resolver's names the
+        // problem in the environment the user controls; reporting the DoT failure instead would
+        // point every broken-resolver report at Cloudflare.
+        let error = with_fallback(unusable_resolver(), |_| async { Err(EdgeError::NoAddress) })
+            .await
+            .expect_err("both failed, so this must be an error");
+        assert!(
+            matches!(error, EdgeError::Resolver(_)),
+            "expected the primary failure, got {error:?}"
+        );
+    }
+
+    /// Live DNS, and the only test that proves the fallback can actually answer.
+    ///
+    /// The hermetic tests above pin the configuration; they cannot show that `1.1.1.1:853` accepts
+    /// it and returns SRV records. Drives the DoT resolver directly rather than through
+    /// [`with_dot_fallback`], because on a working network the system resolver would answer first
+    /// and the fallback would never run — a test that passes without exercising what it names.
+    #[tokio::test]
+    #[ignore = "requires network"]
+    async fn resolves_the_global_edge_over_dot() {
+        let resolver = dot_resolver().expect("the DoT resolver has no system dependency");
+        let regions = srv_with(resolver, Endpoint::Global)
+            .await
+            .expect("DoT SRV lookup should succeed");
+        assert!(regions.len() >= MIN_REGIONS);
+        for region in &regions {
+            assert!(!region.addresses.is_empty(), "{}", region.name);
         }
     }
 

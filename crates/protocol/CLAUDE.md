@@ -8,7 +8,7 @@ A native Rust implementation of Cloudflare's tunnel connector protocol: edge dis
 
 **Not responsible for:** tunnel lifecycle, provisioning, the NPort API, retries above the connection level, or anything user-facing. It speaks the wire and nothing else. `crates/core` owns policy.
 
-**Status: implemented and proven live.** Phase 1 closed on 2026-08-03: token, edge discovery, QUIC handshake, registration, framing, WebSockets, and a four-connection pool, all verified against the real edge. `src/h2.rs` is still unwritten (ADR-0017 Fallback 1).
+**Status: implemented and proven live.** Phase 1 closed on 2026-08-03: token, edge discovery, QUIC handshake, registration, framing, WebSockets, and a four-connection pool, all verified against the real edge. The DoT discovery fallback landed 2026-08-05 (ADR-0035), so `src/edge.rs` now does all three of §4's paths rather than the two its layout claimed. `src/h2.rs` is still unwritten (ADR-0017 Fallback 1).
 
 ## Why this directory is dangerous
 

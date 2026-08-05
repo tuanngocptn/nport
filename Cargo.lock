@@ -1766,6 +1766,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2295ed2f9c31e471e1428a8f88a3f0e1f4b27c15049592138d1eebe9c35b183"
 dependencies = [
  "async-trait",
+ "bytes",
  "cfg-if",
  "data-encoding",
  "futures-channel",
@@ -1776,9 +1777,11 @@ dependencies = [
  "ipnet",
  "jni 0.22.4",
  "rand",
+ "rustls",
  "thiserror 2.0.19",
  "tinyvec",
  "tokio",
+ "tokio-rustls",
  "tracing",
  "url",
 ]
@@ -1822,10 +1825,12 @@ dependencies = [
  "parking_lot",
  "rand",
  "resolv-conf",
+ "rustls",
  "smallvec",
  "system-configuration",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-rustls",
  "tracing",
 ]
 
