@@ -602,10 +602,12 @@
           },
           "challenge": {
             "type": "string",
+            "maxLength": 512,
             "description": "The `challenge` value from `GET /v1/challenge`."
           },
           "nonce": {
             "type": "string",
+            "maxLength": 64,
             "description": "A solution satisfying the challenge's difficulty."
           },
           "client": {
@@ -676,6 +678,8 @@
         "properties": {
           "ownerToken": {
             "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
             "description": "Proves this caller created the lease."
           }
         },
@@ -705,7 +709,10 @@
         "type": "object",
         "properties": {
           "ownerToken": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The `ownerToken` returned when the tunnel was created."
           }
         },
         "required": [

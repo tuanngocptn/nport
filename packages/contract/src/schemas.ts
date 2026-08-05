@@ -14,7 +14,7 @@
 import { z } from "zod"
 
 import { ERROR_CODES } from "./errors"
-import { MAX_LENGTH, MIN_LENGTH } from "./subdomain"
+import { MAX_INPUT_LENGTH, MAX_LENGTH, MIN_LENGTH } from "./subdomain"
 
 /**
  * A requested subdomain, as the user typed it.
@@ -30,8 +30,34 @@ import { MAX_LENGTH, MIN_LENGTH } from "./subdomain"
 export const requestedSubdomainSchema = z
   .string()
   .min(1)
-  .max(MAX_LENGTH + 32)
+  .max(MAX_INPUT_LENGTH)
   .describe("Desired subdomain. Normalized server-side; omit to have one generated.")
+
+/**
+ * Bounds on the credential-shaped inputs, for the same reason `requestedSubdomainSchema` has one.
+ *
+ * Every one of these is hashed before anything about it is trusted — the challenge is HMAC-verified,
+ * the nonce is fed to SHA-256 with it, and an `ownerToken` is SHA-256'd and compared. So an unbounded
+ * one is a request that costs the sender bandwidth and the server proportional CPU, ahead of any check
+ * that could reject it. The values themselves are small and fixed by their own construction:
+ *
+ * - a challenge is `base64url(payload).base64url(hmac)`, about 120 characters;
+ * - a nonce is a decimal integer, at most 10 digits for the 32-bit maximum difficulty;
+ * - an `ownerToken` is 32 bytes of base64url, exactly 43 characters.
+ *
+ * The numbers below are two to five times each of those: room for the shapes to change, none for a
+ * megabyte. They are a resource bound, not a format check — the format is enforced by verifying.
+ */
+export const MAX_CHALLENGE_LENGTH = 512
+export const MAX_NONCE_LENGTH = 64
+export const MAX_OWNER_TOKEN_LENGTH = 128
+
+/** A 256-bit bearer proof, as the client presents it. Compared by hash, never stored in the clear. */
+export const ownerTokenSchema = z
+  .string()
+  .min(1)
+  .max(MAX_OWNER_TOKEN_LENGTH)
+  .describe("The `ownerToken` returned when the tunnel was created.")
 
 /** A normalized, validated subdomain, as it appears in responses. */
 export const subdomainSchema = z
@@ -79,8 +105,18 @@ export const challengeResponseSchema = z
 export const createTunnelRequestSchema = z
   .object({
     subdomain: requestedSubdomainSchema.optional(),
-    challenge: z.string().describe("The `challenge` value from `GET /v1/challenge`."),
-    nonce: z.string().describe("A solution satisfying the challenge's difficulty."),
+    // Bounded for the same reason `requestedSubdomainSchema` is, and it was missed here: both are
+    // hashed before anything about them is trusted, so an unbounded one is a request that costs the
+    // sender bandwidth and the server CPU. A challenge is ~120 characters and a nonce is a decimal
+    // integer; these leave room for both to grow without leaving room for a megabyte.
+    challenge: z
+      .string()
+      .max(MAX_CHALLENGE_LENGTH)
+      .describe("The `challenge` value from `GET /v1/challenge`."),
+    nonce: z
+      .string()
+      .max(MAX_NONCE_LENGTH)
+      .describe("A solution satisfying the challenge's difficulty."),
     client: clientKindSchema,
   })
   .describe("Claim a subdomain and provision a tunnel.")
@@ -112,7 +148,7 @@ export const createTunnelResponseSchema = z
 
 export const heartbeatRequestSchema = z
   .object({
-    ownerToken: z.string().describe("Proves this caller created the lease."),
+    ownerToken: ownerTokenSchema.describe("Proves this caller created the lease."),
   })
   .describe("Renew a lease.")
 
@@ -128,7 +164,7 @@ export const heartbeatResponseSchema = z
 
 export const deleteTunnelRequestSchema = z
   .object({
-    ownerToken: z.string(),
+    ownerToken: ownerTokenSchema,
   })
   .describe("Release a lease and tear the tunnel down. Idempotent.")
 

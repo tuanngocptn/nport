@@ -16,6 +16,22 @@ export const MIN_LENGTH = 3
 export const MAX_LENGTH = 63
 
 /**
+ * The longest **raw input** any entry point here will look at, before normalization.
+ *
+ * A normalized name is at most `MAX_LENGTH`, but input is not normalized yet: `.nport.link` is
+ * stripped, so `myapp.nport.link` and a trailing dot or two are legal input for a 5-character
+ * claim. The headroom covers that and a suffix pasted twice.
+ *
+ * **This is a resource bound, not a naming rule, and it belongs here rather than in each caller.**
+ * `normalizeSubdomain` runs NFKC over its input and strips suffixes in a loop; both are cheap on a
+ * name and neither is on a megabyte. `requestedSubdomainSchema` bounds the `/v1` path, but the v2
+ * shim reads its own body — v2's request shape is not in the contract, so it cannot use the schema —
+ * and it passed whatever arrived straight into normalization. A bound that only one of two callers
+ * applies is a bound one caller forgot.
+ */
+export const MAX_INPUT_LENGTH = MAX_LENGTH + 32
+
+/**
  * The zone every tunnel lives under. Stripped during normalization so pasting a whole URL
  * works — people copy `myapp.nport.link` out of their terminal and expect it to mean `myapp`.
  */
@@ -153,14 +169,30 @@ export type SubdomainCheck =
  * as `myapp.nport.link`, a second normalization away from `myapp`.
  */
 export function normalizeSubdomain(input: string): string {
-  let value = input.trim().normalize("NFKC").toLowerCase()
-  // A trailing dot is legal in a FQDN and meaningless here. Strip before *and* after each
-  // suffix removal, since either can expose the other.
-  value = value.replace(/\.+$/, "")
-  while (value.endsWith(ZONE_SUFFIX)) {
-    value = value.slice(0, -ZONE_SUFFIX.length).replace(/\.+$/, "")
+  const value = input.trim().normalize("NFKC").toLowerCase()
+
+  // **Walked with an index rather than re-sliced, because slicing here was quadratic.** Each
+  // `slice` copies the whole remaining string, so stripping k suffixes from an n-character input
+  // cost O(n·k) — and since every suffix is 11 characters, k grows with n. `"a" + ".nport.link"
+  // repeated` measured 4 ms at 11 KiB, 87 ms at 54 KiB, and **12.5 s at 645 KiB**: a single
+  // request, on the shim that has no proof of work, ending a Worker invocation on CPU time.
+  // Tracking the end instead makes the whole function linear, which is what it always looked like.
+  let end = value.length
+  // A trailing dot is legal in a FQDN and meaningless here. Stripped before *and* after each
+  // suffix removal, since either can expose the other. 46 is `.`.
+  const trimDots = (): void => {
+    while (end > 0 && value.charCodeAt(end - 1) === 46) {
+      end -= 1
+    }
   }
-  return value
+
+  trimDots()
+  // `startsWith` with an offset compares in place — no substring is created to throw away.
+  while (end >= ZONE_SUFFIX.length && value.startsWith(ZONE_SUFFIX, end - ZONE_SUFFIX.length)) {
+    end -= ZONE_SUFFIX.length
+    trimDots()
+  }
+  return value.slice(0, end)
 }
 
 /**
@@ -227,6 +259,11 @@ export function validateSubdomain(subdomain: string): SubdomainCheck {
 
 /** Normalize then validate — the entry point for a **claim**. */
 export function checkSubdomain(input: string): SubdomainCheck {
+  if (input.length > MAX_INPUT_LENGTH) {
+    // Refused before normalization, not after. `too-long` is already the honest reason, and no new
+    // code is needed: anything this long cannot normalize to a legal name anyway.
+    return { ok: false, reason: "too-long" }
+  }
   return validateSubdomain(normalizeSubdomain(input))
 }
 
@@ -237,6 +274,9 @@ export function checkSubdomain(input: string): SubdomainCheck {
  * [`validateSubdomainShape`] for why those cannot use [`checkSubdomain`].
  */
 export function checkSubdomainShape(input: string): SubdomainCheck {
+  if (input.length > MAX_INPUT_LENGTH) {
+    return { ok: false, reason: "too-long" }
+  }
   return validateSubdomainShape(normalizeSubdomain(input))
 }
 
@@ -248,6 +288,11 @@ export function checkSubdomainShape(input: string): SubdomainCheck {
  * would have passed length or charset validation.
  */
 export function isReserved(subdomain: string): boolean {
+  if (subdomain.length > MAX_INPUT_LENGTH) {
+    // Nothing this long is one of our names, and the sweeper's input comes from Cloudflare rather
+    // than from a request — but the bound is free and this is the third entry point.
+    return false
+  }
   const normalized = normalizeSubdomain(subdomain)
   return (
     RESERVED_SUBDOMAINS.includes(normalized) ||

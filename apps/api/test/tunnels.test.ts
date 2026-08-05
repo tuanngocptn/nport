@@ -281,6 +281,34 @@ describe("POST /v1/tunnels", () => {
     expect(((await created.json()) as { error: { code: string } }).error.code).toBe("POW_REQUIRED")
   })
 
+  it("refuses an oversized nonce before hashing it", async () => {
+    // The challenge and the nonce are both hashed before anything about them is trusted, so an
+    // unbounded one costs the sender bandwidth and the server proportional CPU ahead of any check
+    // that could reject it. `subdomain` was bounded for exactly this reason and these were not.
+    const proof = await solvedChallenge()
+    const response = await post("/v1/tunnels", {
+      subdomain: "bignonce",
+      challenge: proof.challenge,
+      nonce: "0".repeat(100_000),
+      client: "cli",
+    })
+
+    expect(response.status).toBe(400)
+    expect(cloudflare.calls).toEqual([])
+  })
+
+  it("refuses an oversized challenge before verifying it", async () => {
+    const response = await post("/v1/tunnels", {
+      subdomain: "bigchallenge",
+      challenge: `${"A".repeat(100_000)}.${"B".repeat(100_000)}`,
+      nonce: "0",
+      client: "cli",
+    })
+
+    expect(response.status).toBe(400)
+    expect(cloudflare.calls).toEqual([])
+  })
+
   it("answers a malformed body with our envelope, not the validator's", async () => {
     const created = await post("/v1/tunnels", { client: "browser" })
     expect(created.status).toBe(400)

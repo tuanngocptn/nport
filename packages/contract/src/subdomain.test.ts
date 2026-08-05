@@ -5,9 +5,11 @@ import {
   checkSubdomain,
   checkSubdomainShape,
   isReserved,
+  MAX_INPUT_LENGTH,
   MAX_LENGTH,
   normalizeSubdomain,
   RESERVED_SUBDOMAINS,
+  ZONE_SUFFIX,
 } from "./subdomain"
 
 /**
@@ -150,5 +152,50 @@ describe("checkSubdomainShape", () => {
     for (const { input } of fixtures.valid) {
       expect(checkSubdomainShape(input).ok, input).toBe(true)
     }
+  })
+})
+
+/**
+ * Cost, not correctness — the one property in this file that a wrong answer does not reveal.
+ *
+ * `normalizeSubdomain` strips the zone suffix in a loop, and doing that by re-slicing copied the whole
+ * remaining string each time: O(n·k) for k suffixes, and k grows with n. Measured on the old code,
+ * `"a" + ".nport.link"` repeated took 4 ms at 11 KiB, 87 ms at 54 KiB and **12.5 s at 645 KiB** — one
+ * unauthenticated request, on the shim that cannot ask for proof of work, ending a Worker invocation on
+ * CPU time. Two independent guards now: the function is linear, and the entry points refuse absurd
+ * input before calling it at all.
+ */
+describe("resource bounds", () => {
+  it("normalizes a pathological input in linear time", () => {
+    // 60,000 suffixes is 645 KiB — the size that took 12.5 seconds. A generous ceiling rather than a
+    // tight one, so this asserts "not quadratic" and never fails on a loaded CI runner.
+    const input = `a${ZONE_SUFFIX.repeat(60_000)}`
+    const started = Date.now()
+    expect(normalizeSubdomain(input)).toBe("a")
+    expect(Date.now() - started).toBeLessThan(1_000)
+  })
+
+  it("still strips a repeated suffix, which is what the loop is for", () => {
+    expect(normalizeSubdomain(`myapp${ZONE_SUFFIX}${ZONE_SUFFIX}`)).toBe("myapp")
+    expect(normalizeSubdomain(`myapp${ZONE_SUFFIX}.${ZONE_SUFFIX}..`)).toBe("myapp")
+  })
+
+  it("refuses input longer than the raw bound before normalizing it", () => {
+    const oversized = "a".repeat(MAX_INPUT_LENGTH + 1)
+    expect(checkSubdomain(oversized)).toEqual({ ok: false, reason: "too-long" })
+    expect(checkSubdomainShape(oversized)).toEqual({ ok: false, reason: "too-long" })
+  })
+
+  it("still accepts a name at the raw bound that normalizes to a legal one", () => {
+    // The bound is on *input*, so a pasted URL and a trailing dot must still fit. Guards against
+    // tightening it to `MAX_LENGTH` and breaking `myapp.nport.link`.
+    const pasted = `myapp${ZONE_SUFFIX}.`
+    expect(pasted.length).toBeLessThanOrEqual(MAX_INPUT_LENGTH)
+    expect(checkSubdomain(pasted)).toEqual({ ok: true, subdomain: "myapp" })
+  })
+
+  it("does not call an oversized name reserved", () => {
+    // `isReserved` is the sweeper's guard, and it must answer rather than spend the input's length.
+    expect(isReserved(`api${ZONE_SUFFIX.repeat(60_000)}`)).toBe(false)
   })
 })

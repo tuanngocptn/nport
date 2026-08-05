@@ -41,6 +41,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0031 | A registry of independent nodes, rather than one control plane | Accepted |
 | 0032 | The connector token is fetched from its own endpoint, and an inline one still accepted | Accepted |
 | 0033 | Source identity is keyed on an IPv6 prefix, not a full address | Accepted |
+| 0034 | Resource bounds on request input live in the contract, not in callers | Accepted |
 
 ---
 
@@ -631,6 +632,34 @@ The comparison is on **values**, not on the text: `2001:db8::1` and `2001:0db8:0
 - The per-source caps mean something over IPv6 for the first time. Nothing changes for IPv4.
 - **A few unrelated customers can share a cap.** Some providers hand out single addresses from a shared /64, and those now key together — three concurrent tunnels between them. Accepted deliberately: the trade-off runs one way only, since grouping too finely means there is no cap at all. A /64 is also the smallest block anyone is guaranteed to have, and what Cloudflare's own rate limiting keys IPv6 on.
 - Existing `ip_hash` values change meaning, which costs nothing here: no lease outlives its own hash, and rotating `IP_HASH_SECRET` already invalidates every stored value by design.
+- **The v2 shim's delete gets wider, and it is the one place that matters.** `releaseAsLegacy` authorizes on the source hash, because a 2.x client never had an `ownerToken` to present — so for an IPv6 caller the delete is now authorized to a /64 rather than to one machine, and another host on the same home network could release the tunnel. Accepted: it is the weakest authorization in the system by design, it is still strictly stronger than v2's, which accepted a delete from anyone, and `/v1` is untouched because it proves ownership with a token and never consults a source hash. `docs/RELEASE.md` sunsets the shim, which is the real fix.
 - **A claim in the code was wrong and had to be withdrawn.** The ASN was documented as being in the key "so that a botnet spread across one network cannot present as thousands of unrelated sources". It does the opposite of that: extra key material can only split one identity into two, never merge two into one. The ASN stays — it is harmless and is the documented design — but the reason given for it was backwards, and a wrong reason in a comment is how the next person builds on a property that was never there.
 
 **Rejected.** *Keying on the ASN alone* — this is what the old comment's justification actually describes, and it would put an entire ISP on one bucket of 60 requests a minute. *A longer prefix (/128, /96)* — leaves the hole open for anyone with more than a handful of addresses, which is everyone on IPv6. *A shorter prefix (/48, /32)* — bounds a determined attacker with a large allocation, at the price of capping large numbers of unrelated customers against each other; if abuse from single allocations is ever observed, the right response is a manual measure in `docs/OPERATIONS.md`, not a permanently coarser key for everybody.
+
+## ADR-0034 — Resource bounds on request input live in the contract, not in callers
+
+**Status.** Accepted, 2026-08-05.
+
+**Context.** `requestedSubdomainSchema` has carried a length bound since Phase 1.5, with a comment saying exactly why: "to stop a megabyte of text reaching the normalizer". Three things then turned out not to have one.
+
+`normalizeSubdomain` strips the zone suffix in a loop, and it did so by re-slicing — each pass copying the whole remaining string. That is O(n·k) for k suffixes, and since every suffix is eleven characters, k grows with n. Measured: `"a"` followed by `".nport.link"` repeated took 4 ms at 11 KiB, 87 ms at 54 KiB, and **12.5 s at 645 KiB**.
+
+The `/v1` path was bounded by its schema. **The v2 shim was not**, because v2's request shape is not in the contract and the shim therefore reads its own body — so it passed whatever arrived straight into normalization. That is the endpoint with no proof of work, so its cost per request is bounded by nothing else. Its rejection message also interpolated the raw value into the response, making a megabyte in a megabyte out.
+
+Separately, `challenge`, `nonce` and `ownerToken` were unbounded strings. Each is hashed before anything about it is trusted, so an unbounded one buys proportional server CPU for the price of bandwidth.
+
+**Decision.** Two independent layers, because either alone would be enough only until someone adds a third caller.
+
+1. **`normalizeSubdomain` is linear.** It walks an index instead of re-slicing. A function that looks linear should be linear, whatever its input.
+2. **The bound lives at the contract's entry points.** `MAX_INPUT_LENGTH` is exported, `requestedSubdomainSchema` uses it, and `checkSubdomain`, `checkSubdomainShape` and `isReserved` each refuse longer input before normalizing — reusing the existing `too-long` reason, so no new error code. A caller cannot forget a check it does not have to make.
+
+`challenge`, `nonce` and `ownerToken` get bounds sized two to five times their actual shapes, and the shim truncates what it echoes.
+
+**Consequences.**
+
+- The contract accepts slightly less than it did at `contract-v1`, which is a narrowing after a freeze. Compatible in practice: our own client sends a 43-character `ownerToken` and a decimal nonce, and no legitimate caller is near any of these numbers. The OpenAPI document gains four `maxLength` keywords; `crates/contract` gains a doc comment and no type change.
+- These are resource bounds and not format checks, and the distinction matters for anyone tightening them later: the format is enforced by verifying the value, so a bound exists only to cap what verification may cost.
+- `isReserved` now answers `false` for absurd input rather than normalizing it. Its caller is the reconciliation sweep, whose input comes from Cloudflare rather than from a request, so nothing changes in practice — it is bounded because it is the third entry point, not because it was reachable.
+
+**Rejected.** *Bounding only in the zod schemas* — the shim cannot use them, which is how this happened. *Bounding only in the shim* — leaves the next hand-written caller to remember. *A new `input-too-long` rejection reason* — `too-long` is already accurate, and a code in a frozen registry is not worth spending on a distinction no client can act on differently. *Relying on the platform's body-size limit* — it is two orders of magnitude above anything legitimate here, and a quadratic function turns any of it into CPU time.

@@ -318,12 +318,16 @@ export class SubdomainLease extends DurableObject<Env> {
    *
    * 1. **`legacy` must be set.** A `/v1` lease can never be deleted this way, however the request is
    *    shaped, so an attacker cannot use the legacy endpoint to reach a modern tunnel.
-   * 2. **The source hash must match.** Same address and ASN as the create, which for a CLI on one machine
-   *    is the normal case.
+   * 2. **The source hash must match.** Not the same *address*: the hash is keyed on an IPv6 prefix
+   *    rather than a full address (ADR-0033), so for an IPv6 client this means the same /64 — another
+   *    machine on the same home network could delete the tunnel. That is a deliberate consequence of
+   *    making the abuse controls work at all, and it is confined to this method: `/v1` proves ownership
+   *    with an `ownerToken` and never consults a source hash. For IPv4 it is still the same address.
    *
    * Both are weaker than an `ownerToken` and both are the reason `docs/RELEASE.md` sunsets this. What it
    * is *not* is v2's behaviour: v2 accepted `{subdomain, tunnelId}` from anyone and deleted whatever it
-   * named, including the `api` record.
+   * named, including the `api` record — so even at its widest this is strictly stronger than what these
+   * clients shipped against.
    */
   async releaseAsLegacy(ipHash: string): Promise<ReleaseResult> {
     const row = this.#read()

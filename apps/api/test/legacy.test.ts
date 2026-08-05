@@ -64,6 +64,35 @@ async function legacyDelete(subdomain: string, tunnelId: string, ip?: string) {
   })
 }
 
+/**
+ * The shim has no proof of work, so its cost per request is bounded by nothing but its own input
+ * handling — which makes an unbounded field here worth more to an attacker than anywhere else in the
+ * API. Two things were unbounded: what reached the normalizer, and what came back in the refusal.
+ */
+describe("resource bounds on the weakest path", () => {
+  it("refuses an oversized subdomain without spending its length", async () => {
+    // 645 KiB of `.nport.link` repeated took 12.5 s of CPU in the normalizer, from one request.
+    const response = await legacyCreate(`a${".nport.link".repeat(60_000)}`)
+
+    expect(response.status).toBe(400)
+    expect(await response.text()).toSatisfy((body: string) => body.length < 4096)
+    expect(cloudflare.tunnels.size).toBe(0)
+  })
+
+  it("does not echo a large input back in the refusal", async () => {
+    // The rejection interpolated the raw value, so a megabyte in was a megabyte out — a reflection
+    // amplifier on an endpoint anyone can reach.
+    const response = await legacyCreate("x".repeat(50_000))
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { success: false; error: string }
+    expect(body.success).toBe(false)
+    // Still v2's shape and still the substring its CLI matches, just not the whole request.
+    expect(body.error).toContain("SUBDOMAIN_PROTECTED:")
+    expect(body.error.length).toBeLessThan(512)
+  })
+})
+
 describe("v2 wire compatibility", () => {
   it("answers POST / with v2's exact success body", async () => {
     const response = await legacyCreate("oldclient")

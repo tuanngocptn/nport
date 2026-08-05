@@ -162,7 +162,7 @@ v2 clients dispatch on method against `/` with no path routing: `POST /` creates
 Two v2 behaviours are **deliberately not preserved**, because they were the bugs:
 
 - v2's create would take over a subdomain whose tunnel looked inactive, deleting the incumbent's records. The shim returns `409` instead.
-- v2's delete accepted any `{subdomain, tunnelId}` pair. The shim cannot verify ownership for clients that never received an `ownerToken`, so it deletes only leases created through the shim itself and matching the caller's source hash.
+- v2's delete accepted any `{subdomain, tunnelId}` pair. The shim cannot verify ownership for clients that never received an `ownerToken`, so it deletes only leases created through the shim itself and matching the caller's source hash. That hash is keyed on an IPv6 **prefix** rather than a full address (ADR-0033), so for an IPv6 client the delete is authorized to its /64 rather than to one machine. It is the weakest authorization in the API, it is still strictly stronger than v2's, and it is one of the reasons `docs/RELEASE.md` sunsets the shim.
 
 Sunset schedule in `docs/RELEASE.md`.
 

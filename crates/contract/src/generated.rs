@@ -398,6 +398,7 @@ pub struct CreateTunnelResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteTunnelRequest {
+    /// The `ownerToken` returned when the tunnel was created.
     #[serde(rename = "ownerToken")]
     pub owner_token: String,
 }

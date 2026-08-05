@@ -35,7 +35,7 @@
  * encoder at the boundary, not a return to message-matching. Nothing inside NPort branches on them.
  */
 
-import { checkSubdomain, checkSubdomainShape } from "@nport/contract"
+import { checkSubdomain, checkSubdomainShape, MAX_INPUT_LENGTH } from "@nport/contract"
 import { Hono } from "hono"
 
 import type { ClaimResult } from "../do/subdomain-lease"
@@ -106,7 +106,11 @@ export const legacyRoute = new Hono<App>()
         // suggest alternatives. Reused for every rejection here because v2 had no other vocabulary for
         // "you cannot have this name" — it performed no validation at all (defect R2).
         const { body: payload, status } = legacyError(
-          `SUBDOMAIN_PROTECTED: Subdomain "${requested}" is reserved and cannot be used.`,
+          // **Truncated, because this echoes the request back.** Interpolating the raw value made a
+          // megabyte of input a megabyte of response on an endpoint with no proof of work — a
+          // reflection amplifier reachable by anyone. The name is bounded well below this by
+          // `checkSubdomain`, so a legitimate value is never cut.
+          `SUBDOMAIN_PROTECTED: Subdomain "${requested.slice(0, MAX_INPUT_LENGTH)}" is reserved and cannot be used.`,
           check.reason === "reserved" || check.reason === "reserved-prefix" ? 403 : 400,
         )
         return context.json(payload, status as 400)
