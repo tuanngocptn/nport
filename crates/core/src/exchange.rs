@@ -338,16 +338,24 @@ where
 
     record.response(head.status, &head.headers);
     connect::write_connect_response(&mut send, head.status, &head.headers).await?;
-    // Anything that arrived immediately after the head is already a frame.
-    if !head.leftover.is_empty() {
-        send.write_all(&head.leftover).await?;
-    }
 
-    let (mut origin_read, mut origin_write) = upstream.into_split();
     let limit = record.body_limit();
     // Split rather than borrowed twice: the two directions run concurrently, and each fills its own
     // half of the record. Past the 101 those "bodies" are the raw frames of the pipe.
     let (mut upward, mut downward) = (BodyPreview::default(), BodyPreview::default());
+
+    // Anything that arrived immediately after the head is already a frame — **and it belongs in the
+    // record, not only on the wire.** A server that pushes initial state sends its greeting in the
+    // same segment as the `101`, so these bytes are the common case rather than an edge one. Forwarding
+    // them without recording them left the inspector's first downstream frame missing and `total`
+    // short, with `truncated()` reporting `false` — so a UI had no way to know it was showing a
+    // partial pipe. The two copies below are assigned over `downward`, so this has to come first.
+    if !head.leftover.is_empty() {
+        downward.push(&head.leftover, limit);
+        send.write_all(&head.leftover).await?;
+    }
+
+    let (mut origin_read, mut origin_write) = upstream.into_split();
 
     let to_origin = async {
         copy_recording(&mut recv, &mut origin_write, &mut upward, limit).await?;
@@ -1330,6 +1338,58 @@ mod tests {
 
         assert_eq!(recorded[0].response_body.bytes, b"hello world");
         assert_eq!(recorded[0].response_body.total, 11);
+    }
+
+    /// A greeting frame attached to the handshake must reach the *record*, not only the edge.
+    ///
+    /// `a_websocket_upgrade_pipes_bytes_both_ways_untouched` already proves it reaches the edge, and it
+    /// did — the wire was always right. The record was not: the frame was written straight to `send`,
+    /// and the two copy tasks then assigned over `downward`, so the inspector's first downstream frame
+    /// was missing and `total` was short while `truncated()` still said `false`. A server that pushes
+    /// initial state sends its greeting in the same segment as the `101`, so this is the common case.
+    #[tokio::test]
+    async fn a_greeting_frame_attached_to_the_handshake_is_recorded() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+
+        let origin_task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let _ = read_request(&mut socket).await;
+            // The handshake and the origin's greeting frame in one write, which is what a server that
+            // pushes initial state actually does.
+            socket
+                .write_all(
+                    b"HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\n\
+                      sec-websocket-accept: x\r\n\r\n\x81\x04down",
+                )
+                .await
+                .expect("write");
+            let mut echoed = [0u8; 4];
+            socket.read_exact(&mut echoed).await.expect("read up");
+            socket.shutdown().await.expect("shutdown");
+        });
+
+        let request = edge_request(
+            "wss://x.nport.link/socket",
+            WireType::Websocket,
+            &[(HTTP_METHOD, "GET"), (HTTP_HOST, "x.nport.link")],
+            b"upup",
+        );
+        let (_, recorded) = watched(request, addr).await;
+        within(origin_task).await.expect("origin task");
+
+        assert_eq!(
+            recorded[0].response_body.bytes, b"\x81\x04down",
+            "the greeting frame reached the edge but not the record"
+        );
+        assert_eq!(
+            recorded[0].response_body.total, 6,
+            "and `total` undercounted it"
+        );
+        assert!(
+            !recorded[0].response_body.truncated(),
+            "nothing was dropped, so the UI must not be told it was"
+        );
     }
 
     #[tokio::test]
