@@ -83,7 +83,10 @@ pub struct ResponseHead {
 impl ResponseHead {
     /// Parses a complete response head. `raw` must contain the terminating `\r\n\r\n`.
     ///
-    /// Two headers are removed and neither is optional:
+    /// Header lines are split on the colon, with the optional whitespace around the value trimmed —
+    /// see the comment on the split for why `": "` was wrong and why the leniency is safe here.
+    ///
+    /// Two headers are then removed and neither is optional:
     ///
     /// - **Hop-by-hop headers** describe one connection and must not be relayed
     ///   ([`is_hop_by_hop`]). On a `101` this strips `Connection` and `Upgrade`, matching upstream —
@@ -108,9 +111,21 @@ impl ResponseHead {
             .and_then(|code| code.parse().ok())
             .ok_or(OriginError::NoStatus)?;
 
+        // Split on the colon, not on `": "`. The space is optional — RFC 9110 §5.1 is
+        // `field-line = field-name ":" OWS field-value OWS`, and `OWS` may be empty or a tab — so
+        // requiring it silently *dropped* every header an origin wrote as `Name:value`. Harmless for a
+        // header nobody reads; not harmless for the two read below, where an undetected
+        // `Transfer-Encoding:chunked` sends chunk-size lines to the browser as content.
+        //
+        // The name is trimmed too, which is leniency toward something RFC 9112 §5.1 says to reject
+        // (whitespace before the colon). It fails safe *here* specifically because this parser is the
+        // only one downstream: `transfer-encoding` is hop-by-hop and `content-length` is stripped
+        // below, so the framing is always re-derived and the origin's own framing headers are never
+        // relayed for a second parser to read differently. Do not copy this leniency somewhere that
+        // forwards them.
         let all: Vec<(String, String)> = lines
-            .filter_map(|line| line.split_once(": "))
-            .map(|(name, value)| (name.to_owned(), value.to_owned()))
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, value)| (name.trim().to_owned(), value.trim().to_owned()))
             .collect();
 
         let chunked = all.iter().any(|(name, value)| {
@@ -283,6 +298,65 @@ mod tests {
         assert!(
             matches!(error, OriginError::MalformedChunk { .. }),
             "{error:?}"
+        );
+    }
+
+    /// The space after the colon is optional, and two of these headers change how the body is framed.
+    ///
+    /// `field-line = field-name ":" OWS field-value OWS` (RFC 9110 §5.1), and `OWS` may be empty. A
+    /// `": "` split dropped every one of these — silently, so the response looked fine until the
+    /// undetected `Transfer-Encoding` put chunk-size lines in the browser as content.
+    #[test]
+    fn reads_headers_written_without_a_space_after_the_colon() {
+        let parsed = head(
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding:chunked\r\nContent-Length:42\r\nLocation:/x\r\n\r\n",
+        );
+
+        assert!(
+            parsed.chunked,
+            "the body would be forwarded still chunk-framed"
+        );
+        assert_eq!(parsed.content_length, Some(42));
+        assert_eq!(
+            parsed.headers,
+            vec![("Location".to_owned(), "/x".to_owned())],
+            "framing headers are stripped, the rest is relayed"
+        );
+    }
+
+    #[test]
+    fn reads_headers_written_with_a_tab_or_extra_spaces() {
+        // `OWS = *( SP / HTAB )`, so both of these are as valid as one space.
+        let parsed = head("HTTP/1.1 200 OK\r\nLocation:\t/tab\r\nX-Pad:   spaced   \r\n\r\n");
+
+        assert_eq!(
+            parsed.headers,
+            vec![
+                ("Location".to_owned(), "/tab".to_owned()),
+                ("X-Pad".to_owned(), "spaced".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_value_containing_a_colon_survives_the_split() {
+        // The first colon separates; the rest belongs to the value. `Date` and any absolute URL would
+        // otherwise be truncated by a split-on-every-colon.
+        let parsed = head("HTTP/1.1 302 Found\r\nLocation: https://x.test:8443/a\r\n\r\n");
+
+        assert_eq!(
+            parsed.headers,
+            vec![("Location".to_owned(), "https://x.test:8443/a".to_owned())]
+        );
+    }
+
+    #[test]
+    fn a_line_with_no_colon_is_ignored() {
+        let parsed = head("HTTP/1.1 200 OK\r\ngarbage\r\nLocation: /x\r\n\r\n");
+
+        assert_eq!(
+            parsed.headers,
+            vec![("Location".to_owned(), "/x".to_owned())]
         );
     }
 

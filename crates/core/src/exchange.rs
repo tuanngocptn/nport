@@ -1028,6 +1028,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_chunked_response_is_dechunked_when_the_origin_omits_the_space() {
+        // The same response as above with the space after each colon removed — still valid HTTP, since
+        // `OWS` may be empty. A `": "` split saw neither header, so the framing went to the browser as
+        // content: `5`, `hello`, `6`, ` world`, `0`. This asserts through the whole exchange rather than
+        // through the parser, because the parser is where it was wrong and the body is where it showed.
+        let (addr, served) = origin(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding:chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n",
+        )
+        .await;
+
+        let request = edge_request(
+            "https://x.nport.link/",
+            WireType::Http,
+            &[(HTTP_METHOD, "GET"), (HTTP_HOST, "x.nport.link")],
+            b"",
+        );
+        let answer = exchange(request, addr).await;
+        let _ = within(served).await.expect("origin task");
+
+        let (metadata, body) = decode_response(&answer);
+        assert_eq!(body, b"hello world");
+        assert_eq!(header(&metadata, "transfer-encoding"), None);
+    }
+
+    #[tokio::test]
     async fn an_unchunked_length_is_relayed_as_the_origin_gave_it() {
         // The other side of the same rule: nothing was transformed, so the origin's own length is
         // still true and dropping it would leave the edge waiting on end-of-stream for no reason.
