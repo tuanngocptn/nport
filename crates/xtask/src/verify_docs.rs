@@ -19,11 +19,13 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 /// Files whose fenced blocks are treated as repository layout.
-const LAYOUT_DOCS: [&str; 5] = [
+const LAYOUT_DOCS: [&str; 7] = [
     "CLAUDE.md",
     "crates/CLAUDE.md",
     "crates/protocol/CLAUDE.md",
     "apps/api/CLAUDE.md",
+    "apps/web/CLAUDE.md",
+    "apps/desktop/CLAUDE.md",
     "docs/ARCHITECTURE.md",
 ];
 

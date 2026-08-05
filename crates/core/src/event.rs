@@ -114,6 +114,48 @@ pub enum ShutdownReason {
 mod tests {
     use super::*;
 
+    /// Fails to **compile** when a variant is added, which is the only place that can happen.
+    ///
+    /// `TunnelEvent` is `#[non_exhaustive]`, so `crates/cli` and `apps/desktop` must carry a wildcard
+    /// arm and the compiler cannot tell them a new variant exists — the CLI's is `_ => Vec::new()`, so
+    /// an unhandled variant renders as nothing at all. `crates/CLAUDE.md` states the rule ("all three,
+    /// or it goes nowhere") and prose is all that enforced it. Inside the defining crate the attribute
+    /// does not apply, so this match is exhaustive for real.
+    ///
+    /// When this stops compiling: add the variant here, render it in `crates/cli/src/render.rs`, add it
+    /// to that file's `renders_something_for_every_variant` list, and forward it in `apps/desktop`
+    /// once Phase 4 exists.
+    #[test]
+    fn every_variant_is_accounted_for_by_the_consumers() {
+        fn assert_handled(event: &TunnelEvent) {
+            match event {
+                TunnelEvent::Provisioned { .. }
+                | TunnelEvent::ConnectionUp { .. }
+                | TunnelEvent::ConnectionLost { .. }
+                | TunnelEvent::ConnectionRetrying { .. }
+                | TunnelEvent::ConnectionGaveUp { .. }
+                | TunnelEvent::ShuttingDown { .. }
+                | TunnelEvent::Stopped { .. } => {}
+            }
+        }
+
+        assert_handled(&TunnelEvent::Stopped { drained: true });
+    }
+
+    /// The same guard for [`ShutdownReason`], which the CLI maps to a sentence per variant.
+    #[test]
+    fn every_shutdown_reason_is_accounted_for() {
+        fn assert_handled(reason: ShutdownReason) {
+            match reason {
+                ShutdownReason::Requested
+                | ShutdownReason::LeaseExpired
+                | ShutdownReason::ConnectionsExhausted => {}
+            }
+        }
+
+        assert_handled(ShutdownReason::Requested);
+    }
+
     #[test]
     fn a_failure_event_carries_a_code_and_no_prose() {
         // The property that keeps English out of this crate. If a variant ever grows a `message:

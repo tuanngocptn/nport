@@ -399,14 +399,22 @@ mod tests {
     }
 
     #[test]
-    fn building_a_client_config_is_fast() {
-        // The 2^60 wedge showed up here first: config construction must not be doing
-        // work proportional to the stream limit.
+    fn building_a_client_config_does_not_wedge() {
+        // The 2^60 wedge showed up here first: config construction must not be doing work
+        // proportional to the stream limit.
+        //
+        // The bound is deliberately loose. What this catches is work proportional to `2^60`, which does
+        // not take 1.1 seconds — it never finishes. Building the config legitimately takes ~0.3s warm
+        // and ~0.8s cold (aws-lc-rs initialisation), so the old one-second bound sat inside the normal
+        // range and failed whenever the full suite ran in parallel and the machine was busy. **A test
+        // that fails while the code is correct is worse than no test**, because the next person to see
+        // it red learns to re-run the suite instead of reading it. Ten seconds cannot be reached by
+        // anything but the wedge, which is the only thing being asserted.
         let peer = SocketAddr::from(([198, 51, 100, 1], EDGE_PORT_FOR_TEST));
         let started = std::time::Instant::now();
         client_config(peer, KeyExchange::PostQuantumPreferred).expect("should build");
         assert!(
-            started.elapsed() < Duration::from_secs(1),
+            started.elapsed() < Duration::from_secs(10),
             "took {:?}",
             started.elapsed()
         );

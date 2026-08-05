@@ -16,15 +16,20 @@ The public site at `nport.link`: marketing page, user documentation, and generat
 
 ```
 src/app/layout.tsx page.tsx globals.css
-src/app/docs/[[...slug]]/page.tsx     MDX from src/content/docs
-src/app/errors/[code]/page.tsx        generated from @nport/contract; CLI deep-links here
-src/app/sitemap.ts robots.ts opengraph-image.tsx
-src/components/sections/              navbar, hero, how-it-works, features, powered-by, cta, footer
-src/content/docs/*.mdx                USER docs — the only home for them
-src/lib/seo.ts                        JSON-LD builders
-public/.well-known/security.txt
 open-next.config.ts next.config.ts postcss.config.mjs wrangler.jsonc
+
+# Planned for 2c and not yet written — parenthesised so the block cannot be read as
+# a description of the tree as it stands:
+(src/app/docs/[[...slug]]/page.tsx    MDX from src/content/docs)
+(src/app/errors/[code]/page.tsx       generated from @nport/contract; CLI deep-links here)
+(src/app/sitemap.ts robots.ts opengraph-image.tsx)
+(src/components/sections/             navbar, hero, how-it-works, features, powered-by, cta, footer)
+(src/content/docs/*.mdx               USER docs — the only home for them)
+(src/lib/seo.ts                       JSON-LD builders)
+(public/.well-known/security.txt)
 ```
+
+The parenthesised entries are the intended shape of 2c; the app is still a booting scaffold (`docs/ROADMAP.md`). `cargo xtask verify-docs` checks the unparenthesised ones exist, so a rename that misses this block fails CI.
 
 ## Commands
 

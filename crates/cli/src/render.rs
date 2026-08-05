@@ -215,6 +215,83 @@ mod tests {
             .join("\n")
     }
 
+    /// Every variant must produce output in `Normal`, because the fallthrough is silent.
+    ///
+    /// `event`'s last arm is `_ => Vec::new()`, which `#[non_exhaustive]` on `TunnelEvent` forces —
+    /// so a variant added in `crates/core` compiles here and renders as nothing at all. The compile-time
+    /// half of this guard lives in `crates/core/src/event.rs`
+    /// (`every_variant_is_accounted_for_by_the_consumers`), which stops compiling when the enum grows;
+    /// this half checks the arms actually say something. Keep the list in step with that match.
+    #[test]
+    fn renders_something_for_every_variant() {
+        let renderer = renderer(Verbosity::Normal);
+        let events = [
+            provisioned(),
+            TunnelEvent::ConnectionUp {
+                index: 0,
+                colo: "hkg09".to_owned(),
+            },
+            TunnelEvent::ConnectionLost { index: 1 },
+            TunnelEvent::ConnectionRetrying {
+                index: 2,
+                attempt: 3,
+                delay: Duration::from_secs(4),
+            },
+            TunnelEvent::ConnectionGaveUp {
+                index: 3,
+                code: ErrorCode::EdgeRegistrationRefused,
+            },
+            TunnelEvent::ShuttingDown {
+                reason: ShutdownReason::Requested,
+            },
+            TunnelEvent::Stopped { drained: true },
+        ];
+
+        for event in &events {
+            let rendered = renderer.event(event, 3000);
+            assert!(
+                !rendered.is_empty(),
+                "{event:?} rendered nothing — it fell through `_ => Vec::new()`"
+            );
+            assert!(
+                rendered.iter().all(|(_, line)| !line.trim().is_empty()),
+                "{event:?} rendered a blank line"
+            );
+        }
+    }
+
+    /// Every `ShutdownReason` must produce its own sentence, not the generic one.
+    #[test]
+    fn renders_a_distinct_reason_for_every_shutdown() {
+        let renderer = renderer(Verbosity::Normal);
+        let reasons = [
+            ShutdownReason::Requested,
+            ShutdownReason::LeaseExpired,
+            ShutdownReason::ConnectionsExhausted,
+        ];
+
+        let rendered: Vec<String> = reasons
+            .iter()
+            .map(|reason| {
+                on(
+                    &renderer,
+                    &TunnelEvent::ShuttingDown { reason: *reason },
+                    Stream::Stderr,
+                )
+            })
+            .collect();
+
+        for (reason, line) in reasons.iter().zip(&rendered) {
+            assert!(!line.trim().is_empty(), "{reason:?} rendered nothing");
+        }
+        let unique: std::collections::BTreeSet<&String> = rendered.iter().collect();
+        assert_eq!(
+            unique.len(),
+            reasons.len(),
+            "two reasons rendered identically, so one fell through the `_` arm: {rendered:?}"
+        );
+    }
+
     #[test]
     fn quiet_prints_the_url_on_stdout_and_nothing_else() {
         // `URL=$(nport 3000 --quiet)` has to work, which means exactly one line on stdout and no
