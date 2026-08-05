@@ -463,9 +463,21 @@ where
             .into());
         }
 
-        // Each chunk is followed by its own CRLF.
-        let mut terminator = [0u8; 2];
-        src.read_exact(&mut terminator).await?;
+        // Each chunk is followed by its own line terminator: CRLF, or a bare LF for the same reason
+        // the head accepts one. Previously this read two bytes and checked neither, so a bare-LF origin
+        // had the first digit of its next size line eaten and failed one chunk later with a message
+        // about hex.
+        let mut byte = [0u8; 1];
+        src.read_exact(&mut byte).await?;
+        if byte[0] == b'\r' {
+            src.read_exact(&mut byte).await?;
+        }
+        if byte[0] != b'\n' {
+            return Err(OriginError::MalformedChunk {
+                reason: format!("chunk of {size} bytes is not followed by a line terminator"),
+            }
+            .into());
+        }
     }
 }
 
@@ -1074,6 +1086,30 @@ mod tests {
         assert_eq!(status(&metadata), "200");
         assert_eq!(body, b"hello");
         assert_eq!(header(&metadata, "content-type"), Some("text/plain"));
+    }
+
+    /// The streaming decoder is the one production runs, so the leniency has to be proved there too.
+    ///
+    /// A whole bare-LF response: head, size lines and chunk terminators. The old `read_exact(2)` after
+    /// each chunk ate the first digit of the next size line, so this failed one chunk in with a message
+    /// about hexadecimal — pointing at the size line rather than at the terminator that misled it.
+    #[tokio::test]
+    async fn a_bare_lf_chunked_origin_is_dechunked_end_to_end() {
+        let (addr, served) =
+            origin(b"HTTP/1.1 200 OK\nTransfer-Encoding:chunked\n\n5\nhello\n6\n world\n0\n\n")
+                .await;
+
+        let request = edge_request(
+            "https://x.nport.link/",
+            WireType::Http,
+            &[(HTTP_METHOD, "GET"), (HTTP_HOST, "x.nport.link")],
+            b"",
+        );
+        let answer = exchange(request, addr).await;
+        let _ = within(served).await.expect("origin task");
+
+        let (_, body) = decode_response(&answer);
+        assert_eq!(body, b"hello world");
     }
 
     #[tokio::test]

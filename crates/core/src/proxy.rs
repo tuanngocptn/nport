@@ -267,15 +267,16 @@ pub fn decode_chunked(body: &[u8]) -> Result<Vec<u8>, OriginError> {
     let mut rest = body;
 
     loop {
-        let line_end = rest
-            .windows(2)
-            .position(|window| window == b"\r\n")
-            .ok_or_else(|| OriginError::MalformedChunk {
+        // Terminated by the LF, with any preceding CR left for `chunk_size` to trim — the same
+        // leniency [`find_head_end`] applies, and for the same origins.
+        let line_end = rest.iter().position(|byte| *byte == b'\n').ok_or_else(|| {
+            OriginError::MalformedChunk {
                 reason: "ended mid-size-line".to_owned(),
-            })?;
+            }
+        })?;
         let size = chunk_size(&rest[..line_end])?;
 
-        rest = &rest[line_end + 2..];
+        rest = &rest[line_end + 1..];
         if size == 0 {
             break;
         }
@@ -284,8 +285,14 @@ pub fn decode_chunked(body: &[u8]) -> Result<Vec<u8>, OriginError> {
         // that sails past this check and panics on the slice below instead. Either way a malformed
         // origin response takes the process down, and `crates/CLAUDE.md` is explicit that a panic here
         // kills the desktop app's window.
+        // `+ 1` rather than `+ 2`: the data plus at least a bare LF, the shortest terminator accepted
+        // below. Still checked, because `size` comes off the wire — a size line of `ffffffffffffffff`
+        // parses to `usize::MAX` and the add overflows: a panic in debug, and in release a wrap that
+        // sails past this check and panics on the slice instead. Either way a malformed origin response
+        // takes the process down, and `crates/CLAUDE.md` is explicit that a panic here kills the desktop
+        // app's window.
         let needed = size
-            .checked_add(2)
+            .checked_add(1)
             .ok_or_else(|| OriginError::MalformedChunk {
                 reason: format!("chunk size {size} cannot be framed"),
             })?;
@@ -295,8 +302,17 @@ pub fn decode_chunked(body: &[u8]) -> Result<Vec<u8>, OriginError> {
             });
         }
         out.extend_from_slice(&rest[..size]);
-        // Each chunk is followed by its own CRLF.
-        rest = &rest[size + 2..];
+        // Each chunk is followed by its own line terminator. Matched rather than skipped: the old
+        // `+ 2` consumed whatever two bytes were there, so a bare LF ate the first digit of the next
+        // size line and turned a decodable body into a parse error one chunk later.
+        rest = match &rest[size..] {
+            [b'\r', b'\n', tail @ ..] | [b'\n', tail @ ..] => tail,
+            _ => {
+                return Err(OriginError::MalformedChunk {
+                    reason: format!("chunk of {size} bytes is not followed by a line terminator"),
+                });
+            }
+        };
     }
 
     Ok(out)
@@ -459,6 +475,46 @@ mod tests {
         let parsed = head_bytes(b"HTTP/1.1 200 OK\r\nX-Split: a\rb\r\nX-Fine: ok\r\n\r\n");
 
         assert_eq!(parsed.headers, vec![("X-Fine".to_owned(), "ok".to_owned())]);
+    }
+
+    /// Chunk framing with bare LFs, from the same server whose head uses them.
+    ///
+    /// The head fix alone was not enough: a server that writes `\n` in its status line writes `\n`
+    /// after each chunk too, and the two halves are one origin. curl decodes this body.
+    #[test]
+    fn decodes_chunk_framing_that_uses_bare_lf() {
+        let out = decode_chunked(b"5\nhello\n6\n world\n0\n\n").expect("must decode");
+        assert_eq!(out, b"hello world");
+    }
+
+    #[test]
+    fn decodes_chunk_framing_that_mixes_terminators() {
+        // A CRLF size line and a bare-LF chunk terminator, which is what a server built by
+        // concatenating strings from two places produces.
+        let out = decode_chunked(b"5\r\nhello\n6\r\n world\r\n0\r\n\r\n").expect("must decode");
+        assert_eq!(out, b"hello world");
+    }
+
+    #[test]
+    fn a_chunk_not_followed_by_a_terminator_is_refused() {
+        // The old code skipped two bytes without looking at them, so garbage here was consumed
+        // silently and surfaced as a hex-parse error on the *next* size line — a message pointing at
+        // the wrong chunk. Matching the terminator means the complaint names the right one.
+        let error = decode_chunked(b"5\r\nhelloXX6\r\n world\r\n0\r\n\r\n").expect_err("refuse");
+        assert!(
+            matches!(&error, OriginError::MalformedChunk { reason } if reason.contains("terminator")),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn a_chunk_terminator_cut_short_is_refused() {
+        // `hello\r` with nothing after it: one byte of terminator present, and it is the wrong one.
+        let error = decode_chunked(b"5\r\nhello\r").expect_err("refuse");
+        assert!(
+            matches!(&error, OriginError::MalformedChunk { reason } if reason.contains("terminator")),
+            "{error:?}"
+        );
     }
 
     #[test]
