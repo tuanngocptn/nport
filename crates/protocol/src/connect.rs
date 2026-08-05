@@ -353,7 +353,12 @@ pub async fn read_version<R: AsyncRead + Unpin>(recv: &mut R) -> Result<(), Fram
 /// leaving it out: `crates/protocol/CLAUDE.md` says this protocol is "owned by someone else" and may
 /// change "without notice", so the guarantee that made it safe is one we neither control nor stated.
 /// It is stated here now, and enforced, which costs one pass over bytes already in cache.
-fn splits_a_head(text: &str) -> bool {
+///
+/// Used in both directions: on metadata arriving from the edge (below), and by `crates/core` on the
+/// origin's response headers before they go *back* as metadata, since the edge turns those into a
+/// response head toward the browser and the same reasoning applies with the roles swapped.
+#[must_use]
+pub fn splits_a_head(text: &str) -> bool {
     text.bytes()
         .any(|byte| matches!(byte, b'\r' | b'\n' | b'\0'))
 }

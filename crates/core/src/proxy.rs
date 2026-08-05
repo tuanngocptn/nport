@@ -20,7 +20,7 @@
 //! prevent recurring: forwarding `Transfer-Encoding: chunked` with an unchunked body made a real
 //! Next.js app render its chunk-size lines as page content.
 
-use nport_protocol::connect::is_hop_by_hop;
+use nport_protocol::connect::{is_hop_by_hop, splits_a_head};
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 
 /// Ceiling on an origin's response head.
@@ -36,6 +36,32 @@ pub const MAX_RESPONSE_HEAD: usize = 64 * 1024;
 /// Sixteen hex digits is the largest a `usize` can be, and extensions are ignored — a kilobyte is far
 /// past anything real, and the point is that it is finite.
 pub const MAX_CHUNK_SIZE_LINE: usize = 1024;
+
+/// Finds the blank line that ends a response head: where the head's text stops, and how many bytes
+/// the terminator occupies.
+///
+/// **Not just `\r\n\r\n`.** RFC 9112 §2.2 says the line terminator is CRLF but "a recipient MAY
+/// recognize a single LF as a line terminator and ignore any preceding CR" — and curl and llhttp both
+/// do, so a hand-rolled server that writes bare LFs works with every tool its author tried and then
+/// fails only through the tunnel. That is the population NPort serves: a small server someone wrote
+/// this afternoon. Scanning for CRLF alone gave them `HeadTruncated` and no response at all.
+///
+/// The longest match at a position wins, so a real `\r\n\r\n` is never mistaken for the shorter
+/// mixed forms that are its prefixes.
+fn find_head_end(raw: &[u8]) -> Option<(usize, usize)> {
+    const TERMINATORS: [&[u8]; 4] = [b"\r\n\r\n", b"\r\n\n", b"\n\r\n", b"\n\n"];
+
+    (0..raw.len()).find_map(|at| {
+        TERMINATORS
+            .iter()
+            .find(|terminator| raw[at..].starts_with(terminator))
+            .map(|terminator| (at, terminator.len()))
+    })
+}
+
+/// The longest terminator [`find_head_end`] can match, and therefore how many bytes of overlap an
+/// incremental scan has to keep so a terminator split across two reads is still seen.
+const MAX_TERMINATOR: usize = 4;
 
 /// What went wrong reading the origin's response.
 ///
@@ -96,15 +122,17 @@ impl ResponseHead {
     ///   copied from the origin is wrong the moment the body is dechunked, and a wrong
     ///   `content-length` truncates the response in the browser.
     pub fn parse(raw: &[u8]) -> Result<Self, OriginError> {
-        let split = raw
-            .windows(4)
-            .position(|window| window == b"\r\n\r\n")
-            .ok_or(OriginError::HeadTruncated)?;
+        let (split, terminator) = find_head_end(raw).ok_or(OriginError::HeadTruncated)?;
 
         let head = String::from_utf8_lossy(&raw[..split]).into_owned();
-        let leftover = raw[split + 4..].to_vec();
+        let leftover = raw[split + terminator..].to_vec();
 
-        let mut lines = head.split("\r\n");
+        // Split on the LF and drop a CR that was in front of it, which handles CRLF, bare LF, and a
+        // head that mixes them line by line — the shape a server assembling its head from string
+        // concatenation actually produces.
+        let mut lines = head
+            .split('\n')
+            .map(|line| line.strip_suffix('\r').unwrap_or(line));
         let status: u16 = lines
             .next()
             .and_then(|line| line.split_whitespace().nth(1))
@@ -140,8 +168,17 @@ impl ResponseHead {
 
         let headers = all
             .into_iter()
-            .filter(|(name, _)| {
-                !is_hop_by_hop(name) && !name.eq_ignore_ascii_case("content-length")
+            .filter(|(name, value)| {
+                !is_hop_by_hop(name)
+                    && !name.eq_ignore_ascii_case("content-length")
+                    // The mirror of the check `nport_protocol::connect` applies to metadata arriving
+                    // from the edge. Splitting on the LF above means a value can no longer contain one,
+                    // but a bare CR mid-value survives, and these headers go back to the edge as
+                    // metadata for it to write into a response head toward the browser. Dropped rather
+                    // than relayed, for the same reason and with the same caveat: no known path makes
+                    // the edge emit it unsanitised, and the guarantee is not ours to rely on.
+                    && !splits_a_head(name)
+                    && !splits_a_head(value)
             })
             .collect();
 
@@ -173,17 +210,14 @@ impl ResponseHead {
         let mut raw = Vec::new();
         let mut scratch = [0u8; 4096];
         // Where to resume scanning. Rescanning the whole buffer per read is quadratic in the head's
-        // size, and the terminator can straddle two reads by at most three bytes.
+        // size, and the terminator can straddle two reads by at most `MAX_TERMINATOR - 1` bytes.
         let mut scanned = 0usize;
 
         loop {
-            if raw[scanned..]
-                .windows(4)
-                .any(|window| window == b"\r\n\r\n")
-            {
+            if find_head_end(&raw[scanned..]).is_some() {
                 break;
             }
-            scanned = raw.len().saturating_sub(3);
+            scanned = raw.len().saturating_sub(MAX_TERMINATOR - 1);
 
             if raw.len() > MAX_RESPONSE_HEAD {
                 return Err(OriginError::HeadTooLarge);
@@ -276,6 +310,12 @@ mod tests {
         ResponseHead::parse(raw.as_bytes()).expect("should parse")
     }
 
+    /// The same, for a head whose line endings matter and so cannot go through a `&str` literal
+    /// without the escapes being the point of the test.
+    fn head_bytes(raw: &[u8]) -> ResponseHead {
+        ResponseHead::parse(raw).expect("should parse")
+    }
+
     /// A size a malformed origin can simply send, and the arithmetic that used to follow it.
     ///
     /// `ffffffffffffffff` is `usize::MAX`. `size + 2` overflowed: a panic in debug, and in release a
@@ -358,6 +398,67 @@ mod tests {
             parsed.headers,
             vec![("Location".to_owned(), "/x".to_owned())]
         );
+    }
+
+    /// A head terminated with bare LFs must parse, because curl accepts it and so the author never
+    /// found out.
+    ///
+    /// RFC 9112 §2.2: the terminator is CRLF, but "a recipient MAY recognize a single LF as a line
+    /// terminator and ignore any preceding CR". Scanning for `\r\n\r\n` alone never found the end of
+    /// this head at all — the connector read to `MAX_RESPONSE_HEAD` or to EOF and reported
+    /// `LOCAL_REQUEST_FAILED` for a server that answers every other client correctly.
+    #[test]
+    fn parses_a_head_terminated_with_bare_lf() {
+        let parsed =
+            head_bytes(b"HTTP/1.1 200 OK\nContent-Type: text/plain\nContent-Length: 5\n\nhello");
+
+        assert_eq!(parsed.status, 200);
+        assert_eq!(parsed.content_length, Some(5));
+        assert_eq!(
+            parsed.leftover, b"hello",
+            "the body must not eat the terminator"
+        );
+        assert_eq!(
+            parsed.headers,
+            vec![("Content-Type".to_owned(), "text/plain".to_owned())]
+        );
+    }
+
+    #[test]
+    fn parses_a_head_that_mixes_crlf_and_bare_lf() {
+        // What a server assembling its head by string concatenation actually produces. A
+        // `split("\r\n")` merged these into one header whose value carried a raw newline.
+        let parsed = head_bytes(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\nX-Real: yes\r\nContent-Length: 2\r\n\r\nhi",
+        );
+
+        assert_eq!(
+            parsed.headers,
+            vec![
+                ("Content-Type".to_owned(), "text/plain".to_owned()),
+                ("X-Real".to_owned(), "yes".to_owned()),
+            ]
+        );
+        assert_eq!(parsed.content_length, Some(2));
+        assert_eq!(parsed.leftover, b"hi");
+    }
+
+    #[test]
+    fn a_crlf_head_is_not_mistaken_for_a_shorter_terminator() {
+        // `\r\n\r\n` has `\n\r\n` and `\r\n\n` as near-misses; matching one of those would leave a
+        // stray byte at the front of the body. The longest match at a position has to win.
+        let parsed = head_bytes(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nbody");
+
+        assert_eq!(parsed.leftover, b"body");
+    }
+
+    #[test]
+    fn a_header_value_with_a_bare_cr_is_dropped() {
+        // These go back to the edge as metadata for it to write into a response head, so the check
+        // `nport_protocol` applies to metadata arriving from the edge applies here with roles swapped.
+        let parsed = head_bytes(b"HTTP/1.1 200 OK\r\nX-Split: a\rb\r\nX-Fine: ok\r\n\r\n");
+
+        assert_eq!(parsed.headers, vec![("X-Fine".to_owned(), "ok".to_owned())]);
     }
 
     #[test]

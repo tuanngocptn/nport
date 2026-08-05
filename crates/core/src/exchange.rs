@@ -1053,6 +1053,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_bare_lf_origin_is_served_rather_than_failed() {
+        // A server someone wrote this afternoon, terminating its lines with "\n". curl fetches it
+        // happily; through the tunnel it used to produce no response at all, because the head's end was
+        // never found. Asserted through the whole exchange because the parser is where it was wrong and
+        // "my site returns nothing" is how the user meets it.
+        let (addr, served) =
+            origin(b"HTTP/1.1 200 OK\nContent-Type: text/plain\nContent-Length: 5\n\nhello").await;
+
+        let request = edge_request(
+            "https://x.nport.link/",
+            WireType::Http,
+            &[(HTTP_METHOD, "GET"), (HTTP_HOST, "x.nport.link")],
+            b"",
+        );
+        let answer = exchange(request, addr).await;
+        let _ = within(served).await.expect("origin task");
+
+        let (metadata, body) = decode_response(&answer);
+        assert_eq!(status(&metadata), "200");
+        assert_eq!(body, b"hello");
+        assert_eq!(header(&metadata, "content-type"), Some("text/plain"));
+    }
+
+    #[tokio::test]
     async fn an_unchunked_length_is_relayed_as_the_origin_gave_it() {
         // The other side of the same rule: nothing was transformed, so the origin's own length is
         // still true and dropping it would leave the edge waiting on end-of-stream for no reason.

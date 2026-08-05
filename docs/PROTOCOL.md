@@ -352,6 +352,12 @@ This is not a rule read out of cloudflared; upstream does not enforce it, becaus
 
 An implementation of this protocol that hands metadata to a structured HTTP client instead of a text head does not need the check. One that builds a head does.
 
+The rule holds in the **response** direction too, with the roles swapped: NPort drops any response header whose name or value carries CR, LF or NUL before putting it in `ConnectResponse.metadata`, because the edge turns that metadata into a response head toward the browser. The reachability caveat swaps as well — there the untrusted party is the user's own origin, which can send whatever it likes, so unlike the request direction this one is trivially triggerable. It is still not a hole in NPort: the edge is the party that would have to write it out unsanitised.
+
+### Line endings on the origin side
+
+Unrelated to the wire, and worth stating because it is where the two HTTP dialects meet. Toward the origin NPort always writes CRLF. Reading the origin's *response* it accepts CRLF, bare LF, and a head that mixes them, per RFC 9112 §2.2 ("a recipient MAY recognize a single LF as a line terminator and ignore any preceding CR"). curl and llhttp both accept bare LF, so a hand-rolled server that emits it works with every tool its author tried; a connector that required CRLF would be the only thing that fails, and it would fail with no response at all rather than a diagnosable error.
+
 ## 8. Registration RPC
 
 Cap'n Proto RPC — two-party vat, Level 1, standard `rpc.capnp`. The **edge** exports the interface; the client calls `bootstrap` on the control stream and invokes methods on the result.
