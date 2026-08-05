@@ -97,6 +97,10 @@
               <span style="width:16px;text-align:center;font-size:12px;opacity:.85;">◫</span> Inspector
               <span style="margin-left:auto;font:500 11px/1 'SF Mono','Geist Mono',monospace;opacity:.6;">{{ reqCount }}</span>
             </button>
+            <button onClick="{{ goNodes }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;border-radius:9px;cursor:pointer;font:510 13px/1 -apple-system,'Geist',sans-serif;letter-spacing:-.01em;text-align:left;transition:background .2s ease,color .2s ease;background:{{ navNodes.bg }};color:{{ navNodes.fg }};box-shadow:{{ navNodes.sh }};">
+              <span style="width:16px;text-align:center;font-size:12px;opacity:.85;">⬡</span> Nodes
+              <span style="margin-left:auto;font:500 11px/1 'SF Mono','Geist Mono',monospace;opacity:.6;">{{ nodeCount }}</span>
+            </button>
             <button onClick="{{ goHistory }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:0;border-radius:9px;cursor:pointer;font:510 13px/1 -apple-system,'Geist',sans-serif;letter-spacing:-.01em;text-align:left;transition:background .2s ease,color .2s ease;background:{{ navHistory.bg }};color:{{ navHistory.fg }};box-shadow:{{ navHistory.sh }};">
               <span style="width:16px;text-align:center;font-size:12px;opacity:.85;">◷</span> History
             </button>
@@ -116,15 +120,13 @@
 
           <div style="margin-top:{{ slotsTop }};display:flex;flex-direction:column;gap:9px;padding:12px;border-radius:14px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};transition:background .35s ease;">
             <div style="display:flex;justify-content:space-between;align-items:baseline;">
-              <span style="font:510 11px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Tunnel slots</span>
-              <span style="font:590 11px/1 'SF Mono','Geist Mono',monospace;color:{{ c.tx }};">{{ activeCount }} of {{ maxTunnels }}</span>
+              <span style="font:510 11px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Network capacity</span>
+              <span style="font:590 11px/1 'SF Mono','Geist Mono',monospace;color:{{ c.tx }};">{{ netUsed }} of {{ netCapacity }}</span>
             </div>
-            <div style="display:flex;gap:4px;">
-              <div style="height:5px;flex:1;border-radius:3px;background:{{ slot1 }};transition:background .35s ease;"></div>
-              <div style="height:5px;flex:1;border-radius:3px;background:{{ slot2 }};transition:background .35s ease;"></div>
-              <div style="height:5px;flex:1;border-radius:3px;background:{{ slot3 }};transition:background .35s ease;"></div>
+            <div style="height:5px;border-radius:3px;background:{{ glass.chip }};overflow:hidden;">
+              <div style="height:5px;border-radius:3px;background:linear-gradient(90deg,rgba(48,209,88,.5),#30D158);width:{{ netPct }};transition:width .4s cubic-bezier(.32,.72,0,1);"></div>
             </div>
-            <div style="font:400 10.5px/1.45 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Three tunnels at a time — a Cloudflare account quota, not a paywall.</div>
+            <div style="font:400 10.5px/1.45 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">{{ netNote }}</div>
           </div>
 
           <div style="display:flex;align-items:center;gap:9px;padding:0 2px;">
@@ -166,10 +168,11 @@
                         <span style="font:500 15px/1 'SF Mono','Geist Mono',monospace;letter-spacing:-.02em;color:{{ c.tx }};">{{ tn.url }}</span>
                         <button onClick="{{ tn.copy }}" style="border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ c.mu }};border-radius:999px;padding:4px 10px;font:510 10.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:all .18s ease;" style-hover="background:var(--np-hover-strong);box-shadow:var(--np-hover-spec);color:var(--np-hover-text);">{{ tn.copyLabel }}</button>
                       </div>
-                      <div style="display:flex;align-items:center;gap:12px;font:400 11.5px/1 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};">
-                        <span>{{ tn.target }}</span><span style="opacity:.4;">·</span>
-                        <span>{{ tn.reqs }} requests</span><span style="opacity:.4;">·</span>
-                        <span>{{ tn.remaining }} left</span>
+                      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px 14px;font:400 11.5px/1.5 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};">
+                        <span style="flex:none;white-space:nowrap;">{{ tn.target }}</span>
+                        <span style="flex:none;white-space:nowrap;" title="Relay node">⬡ {{ tn.nodeName }}</span>
+                        <span style="flex:none;white-space:nowrap;">{{ tn.reqs }} requests</span>
+                        <span style="flex:none;white-space:nowrap;">{{ tn.remaining }} left</span>
                       </div>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px;flex:none;">
@@ -228,10 +231,33 @@
                 </div>
 
                 <div style="display:flex;flex-direction:column;gap:8px;">
+                  <label style="font:590 12px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Relay node</label>
+                  <div style="display:flex;flex-direction:column;border-radius:12px;overflow:hidden;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};max-width:470px;">
+                    <sc-for list="{{ nodeOptions }}" as="n" hint-placeholder-count="4">
+                      <button onClick="{{ n.pick }}" disabled="{{ n.disabled }}" style="display:flex;align-items:center;gap:12px;padding:11px 14px;border:0;border-bottom:.5px solid {{ glass.hair }};background:{{ n.bg }};cursor:{{ n.cursor }};text-align:left;opacity:{{ n.opacity }};box-shadow:{{ n.sh }};transition:background .18s ease;" style-hover="background:var(--np-hover-row);box-shadow:var(--np-hover-row-spec);">
+                        <span style="width:15px;height:15px;flex:none;border-radius:50%;border:1px solid {{ n.radioBd }};background:{{ n.radioBg }};display:flex;align-items:center;justify-content:center;transition:all .2s ease;"><span style="width:5px;height:5px;border-radius:50%;background:#fff;display:{{ n.dotShow }};"></span></span>
+                        <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;">
+                          <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                            <span style="font:510 12.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">{{ n.name }}</span>
+                            <span style="font:590 9px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;padding:3px 6px;border-radius:5px;background:{{ n.planBg }};color:{{ n.planFg }};display:{{ n.planShow }};">{{ n.plan }}</span>
+                          </span>
+                          <span style="font:400 10.5px/1 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};">{{ n.meta }}</span>
+                        </span>
+                        <span style="flex:none;display:flex;align-items:center;gap:10px;">
+                          <span style="width:46px;text-align:right;font:510 10.5px/1 'SF Mono','Geist Mono',monospace;color:{{ n.pingColor }};">{{ n.ping }}</span>
+                          <span style="width:34px;height:5px;border-radius:3px;background:{{ glass.chip }};overflow:hidden;display:block;"><span style="display:block;height:5px;border-radius:3px;background:{{ n.loadColor }};width:{{ n.loadPct }};"></span></span>
+                        </span>
+                      </button>
+                    </sc-for>
+                  </div>
+                  <span style="font:400 11.5px/1.45 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">{{ nodeHint }}</span>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:8px;">
                   <label style="font:590 12px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">Public subdomain</label>
                   <div style="display:flex;align-items:center;max-width:470px;min-width:0;border-radius:10px;border:.5px solid {{ glass.hair }};background:{{ glass.field }};overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.1);">
                     <input value="{{ sub }}" onChange="{{ onSub }}" placeholder="auto-generated" style="flex:1;min-width:0;padding:9px 13px;border:0;background:transparent;color:{{ c.tx }};font:500 15px/1.2 'SF Mono','Geist Mono',monospace;outline:none;" />
-                    <span style="padding:9px 13px;font:400 15px/1.2 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};border-left:.5px solid {{ glass.hair }};">.nport.link</span>
+                    <span style="padding:9px 13px;font:400 15px/1.2 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};border-left:.5px solid {{ glass.hair }};white-space:nowrap;">{{ nodeSuffix }}</span>
                   </div>
                   <div style="display:flex;align-items:center;gap:7px;font:400 11.5px/1 -apple-system,'Geist',sans-serif;color:{{ availColor }};transition:color .22s ease;">
                     <span style="width:5px;height:5px;border-radius:50%;background:{{ availColor }};"></span>{{ availText }}
@@ -256,7 +282,7 @@
                 </div>
 
                 <div style="display:flex;align-items:center;gap:12px;">
-                  <button onClick="{{ startTunnel }}" style="border:0;border-radius:11px;padding:11px 22px;background:linear-gradient(180deg,#3ADB63,#28B84C);color:#fff;font:590 13.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:-.01em;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.32), 0 4px 14px -4px rgba(40,184,76,.7);transition:transform .18s cubic-bezier(.32,.72,0,1), filter .18s ease;" style-hover="transform:translateY(-1px);filter:brightness(1.07);" style-active="transform:scale(.985);">{{ startLabel }}</button>
+                  <button onClick="{{ startTunnel }}" style="border:0;border-radius:11px;padding:11px 22px;opacity:{{ startOpacity }};background:linear-gradient(180deg,#3ADB63,#28B84C);color:#fff;font:590 13.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:-.01em;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.32), 0 4px 14px -4px rgba(40,184,76,.7);transition:transform .18s cubic-bezier(.32,.72,0,1), filter .18s ease;" style-hover="transform:translateY(-1px);filter:brightness(1.07);" style-active="transform:scale(.985);">{{ startLabel }}</button>
                   <button onClick="{{ goTunnels }}" style="border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ c.tx }};border-radius:11px;padding:11px 20px;font:510 13px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:background .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);">Cancel</button>
                 </div>
               </div>
@@ -341,6 +367,72 @@
             </div>
           </sc-if>
 
+          <sc-if value="{{ isNodes }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:1;min-height:0;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:16px;animation:np-in .32s cubic-bezier(.32,.72,0,1);">
+
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+                <div style="border-radius:14px;padding:14px 16px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};display:flex;flex-direction:column;gap:6px;">
+                  <span style="font:400 11px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Nodes online</span>
+                  <span style="font:590 21px/1 'SF Mono','Geist Mono',monospace;letter-spacing:-.02em;color:{{ c.tx }};">{{ nodesOnline }}</span>
+                </div>
+                <div style="border-radius:14px;padding:14px 16px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};display:flex;flex-direction:column;gap:6px;">
+                  <span style="font:400 11px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Slots available</span>
+                  <span style="font:590 21px/1 'SF Mono','Geist Mono',monospace;letter-spacing:-.02em;color:{{ c.tx }};">{{ netFree }}</span>
+                </div>
+                <div style="border-radius:14px;padding:14px 16px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};display:flex;flex-direction:column;gap:6px;">
+                  <span style="font:400 11px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Best latency</span>
+                  <span style="font:590 21px/1 'SF Mono','Geist Mono',monospace;letter-spacing:-.02em;color:{{ c.tx }};">{{ bestPing }}</span>
+                </div>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Relay nodes</span>
+                <span style="font:400 11px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">{{ discoveryLine }}</span>
+                <button onClick="{{ refreshNodes }}" style="margin-left:auto;flex:none;border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ c.tx }};border-radius:999px;padding:6px 14px;font:510 11.5px/1 -apple-system,'Geist',sans-serif;cursor:pointer;transition:background .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);">{{ refreshLabel }}</button>
+              </div>
+
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <sc-for list="{{ nodeRows }}" as="n" hint-placeholder-count="4">
+                  <div style="border-radius:14px;background:{{ glass.card }};border:.5px solid {{ n.rowBd }};box-shadow:{{ n.rowSh }};padding:16px 18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;transition:transform .2s cubic-bezier(.32,.72,0,1), border-color .2s ease;" style-hover="transform:translateY(-1px);">
+                    <span style="width:9px;height:9px;border-radius:50%;flex:none;background:{{ n.dot }};box-shadow:{{ n.dotGlow }};animation:{{ n.anim }};"></span>
+
+                    <div style="flex:1 1 210px;min-width:0;display:flex;flex-direction:column;gap:5px;">
+                      <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span style="font:510 13.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">{{ n.name }}</span>
+                        <span style="font:590 9px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;padding:3px 6px;border-radius:5px;background:{{ n.planBg }};color:{{ n.planFg }};">{{ n.plan }}</span>
+                        <span style="font:590 9px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;padding:3px 6px;border-radius:5px;background:rgba(48,209,88,.18);color:#30D158;display:{{ n.activeShow }};">In use</span>
+                      </span>
+                      <span style="font:400 11px/1 'SF Mono','Geist Mono',monospace;color:{{ c.mu }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ n.api }}</span>
+                    </div>
+
+                    <div style="flex:0 0 92px;display:flex;flex-direction:column;gap:5px;">
+                      <span style="font:400 10px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Region</span>
+                      <span style="font:510 12px/1 'SF Mono','Geist Mono',monospace;color:{{ c.tx }};">{{ n.region }}</span>
+                    </div>
+
+                    <div style="flex:0 0 78px;display:flex;flex-direction:column;gap:5px;">
+                      <span style="font:400 10px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};">Latency</span>
+                      <span style="font:510 12px/1 'SF Mono','Geist Mono',monospace;color:{{ n.pingColor }};">{{ n.ping }}</span>
+                    </div>
+
+                    <div style="flex:0 0 130px;display:flex;flex-direction:column;gap:6px;">
+                      <span style="display:flex;justify-content:space-between;font:400 10px/1 -apple-system,'Geist',sans-serif;color:{{ c.mu }};"><span>Tunnels</span><span style="font-family:'SF Mono','Geist Mono',monospace;color:{{ c.tx }};">{{ n.usage }}</span></span>
+                      <span style="display:block;height:5px;border-radius:3px;background:{{ glass.chip }};overflow:hidden;"><span style="display:block;height:5px;border-radius:3px;background:{{ n.loadColor }};width:{{ n.loadPct }};transition:width .4s cubic-bezier(.32,.72,0,1);"></span></span>
+                    </div>
+
+                    <button onClick="{{ n.use }}" disabled="{{ n.disabled }}" style="flex:none;border:.5px solid {{ glass.hair }};background:{{ glass.chip }};color:{{ n.btnFg }};border-radius:9px;padding:8px 15px;font:510 12px/1 -apple-system,'Geist',sans-serif;cursor:{{ n.cursor }};opacity:{{ n.opacity }};transition:background .18s ease;" style-hover="background:var(--np-hover-fill);box-shadow:var(--np-hover-spec);">{{ n.btnLabel }}</button>
+                  </div>
+                </sc-for>
+              </div>
+
+              <div style="border-radius:14px;padding:16px 18px;background:{{ glass.card }};border:.5px solid {{ glass.hair }};box-shadow:inset 0 .5px 0 {{ glass.spec }};display:flex;flex-direction:column;gap:7px;">
+                <span style="font:510 12.5px/1 -apple-system,'Geist',sans-serif;color:{{ c.tx }};">How node selection works</span>
+                <span style="font:400 11.5px/1.55 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">Each relay node is an independent Cloudflare account with its own subdomain quota. The control plane keeps the registry and health-checks every node; NPort picks the fastest one with a free slot unless you choose otherwise. Running your own node adds capacity to the pool.</span>
+                <a href="https://github.com/tuanngocptn/nport" style="font:510 11.5px/1 -apple-system,'Geist',sans-serif;color:#30D158;align-self:flex-start;margin-top:2px;">Run your own relay node →</a>
+              </div>
+            </div>
+          </sc-if>
+
           <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
             <div style="flex:1;min-height:0;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:22px;animation:np-in .32s cubic-bezier(.32,.72,0,1);">
               <div style="display:flex;flex-direction:column;gap:10px;">
@@ -377,9 +469,9 @@
           <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
             <div style="flex:1;min-height:0;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:24px;max-width:760px;animation:np-in .32s cubic-bezier(.32,.72,0,1);">
               <div style="display:flex;flex-direction:column;gap:10px;">
-                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Backend</span>
+                <span style="font:590 10.5px/1 -apple-system,'Geist',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:{{ c.mu }};">Control plane</span>
                 <input value="{{ backend }}" onChange="{{ onBackend }}" style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:10px;border:.5px solid {{ glass.hair }};background:{{ glass.field }};color:{{ c.tx }};font:400 13px/1.2 'SF Mono','Geist Mono',monospace;outline:none;box-shadow:inset 0 1px 2px rgba(0,0,0,.1);transition:box-shadow .2s ease, border-color .2s ease;" style-focus="border-color:#30D158;box-shadow:0 0 0 3.5px rgba(48,209,88,.28);" />
-                <span style="font:400 11.5px/1.55 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">Point this at your own Cloudflare Worker to run every tunnel on infrastructure you control. Saved to ~/.nport/config.json.</span>
+                <span style="font:400 11.5px/1.55 -apple-system,'Geist',sans-serif;color:{{ c.mu }};text-wrap:pretty;">The control plane keeps the relay-node registry and their quotas — it never carries your traffic. Point it at your own instance, or register a private node so only you can route through it. Saved to ~/.nport/config.json.</span>
               </div>
 
               <div style="display:flex;flex-direction:column;gap:10px;">
@@ -646,6 +738,16 @@ const REQS = [
 
 const MCOLOR = { GET: GREEN, POST: BLUE, PUT: ORANGE, DELETE: RED, PATCH: PURPLE };
 
+// Relay nodes registered with the control plane. Each is an independent
+// Cloudflare account, so each carries its own subdomain quota.
+const NODES = [
+  { id:'eu-fra', name:'Frankfurt', api:'fra.nport.link', suffix:'.fra.nport.link', region:'EU · DE', plan:'Pro',  cap:25, used:11, ping:18, status:'up' },
+  { id:'eu-ams', name:'Amsterdam', api:'ams.nport.link', suffix:'.ams.nport.link', region:'EU · NL', plan:'Free', cap:3,  used:1,  ping:24, status:'up' },
+  { id:'us-iad', name:'Ashburn',   api:'iad.nport.link', suffix:'.iad.nport.link', region:'US · VA', plan:'Pro',  cap:25, used:24, ping:91, status:'up' },
+  { id:'us-sfo', name:'San Jose',  api:'sfo.nport.link', suffix:'.sfo.nport.link', region:'US · CA', plan:'Free', cap:3,  used:3,  ping:142, status:'full' },
+  { id:'ap-sin', name:'Singapore', api:'sin.nport.link', suffix:'.sin.nport.link', region:'AP · SG', plan:'Free', cap:3,  used:0,  ping:0,  status:'down' }
+];
+
 class Component extends DCLogic {
   state = {
     theme:'dark', screen:'tunnels',
@@ -655,10 +757,11 @@ class Component extends DCLogic {
     showClose:false, hidden:false, askAgain:true, adDismissed:false,
     auth:'out', authEmail:'', authCode:'', authErr:false, sending:false, verifying:false,
     stars: 494,
+    node: 'auto', refreshing: false,
     opts:[true,false,true], prefs:[true,true,false,true],
     tunnels:[
-      { id:1, sub:'northloop', host:'localhost', port:'3000', reqs:412, left:13260 },
-      { id:2, sub:'wh-stripe', host:'192.168.1.42', port:'4000', reqs:87, left:4820 }
+      { id:1, sub:'northloop', host:'localhost', port:'3000', node:'eu-fra', reqs:412, left:13260 },
+      { id:2, sub:'wh-stripe', host:'192.168.1.42', port:'4000', node:'eu-ams', reqs:87, left:4820 }
     ]
   };
 
@@ -684,14 +787,15 @@ class Component extends DCLogic {
   }
 
   begin() {
-    if (this.state.connecting || this.state.tunnels.length >= 3) return;
+    // Capacity comes from the node registry, not a fixed number.
+    if (this.state.connecting || this.freeSlots === 0 || this.subTaken) return;
     this.setState({ connecting:true, step:1 });
     const advance = n => {
       this.ct = setTimeout(() => {
         if (n <= 4) { this.setState({ step:n }); advance(n + 1); }
         else this.setState(s => ({
           connecting:false, step:0, screen:'tunnels',
-          tunnels: s.tunnels.concat([{ id:Date.now(), sub: s.sub || 'user-' + Math.floor(1000 + Math.random()*8999), host: s.host || 'localhost', port:s.port, reqs:0, left:14400 }])
+          tunnels: s.tunnels.concat([{ id:Date.now(), sub: s.sub || 'user-' + Math.floor(1000 + Math.random()*8999), host: s.host || 'localhost', port:s.port, node: this.pickedNode, reqs:0, left:14400 }])
         }));
       }, 620);
     };
@@ -706,7 +810,6 @@ class Component extends DCLogic {
     const st = this.state, dark = st.theme === 'dark';
     const embed = this.props.embed ?? false;
     const GREEN = this.props.accent ?? '#30D158';
-    const MAX = this.props.maxTunnels ?? 3;
 
     const c = dark
       ? { tx:'rgba(255,255,255,.94)', mu:'rgba(235,235,245,.54)' }
@@ -761,16 +864,19 @@ class Component extends DCLogic {
       shift: on ? 'translateX(16px)' : 'translateX(0)'
     });
 
-    const tunnels = st.tunnels.map(t => ({
+    const tunnels = st.tunnels.map(t => {
+      const tn = NODES.find(n => n.id === t.node) || NODES[0];
+      return {
       ...t,
       target: (t.host || 'localhost') + ':' + t.port,
-      url: t.sub + '.nport.link',
+      nodeName: tn.name,
+      url: t.sub + tn.suffix,
       remaining: this.fmt(t.left),
       pct: (t.left / 14400 * 100).toFixed(2) + '%',
       copyLabel: st.copied === t.id ? 'Copied' : 'Copy',
       copy: () => { this.setState({ copied: t.id }); setTimeout(() => this.setState({ copied: -1 }), 1400); },
       stop: () => this.setState(s => ({ tunnels: s.tunnels.filter(x => x.id !== t.id) }))
-    }));
+    };});
 
     const filtered = st.filter === 'All' ? REQS
       : st.filter === 'API' ? REQS.filter(r => r.path.indexOf('/api') === 0)
@@ -787,11 +893,12 @@ class Component extends DCLogic {
       ? [['edge → tunnel','9 ms'], ['tunnel → localhost','2 ms'], ['handler', sel.ms], ['response → edge','4 ms'], ['region','FRA (Frankfurt)']]
       : sel.headers;
 
-    const titles = { tunnels:'Tunnels', new:'New Tunnel', inspector:'Inspector', history:'History', settings:'Settings' };
+    const titles = { tunnels:'Tunnels', new:'New Tunnel', inspector:'Inspector', nodes:'Nodes', history:'History', settings:'Settings' };
     const subs = {
-      tunnels:'Up to three at once · auto-cleanup after 4 hours',
+      tunnels:'Pooled across relay nodes · auto-cleanup after 4 hours',
       new:'Port, name, go',
-      inspector:(st.tunnels[0] ? st.tunnels[0].sub : 'northloop') + '.nport.link → ' + (st.tunnels[0] ? (st.tunnels[0].host || 'localhost') + ':' + st.tunnels[0].port : 'localhost:3000'),
+      inspector:(st.tunnels[0] ? st.tunnels[0].sub + (NODES.find(n => n.id === st.tunnels[0].node) || NODES[0]).suffix : 'northloop.nport.link') + ' → ' + (st.tunnels[0] ? (st.tunnels[0].host || 'localhost') + ':' + st.tunnels[0].port : 'localhost:3000'),
+      nodes:'Registered with the control plane · health-checked every 30s',
       history:'Reopen a tunnel with the same settings',
       settings:'~/.nport/config.json'
     };
@@ -803,7 +910,32 @@ class Component extends DCLogic {
       : /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h) ? 'lan'
       : /^[0-9.]+$/.test(h) ? 'lan' : 'name';
 
-    const stepLabels = ['Authenticating with Cloudflare','Creating tunnel','Publishing DNS record','Connection established'];
+    // --- Relay-node model -------------------------------------------------
+    const free = n => Math.max(0, n.cap - n.used);
+    const usable = NODES.filter(n => n.status === 'up' && free(n) > 0);
+    const bestNode = usable.slice().sort((a, b) => a.ping - b.ping)[0] || NODES[0];
+    const activeNode = st.node === 'auto' ? bestNode : (NODES.find(n => n.id === st.node) || bestNode);
+
+    const subTaken = !!st.sub && st.tunnels.some(t => t.sub === st.sub && (t.node || NODES[0].id) === activeNode.id);
+
+    const netFreeSlots = st.node === 'auto'
+      ? NODES.filter(n => n.status === 'up').reduce((s, n) => s + free(n), 0)
+      : free(activeNode);
+    const netCap = NODES.filter(n => n.status !== 'down').reduce((s, n) => s + n.cap, 0);
+    const netUsed = NODES.filter(n => n.status !== 'down').reduce((s, n) => s + n.used, 0);
+
+    const pingColor = n => n.status === 'down' ? RED : n.ping < 40 ? GREEN : n.ping < 100 ? ORANGE : RED;
+    const loadColor = n => { const r = n.used / n.cap; return r >= 1 ? RED : r > .7 ? ORANGE : GREEN; };
+    const planStyle = n => n.plan === 'Pro'
+      ? { planBg:'rgba(10,132,255,.18)', planFg: BLUE }
+      : { planBg: glass.chip, planFg: c.mu };
+
+    // Capacity is now the selected node's quota, not one global number.
+    const MAX = st.node === 'auto'
+      ? NODES.filter(n => n.status === 'up').reduce((s, n) => s + n.cap, 0)
+      : activeNode.cap;
+
+    const stepLabels = ['Authenticating with Cloudflare','Registering with ' + activeNode.name,'Publishing DNS record','Connection established'];
     const idle = dark ? 'rgba(255,255,255,.12)' : 'rgba(0,0,0,.14)';
 
     return {
@@ -906,15 +1038,100 @@ class Component extends DCLogic {
       isInspector: st.screen === 'inspector', isHistory: st.screen === 'history',
       isSettings: st.screen === 'settings',
       navTunnels: nav('tunnels'), navInspector: nav('inspector'),
-      navHistory: nav('history'), navSettings: nav('settings'),
+      navNodes: nav('nodes'), navHistory: nav('history'), navSettings: nav('settings'),
+      isNodes: st.screen === 'nodes',
+      goNodes: () => this.set('screen', 'nodes'),
+      nodeCount: usable.length,
+
+      // --- Nodes screen ---
+      nodesOnline: NODES.filter(n => n.status !== 'down').length + ' of ' + NODES.length,
+      netFree: NODES.filter(n => n.status === 'up').reduce((s, n) => s + free(n), 0),
+      bestPing: bestNode.ping + ' ms',
+      netUsed, netCapacity: netCap,
+      netPct: (netUsed / netCap * 100).toFixed(1) + '%',
+      netNote: st.node === 'auto'
+        ? 'Auto-routing to ' + bestNode.name + '. Quota is per node, not per account.'
+        : 'Pinned to ' + activeNode.name + '. ' + free(activeNode) + ' of ' + activeNode.cap + ' slots free.',
+      discoveryLine: 'via ' + st.backend.replace(/^https?:\/\//, ''),
+      refreshLabel: st.refreshing ? 'Pinging…' : 'Re-check all',
+      refreshNodes: () => {
+        if (st.refreshing) return;
+        this.setState({ refreshing: true });
+        setTimeout(() => this.setState({ refreshing: false }), 900);
+      },
+      nodeRows: NODES.map(n => {
+        const isFull = free(n) === 0, isDown = n.status === 'down';
+        const off = isFull || isDown;
+        const on = activeNode.id === n.id && !off;
+        return {
+          ...n, ...planStyle(n),
+          api: n.api,
+          ping: isDown ? '—' : n.ping + ' ms',
+          pingColor: pingColor(n),
+          usage: n.used + ' / ' + n.cap,
+          loadPct: Math.min(100, n.used / n.cap * 100) + '%',
+          loadColor: loadColor(n),
+          dot: isDown ? RED : isFull ? ORANGE : GREEN,
+          dotGlow: isDown ? 'none' : '0 0 8px ' + (isFull ? 'rgba(255,159,10,.6)' : 'rgba(48,209,88,.7)'),
+          anim: off ? 'none' : 'np-pulse 2s ease-in-out infinite',
+          activeShow: on ? 'inline-flex' : 'none',
+          rowBd: on ? 'rgba(48,209,88,.45)' : glass.hair,
+          rowSh: on ? selSpec : 'inset 0 .5px 0 ' + glass.spec,
+          disabled: off,
+          cursor: off ? 'default' : 'pointer',
+          opacity: isDown ? .5 : 1,
+          btnLabel: isDown ? 'Offline' : isFull ? 'At capacity' : on ? 'Selected' : 'Use node',
+          btnFg: off ? c.mu : c.tx,
+          use: () => { if (!off) this.setState({ node: n.id, screen: 'new' }); }
+        };
+      }),
+
+      // --- Node picker on New Tunnel ---
+      // Auto still resolves to a concrete node, so always preview its real suffix.
+      nodeSuffix: activeNode.suffix,
+      pickedNodeSync: (this.pickedNode = activeNode.id, this.freeSlots = netFreeSlots, this.subTaken = subTaken, ''),
+      nodeHint: st.node === 'auto'
+        ? 'Auto picks the fastest node with a free slot — right now ' + bestNode.name + ' at ' + bestNode.ping + ' ms.'
+        : 'Pinned to ' + activeNode.name + '. Your URL will end in ' + activeNode.suffix + '.',
+      nodeOptions: [{
+        id:'auto', name:'Automatic', plan:'', cap:0, used:0, ping:bestNode.ping, status:'up',
+        meta:'Fastest node with capacity · now ' + bestNode.name,
+        planShow:'none', planBg:'transparent', planFg:c.mu,
+        loadPct:'0%', loadColor:'transparent'
+      }].concat(NODES.map(n => {
+        const off = free(n) === 0 || n.status === 'down';
+        return {
+          ...n, ...planStyle(n),
+          planShow: 'inline-flex',
+          meta: n.region + ' · ' + n.used + '/' + n.cap + ' tunnels' + (n.status === 'down' ? ' · offline' : off ? ' · full' : ''),
+          loadPct: Math.min(100, n.used / n.cap * 100) + '%',
+          loadColor: loadColor(n),
+          disabled: off, off
+        };
+      })).map(o => {
+        const on = st.node === o.id;
+        return {
+          ...o,
+          ping: o.id === 'auto' ? 'auto' : (o.status === 'down' ? '—' : o.ping + ' ms'),
+          pingColor: o.id === 'auto' ? c.mu : pingColor(o),
+          bg: on ? selTint : 'transparent',
+          sh: on ? selSpec : 'none',
+          radioBd: on ? GREEN : (dark ? 'rgba(255,255,255,.26)' : 'rgba(0,0,0,.24)'),
+          radioBg: on ? GREEN : 'transparent',
+          dotShow: on ? 'block' : 'none',
+          cursor: o.disabled ? 'default' : 'pointer',
+          opacity: o.status === 'down' ? .5 : 1,
+          pick: () => { if (!o.disabled) this.set('node', o.id); }
+        };
+      }),
 
       tunnels,
       activeCount: st.tunnels.length,
       reqCount: REQS.length,
       maxTunnels: MAX,
       showCliMirror: this.props.showCliMirror ?? true,
-      hasFreeSlot: st.tunnels.length < MAX,
-      freeSlots: (MAX - st.tunnels.length) + ' of ' + MAX + ' slots remaining',
+      hasFreeSlot: netFreeSlots > 0,
+      freeSlots: netFreeSlots + ' slots across ' + usable.length + ' nodes',
       slot1: st.tunnels.length >= 1 ? GREEN : idle,
       slot2: st.tunnels.length >= 2 ? GREEN : idle,
       slot3: st.tunnels.length >= MAX ? GREEN : idle,
@@ -946,12 +1163,21 @@ class Component extends DCLogic {
         ? 'Resolved on your network when the tunnel starts.'
         : 'Point at this machine, or any host your machine can reach — a container, a VM, or another computer on your LAN.',
       hostHintColor: c.mu,
-      availText: st.sub ? st.sub + '.nport.link is available' : 'A random name will be generated',
-      availColor: st.sub ? GREEN : c.mu,
+      availText: !st.sub
+        ? 'A random name will be generated'
+        : subTaken
+        ? st.sub + activeNode.suffix + ' is already in use on ' + activeNode.name
+        : st.sub + activeNode.suffix + ' is available',
+      availColor: !st.sub ? c.mu : subTaken ? RED : GREEN,
       cliCommand: 'nport ' + (st.port || '8080')
         + (st.sub ? ' -s ' + st.sub : '')
-        + (hostKind === 'local' ? '' : ' -h ' + h),
-      startLabel: st.connecting ? 'Connecting…' : st.tunnels.length >= MAX ? 'All ' + MAX + ' slots in use' : 'Start Tunnel',
+        + (hostKind === 'local' ? '' : ' -h ' + h)
+        + (st.node === 'auto' ? '' : ' --node ' + activeNode.id),
+      startLabel: st.connecting ? 'Connecting…'
+        : netFreeSlots === 0 ? 'No slots on this node'
+        : subTaken ? 'Name already in use'
+        : 'Start Tunnel',
+      startOpacity: (netFreeSlots === 0 || subTaken) ? .5 : 1,
       startTunnel: () => this.begin(),
       options: [
         { title:'Open inspector on start', desc:'Jump straight to live traffic.' },

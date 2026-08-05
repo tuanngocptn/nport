@@ -41,6 +41,15 @@ theme and language switches sitting outside the window chrome.
 
 1. **Never hand-edit anything in this directory.** It is a wholesale export. Change the design in
    Claude Design and re-export, or the next export silently reverts you.
+
+   **After every re-export, check two things** — both went wrong on the 2026-08-05 export:
+
+   - **This README is deleted**, because it is not part of the design project. `git checkout --
+     docs/mockup/README.md` brings it back. It is linked from `README.md` and three `CLAUDE.md`
+     files, so losing it fails `cargo xtask verify-docs`.
+   - **A stale `FEATURES.md` may reappear here.** The canonical one is `docs/FEATURES.md`; the
+     exported copy is a snapshot from whenever the design project last held one, and it will be
+     out of date. Delete it — `git status` will show it as untracked.
 2. **Nothing imports from here.** No build step reads it, and no artifact ships from it. When a
    token or a component becomes real it is *transcribed* into `packages/design-tokens` or the app
    that needs it — `handoff/shared/tokens.css` is the source for `packages/design-tokens/tokens.css`,

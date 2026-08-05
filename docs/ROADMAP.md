@@ -40,33 +40,37 @@ That moves the boundary a long way: everything except a valid credential is now 
 4. **Repeat on macOS, Linux, and Windows**, plus WebSocket and server-enforced expiry. That is Gate G2.
 5. **Close the two G1 leftovers while a live tunnel exists** — criterion 1 wants the dashboard to say `healthy`, criterion 5 wants the remaining five golden fixtures, and both need exactly the access that step 1 creates.
 
-Not on this path, and not started until G2 closes: the website (2c), the desktop app (Phase 4), and everything in `docs/FEATURES.md` §§2–9 and §§11–12. Two client-side gaps in `docs/FEATURES.md` §1 are real but still not on it — **arbitrary forward targets** and **edge basic auth** — see the mapping below for why each waits.
+Not on this path, and not started until G2 closes: the website (2c), the desktop app (Phase 4), and everything in `docs/FEATURES.md` §§1, 3 and 5–14. Two client-side gaps in `docs/FEATURES.md` §4 are real but still not on it — **arbitrary forward targets** and **edge basic auth** — see the mapping below for why each waits.
 
 ## `docs/FEATURES.md` — where each area lands
 
 `docs/FEATURES.md` is the backlog the mockup implies, written from the desktop design. It is a **feature inventory, not a plan**: per ADR-0016 the work items are GitHub Issues, and this table is the only thing that assigns them phases.
 
+Renumbered when the design gained the federated architecture — it now has fourteen areas, and the two at the top are new.
+
 | Area | Lands in | State |
 | --- | --- | --- |
-| 1 · Core tunnel engine | **2b** | built, bar two items — see below |
-| 2 · Request inspector | Phase 4 | `core::inspector` built in 2b; the UI over it is Phase 4 |
-| 3 · Tunnels screen | Phase 4 | — |
-| 4 · New tunnel | Phase 4 | — |
-| 5 · History & presets | Phase 4 | — |
-| 6 · Menu bar & window lifecycle | Phase 4 | — |
-| 7 · Settings | Phase 4 | the custom backend URL already exists — CLI `--backend` and `~/.nport/config.toml` |
-| 8 · Supporter account & monetisation | **nowhere — blocked** | contradicts invariant 1 and ADR-0007 |
-| 9 · Onboarding | Phase 4 | the own-Cloudflare path is `docs/SELF_HOSTING.md`, which exists; the *UI* for it is undesigned |
-| 10 · Backend | **2a** | built, except §8's endpoints, which are blocked with §8 |
-| 11 · Packaging & distribution | Phase 3 | — |
-| 12 · Cross-platform design | Phase 4 | blocked on design work, not on code |
+| 1 · Registry | **Phase 6** | new. ADR-0031 |
+| 2 · Node | **2a** + Phase 6 | `apps/api` already *is* a node; it gains self-registration and a capacity field |
+| 3 · Node selection in the client | **Phase 6** + Phase 4 | `core::discovery` is Phase 6; the Nodes screen over it is Phase 4 |
+| 4 · Core tunnel engine | **2b** | built, bar host targeting and edge basic auth |
+| 5 · Request inspector | Phase 4 | `core::inspector` built in 2b; the UI over it is Phase 4 |
+| 6 · Tunnels screen | Phase 4 | — |
+| 7 · New tunnel | Phase 4 | — |
+| 8 · History & presets | Phase 4 | — |
+| 9 · Menu bar & window lifecycle | Phase 4 | — |
+| 10 · Settings | Phase 4 | the custom backend URL already exists — CLI `--backend` and `~/.nport/config.toml` |
+| 11 · Supporter account & monetisation | **nowhere — blocked** | contradicts invariant 1 and ADR-0007 |
+| 12 · Onboarding | Phase 4 | the own-Cloudflare path is `docs/SELF_HOSTING.md`, which exists; the *UI* for it is undesigned, and under ADR-0031 it doubles as "become a node" |
+| 13 · Packaging & distribution | Phase 3 | — |
+| 14 · Cross-platform design | Phase 4 | blocked on design work, not on code |
 
-**§8 cannot be built as written.** Email entry, OTP verification, a persisted session, and a server-side supporter lookup are an account system: auth, a user database, and a login. Invariant 1 says "no accounts, no auth, no signup — **ever**", ADR-0007 rejected even *optional* accounts on the grounds that every optional auth system becomes load-bearing, and `docs/ARCHITECTURE.md` §9 lists accounts as out of scope. Its own note concedes the design authenticates nothing — possession of an address is not proof of donation. **Promoting it needs an ADR that supersedes ADR-0007**, and that is a product decision, not a roadmap entry. Until one exists, §8 is not scheduled and the sponsored-card slot it wraps is not either.
+**§11 cannot be built as written.** Email entry, OTP verification, a persisted session, and a server-side supporter lookup are an account system: auth, a user database, and a login. Invariant 1 says "no accounts, no auth, no signup — **ever**", ADR-0007 rejected even *optional* accounts on the grounds that every optional auth system becomes load-bearing, and `docs/ARCHITECTURE.md` §9 lists accounts as out of scope. Its own note concedes the design authenticates nothing — possession of an address is not proof of donation. **Promoting it needs an ADR that supersedes ADR-0007**, and that is a product decision, not a roadmap entry. Until one exists, §11 is not scheduled and the sponsored-card slot it wraps is not either.
 
-Two items in §1 are genuinely new client-side scope:
+Two items in §4 are genuinely new client-side scope:
 
 - **Arbitrary forward targets** (`127.0.0.1`, LAN IPs, container names) are cheaper than they look. `core::exchange` already takes a `SocketAddr` and the local target **never appears in the API contract** — `createTunnelRequestSchema` carries a subdomain and nothing else — so this touches `TunnelConfig`, the CLI's flag surface, and the pre-flight probe, and reopens nothing frozen at 1.5. It waits only because it is not needed to open a port. **The design's assumed `-h` flag is unavailable**: `-h` is `--help`, guaranteed by a test, and taking it would break the rule that help answers immediately. Use `--host`, or fold it into the positional as `host:port`.
-- **Edge basic auth** is `docs/ARCHITECTURE.md` §9's "tunnel password protection", explicitly out of scope for 3.0 and already in Deferred below. It needs an ADR like §8 does, though a far less contentious one.
+- **Edge basic auth** is `docs/ARCHITECTURE.md` §9's "tunnel password protection", explicitly out of scope for 3.0 and already in Deferred below. It needs an ADR like §11 does, though a far less contentious one.
 
 Four things `docs/FEATURES.md` leaves open are already settled in code, and the answers belong here rather than being re-derived: the inspector ring is **1000 exchanges with a 32 KiB body preview** (`core::inspector`); the CLI config file is **`~/.nport/config.toml`**, not `.json`; the CLI ships **three** languages, `en`/`vi`/`es`, where the design shows two; and **SSE already passes through**, because `core::exchange` streams rather than buffering — the same property that makes gRPC and long downloads work.
 
@@ -327,7 +331,7 @@ Deliberately last: it consumes a *stable* `crates/core`, and building it earlier
 
 Tunnel list and one-click start; tray integration; the traffic inspector over `core::inspector`; settings; auto-update via the updater manifest; signing and notarization per platform.
 
-**The scope is `docs/FEATURES.md` §§2–7, §9, and §12** — the mapping table above — against the design in `docs/mockup/NPort Desktop.dc.html`. Two things to settle before components are written, both recorded in `apps/desktop/CLAUDE.md`: the design draws seven surfaces where the planned layout has four views, and every surface in the token sheet is a `backdrop-filter` glass layer, which is the property that degrades worst on WebKitGTK. §8 is excluded, per the mapping table. §12 is design work that has not been done at all — the mockup is macOS Tahoe only.
+**The scope is `docs/FEATURES.md` §§5–10, §12 and §14, plus the Nodes screen in §3** — the mapping table above — against the design in `docs/mockup/NPort Desktop.dc.html`. Two things to settle before components are written, both recorded in `apps/desktop/CLAUDE.md`: the design draws seven surfaces where the planned layout has four views, and every surface in the token sheet is a `backdrop-filter` glass layer, which is the property that degrades worst on WebKitGTK. §8 is excluded, per the mapping table. §12 is design work that has not been done at all — the mockup is macOS Tahoe only.
 
 ## Phase 6 — Federation: a registry and many nodes
 
@@ -358,7 +362,7 @@ Dates and the exact sequence live in `docs/RELEASE.md`.
 - **Phase 1.5 precedes Phase 2.** Without a frozen contract the tracks collide. ✅ closed
 - **Phase 4 follows Phase 3.** The desktop app needs a stable `core`.
 - **G2 precedes 2c.** 2a, 2b, and 2c *can* run in parallel once the contract is frozen, and for a while they did. They no longer do: with 2a and 2b both code-complete and nothing deployed, the only work that moves the project is getting a port open, and the site can be built against a tunnel that demonstrably works rather than one that is only tested.
-- **`docs/FEATURES.md` §8 precedes nothing.** It is blocked on an ADR, not on a phase.
+- **`docs/FEATURES.md` §11 precedes nothing.** It is blocked on an ADR, not on a phase.
 - **G2 precedes Phase 6.** Federating a provisioning path that has never run against the live Cloudflare API multiplies one unknown by the number of nodes. Once G2 closes, Phase 6 can run in parallel with 3 and 4 — it touches the contract, `apps/api`, and `crates/core`, none of which the release pipeline or the desktop app own.
 
 ## Deferred
@@ -369,4 +373,4 @@ TCP/UDP/ICMP tunnelling (ADR-0020) · custom domains · tunnel password protecti
 
 **Defending a tunnel against the node that issued it.** From Phase 6 a node runs on someone else's Cloudflare account, and the account that owns the zone can attach a Worker route to the hostname — seeing and modifying full request and response bodies, undetectably from the client. Nothing here defends against that, deliberately: NPort is for development and demos, and the exposure is documented in `README.md`, `docs/ARCHITECTURE.md` §1, and ADR-0031 rather than mitigated. Promoting it would mean some combination of trust tiers with signed node entries, an operator identity, and a client-side consent step — a large surface, and one worth designing properly rather than bolting on. Do not confuse this with the *documentation* of the exposure, which is not deferred and is already written.
 
-Three of those appear in `docs/FEATURES.md` as ordinary backlog items — tunnel password protection as §1's edge basic auth, request replay as §2's **Replay**, and the one-click deploy as §9's own-Cloudflare onboarding. Being drawn in the mockup does not schedule them. **Accounts and monetisation** (§8) belong on this list too, and are the one entry here that contradicts an invariant rather than merely postponing a feature.
+Three of those appear in `docs/FEATURES.md` as ordinary backlog items — tunnel password protection as §4's edge basic auth, request replay as §5's **Replay**, and the one-click deploy as §12's own-Cloudflare onboarding. Being drawn in the mockup does not schedule them. **Accounts and monetisation** (§11) belong on this list too, and are the one entry here that contradicts an invariant rather than merely postponing a feature.
