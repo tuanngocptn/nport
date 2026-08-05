@@ -186,7 +186,7 @@ async function api(path, { method = "GET", body, ip } = {}) {
   } catch {
     json = undefined
   }
-  return { status: response.status, json, text, bytes: text.length }
+  return { status: response.status, json, text, bytes: text.length, headers: response.headers }
 }
 
 /** `subdomain` omitted means "generate one", which is both the default path and the only one a
@@ -521,6 +521,39 @@ async function checkCli() {
 }
 
 /**
+ * `Retry-After` on the refusals that have a time to give — and none on the one that does not.
+ *
+ * `docs/API.md` promises the header, and the promise was half true: it was derived from
+ * `details.retryAfter` alone, so an hourly-quota refusal went out carrying the exact instant it frees
+ * up **in the body** and no header at all. The header is the field standard tooling reads.
+ */
+async function checkRetryAfter() {
+  console.log("\nRetry-After")
+
+  // The concurrency cap: three tunnels, then a refusal that must carry no header.
+  const ip = v4(2)
+  const limit = 3
+  for (let index = 0; index < limit; index += 1) {
+    const created = await createTunnel(ip)
+    if (created.status !== 201) {
+      fail(`could not fill the concurrency cap (create ${index})`, created.text)
+      return
+    }
+  }
+  const concurrency = await createTunnel(ip)
+  check(
+    concurrency.status === 429 && concurrency.json?.error?.code === "CONCURRENCY_LIMIT",
+    "a source at its cap is refused",
+    concurrency.text,
+  )
+  check(
+    concurrency.headers.get("retry-after") === null,
+    "…with no Retry-After, because waiting does not help — closing a tunnel does",
+    String(concurrency.headers.get("retry-after")),
+  )
+}
+
+/**
  * The heartbeat endpoint, driven directly.
  *
  * Distinct from "does the client beat at the right rate", which this environment cannot show. What it
@@ -679,6 +712,7 @@ async function main() {
   await checkProvisioning()
   await checkIpv6Cap()
   await checkInputBounds()
+  await checkRetryAfter()
   await checkHeartbeatEndpoint()
   await checkCli()
   await checkQuiet()

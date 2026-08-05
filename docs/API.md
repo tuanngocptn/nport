@@ -123,7 +123,11 @@ Lets clients discover limits instead of hardcoding them, so caps can be tuned wi
 | `DELETE` | yes | idempotent |
 | `GET` reads | yes | |
 
-Every `429` and `503` carries `Retry-After`. Honour it; do not implement a tighter retry loop than the server asks for.
+Every `429` and `503` **that has a time to give** carries `Retry-After`, in delta-seconds. Honour it; do not implement a tighter retry loop than the server asks for.
+
+The one exception is `CONCURRENCY_LIMIT`, and it is deliberate: a source at its concurrent-lease cap frees a slot by *closing a tunnel*, not by waiting, so there is no instant after which the same request succeeds. A `Retry-After` there would invite exactly the loop it should discourage — `docs/ERRORS.md` gives the action as "Close an existing tunnel" for that reason.
+
+The header is derived from whichever field the refusal carries: `details.retryAfter` where the limit is a duration (`RATE_LIMITED`, `CAPACITY_EXHAUSTED`), and `details.resetAt` where it is a real instant (`CREATE_QUOTA_EXCEEDED`, whose sliding window has an edge worth showing a countdown to). It is clamped to at least one second and at most an hour, which is the longest window any limit here uses.
 
 ## Errors
 

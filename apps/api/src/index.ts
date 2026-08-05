@@ -12,7 +12,7 @@
 
 import { Hono } from "hono"
 
-import { ApiError, envelope } from "./errors"
+import { ApiError, envelope, retryAfterSeconds } from "./errors"
 import { clientGate } from "./middleware/client-gate"
 import { rateLimit } from "./middleware/rate-limit"
 import { requestId } from "./middleware/request-id"
@@ -106,11 +106,22 @@ app.onError((error, context) => {
   if (error instanceof ApiError) {
     const body = legacy ? legacyEnvelope(error.message) : envelope(error, id)
     const headers: Record<string, string> = {}
-    // Every 429 and 503 carries Retry-After, because docs/API.md tells clients to honour it and
-    // a retryable error without one invites a tighter loop than the server wants.
-    const retryAfter = error.details?.retryAfter
-    if ((error.status === 429 || error.status === 503) && typeof retryAfter === "number") {
-      headers["retry-after"] = String(Math.max(1, Math.ceil(retryAfter)))
+    // Every 429 and 503 that *can* say when carries Retry-After, because docs/API.md tells clients to
+    // honour it and a retryable error without one invites a tighter loop than the server wants.
+    //
+    // **Two shapes, because two refusals count time differently.** `RATE_LIMITED` and
+    // `CAPACITY_EXHAUSTED` carry `retryAfter` as a duration; `CREATE_QUOTA_EXCEEDED` carries `resetAt`
+    // as an absolute instant, because the hourly window has a real edge and a client showing a
+    // countdown wants that edge rather than a guess. Deriving the header from whichever is present
+    // keeps the promise above true — it used to read `retryAfter` alone, so an hourly-quota refusal
+    // went out with the moment it frees up in the body and **no header at all**, which is the one
+    // field standard tooling and our own retry ladder actually look at.
+    //
+    // `CONCURRENCY_LIMIT` deliberately has neither: waiting does not help, closing a tunnel does, and
+    // a `Retry-After` there would invite exactly the loop it should discourage.
+    const seconds = retryAfterSeconds(error.details, Date.now())
+    if ((error.status === 429 || error.status === 503) && seconds !== undefined) {
+      headers["retry-after"] = String(seconds)
     }
     return context.json(body, error.status as 400, headers)
   }

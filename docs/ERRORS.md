@@ -50,12 +50,12 @@ Four consumers reference these codes, which is why they live in one registry rat
 | `CLIENT_TOO_OLD` | 426 | no | `minimumVersion` | Below `MIN_CLIENT_VERSION` | Upgrade. `details.minimumVersion` says the floor |
 | `POW_REQUIRED` | 428 | no | — | Create attempted with no challenge | Client bug — fetch `/v1/challenge` first |
 | `CONCURRENCY_LIMIT` | 429 | yes | `limit` | Too many simultaneous leases from this source | Close an existing tunnel |
-| `CREATE_QUOTA_EXCEEDED` | 429 | yes | `resetAt` | Hourly create cap for this source | Wait; `details.resetAt` |
+| `CREATE_QUOTA_EXCEEDED` | 429 | yes | `resetAt` | Hourly create cap for this source | Honour `Retry-After`; `details.resetAt` |
 | `RATE_LIMITED` | 429 | yes | `retryAfter` | Per-source request limit exceeded | Honour `Retry-After` |
 | `INTERNAL` | 500 | yes | — | Unhandled. Never leaks detail | Report with `requestId` |
 | `PROVISION_FAILED` | 500 | yes | — | The saga could not complete and was compensated. No orphan remains | Retry. Quote `requestId` |
 | `UPSTREAM_CLOUDFLARE_ERROR` | 502 | yes | — | The Cloudflare API failed or timed out. **Raw upstream text is never included** | Retry with backoff. Quote `requestId` if persistent |
-| `CAPACITY_EXHAUSTED` | 503 | yes | — | Global active-tunnel cap reached | Retry later |
+| `CAPACITY_EXHAUSTED` | 503 | yes | `retryAfter` | Global active-tunnel cap reached | Honour `Retry-After` |
 
 ### Notes
 

@@ -182,7 +182,9 @@ export const ERRORS = {
     retryable: true,
     message: "You have created too many tunnels this hour.",
     cause: "Hourly create cap for this source",
-    action: "Wait; `details.resetAt`",
+    // `Retry-After` is derived from `resetAt` by `apps/api`, so a client that honours the header needs
+    // to read nothing; `resetAt` is there for one that wants to show a countdown to a real instant.
+    action: "Honour `Retry-After`; `details.resetAt`",
     details: ["resetAt"],
   },
 
@@ -217,7 +219,10 @@ export const ERRORS = {
     retryable: true,
     message: "NPort is at capacity. Please try again shortly.",
     cause: "Global active-tunnel cap reached",
-    action: "Retry later",
+    action: "Honour `Retry-After`",
+    // The API has always sent this; the registry did not say so, and the registry is the authority a
+    // client reads. `apps/api` turns it into the `Retry-After` header too.
+    details: ["retryAfter"],
   },
 
   // ── Client-side · never cross the network ────────────────────────────────────────

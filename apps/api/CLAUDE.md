@@ -52,9 +52,10 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 7. **Never delete a DNS record you cannot prove you own** — verify the CNAME target first (invariant 8).
 8. **Never surface an upstream Cloudflare error message.** Log it, return `UPSTREAM_CLOUDFLARE_ERROR` with a `requestId`.
 9. **No CORS headers, ever.** Their absence is an abuse control (`docs/API.md`).
-10. **No module-level mutable state.** Isolates are shared across callers.
-11. **Never log a token, an `ownerToken`, or a raw IP.** Source identity is `HMAC(ip, secret)` only.
-12. Watch the subrequest budget — 50 on the free plan. Provisioning uses ~5; any loop over CF calls needs an explicit bound.
+10. **A 429 or 503 that knows when it frees up must say so in `Retry-After`.** `retryAfterSeconds` in `errors.ts` derives it from `details.retryAfter` (a duration) or `details.resetAt` (an instant), clamped to 1 s–1 h. A refusal carrying neither — `CONCURRENCY_LIMIT` — deliberately sends no header, because waiting is not the remedy.
+11. **No module-level mutable state.** Isolates are shared across callers.
+12. **Never log a token, an `ownerToken`, or a raw IP.** Source identity is `HMAC(ip, secret)` only.
+13. Watch the subrequest budget — 50 on the free plan. Provisioning uses ~5; any loop over CF calls needs an explicit bound.
 
 ## Common tasks
 

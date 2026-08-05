@@ -178,8 +178,34 @@ describe("per-source hourly create quota", () => {
     // `details.resetAt` is what `docs/ERRORS.md` promises for this code, and the only thing a client
     // can act on. A sliding window means it is the oldest attempt's expiry, not the top of the hour.
     expect(body.error.details?.resetAt).toBeGreaterThan(Date.now())
+
+    // **And it reaches the HTTP layer**, which is the field standard tooling and our own retry ladder
+    // look at. This used to be absent: the response carried the exact instant it frees up in the body
+    // and no header at all, while `src/index.ts` claimed every 429 carried one.
+    const header = refused.headers.get("retry-after")
+    expect(header).not.toBeNull()
+    const seconds = Number(header)
+    expect(seconds).toBeGreaterThanOrEqual(1)
+    // An hour is the window, so the header can never sensibly exceed it.
+    expect(seconds).toBeLessThanOrEqual(3600)
+
     // And nothing was provisioned.
     expect(cloudflare.tunnels.size).toBe(0)
+  })
+
+  it("gives a concurrency refusal no Retry-After, because waiting does not help", async () => {
+    // The deliberate asymmetry. A source at its concurrency cap frees a slot by *closing* a tunnel,
+    // not by waiting — so a `Retry-After` there would invite exactly the loop it should discourage.
+    const limit = Number(env.MAX_CONCURRENT_PER_SOURCE)
+    const ip = "203.0.113.70"
+    for (let index = 0; index < limit; index += 1) {
+      expect((await create(ip, `noretry${index}`)).status).toBe(201)
+    }
+
+    const refused = await create(ip, "onemore")
+    expect(refused.status).toBe(429)
+    expect(await codeOf(refused)).toBe("CONCURRENCY_LIMIT")
+    expect(refused.headers.get("retry-after")).toBeNull()
   })
 
   it("counts failed creates too", async () => {

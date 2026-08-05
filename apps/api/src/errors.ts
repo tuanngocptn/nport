@@ -66,3 +66,32 @@ export function envelope(error: ApiError, requestId: string, origin?: string): E
     },
   }
 }
+
+/**
+ * `Retry-After` in delta-seconds, from whichever field a refusal carries.
+ *
+ * Clamped at both ends: never below 1, because `Retry-After: 0` invites an immediate retry, and never
+ * above [`MAX_RETRY_AFTER`], because a `resetAt` far in the future — a clock skew, a stored value from
+ * a longer window — should not tell a client to sleep for a day.
+ */
+export function retryAfterSeconds(
+  details: Record<string, unknown> | undefined,
+  now: number,
+): number | undefined {
+  const retryAfter = details?.retryAfter
+  if (typeof retryAfter === "number" && Number.isFinite(retryAfter)) {
+    return clampRetryAfter(retryAfter)
+  }
+  const resetAt = details?.resetAt
+  if (typeof resetAt === "number" && Number.isFinite(resetAt)) {
+    return clampRetryAfter((resetAt - now) / 1000)
+  }
+  return undefined
+}
+
+/** An hour, which is the longest window any limit here uses. */
+const MAX_RETRY_AFTER = 3600
+
+function clampRetryAfter(seconds: number): number {
+  return Math.min(MAX_RETRY_AFTER, Math.max(1, Math.ceil(seconds)))
+}

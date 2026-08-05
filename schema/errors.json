@@ -163,7 +163,9 @@
       "retryable": true,
       "slug": "capacity-exhausted",
       "message": "NPort is at capacity. Please try again shortly.",
-      "details": []
+      "details": [
+        "retryAfter"
+      ]
     },
     "LOCAL_PORT_CLOSED": {
       "origin": "client",
