@@ -29,8 +29,22 @@ const LAYOUT_DOCS: [&str; 7] = [
     "docs/ARCHITECTURE.md",
 ];
 
-/// Markdown files whose relative links are checked.
-const LINKED_DOCS: [&str; 3] = ["README.md", "docs/CONTRIBUTING.md", "docs/ROADMAP.md"];
+/// Directory names never walked when collecting markdown to check.
+///
+/// `docs/mockup` is reference-only and excluded from every check by design (root `CLAUDE.md`).
+/// `.claude/worktrees` holds live git worktrees of *other* branches — checking those would report
+/// another branch's problems here, which is the "fail on someone else's outage" failure this module
+/// is otherwise careful to avoid.
+const SKIPPED_DIRS: [&str; 8] = [
+    ".git",
+    "node_modules",
+    "target",
+    ".next",
+    ".open-next",
+    "dist",
+    "mockup",
+    "worktrees",
+];
 
 pub fn run() -> Result<(), String> {
     let repo = crate::codegen::repo_root()?;
@@ -236,18 +250,54 @@ fn check_error_codes(repo: &Path) -> Result<Vec<String>, String> {
     Ok(problems)
 }
 
+/// Every markdown file in the repository, minus [`SKIPPED_DIRS`].
+///
+/// Discovered rather than listed. The predecessor was a three-entry `LINKED_DOCS` const standing
+/// behind root `CLAUDE.md`'s claim that "every markdown link resolves" — it covered three of
+/// thirty-five files, because a list is only as current as the last person who added a doc. There is
+/// no per-file judgement to make here: a relative link either resolves or it does not, so the set is
+/// derivable and a const was the wrong shape for it.
+fn markdown_files(repo: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut found = Vec::new();
+    let mut stack = vec![repo.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        let entries = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+
+            if path.is_dir() {
+                if !SKIPPED_DIRS.contains(&name.as_str()) {
+                    stack.push(path);
+                }
+            } else if name.ends_with(".md") {
+                found.push(path);
+            }
+        }
+    }
+
+    found.sort();
+    Ok(found)
+}
+
 /// Checks `[text](relative/path.md)` links resolve. External URLs and anchors are skipped.
 fn check_relative_links(repo: &Path) -> Result<Vec<String>, String> {
     let mut problems = Vec::new();
 
-    for doc in LINKED_DOCS {
-        let path = repo.join(doc);
+    for path in markdown_files(repo)? {
+        let doc = path
+            .strip_prefix(repo)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .into_owned();
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
         let base: PathBuf = path.parent().unwrap_or(repo).to_path_buf();
 
-        for target in link_targets(&text) {
+        for target in link_targets(&without_code(&text)) {
             // Strip an anchor; the file is what is checkable.
             let file = target.split('#').next().unwrap_or(&target);
             if file.is_empty() {
@@ -260,6 +310,80 @@ fn check_relative_links(repo: &Path) -> Result<Vec<String>, String> {
     }
 
     Ok(problems)
+}
+
+/// Blanks fenced blocks and inline code spans, preserving every byte position.
+///
+/// A `](` inside code is not a link, and the checker now reads thirty-five files rather than three, so
+/// the odds of meeting one went up with it. The first was a regex in `docs/ARCHITECTURE.md`:
+/// `` `^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])?$` `` — the `]` closing the first character class sits
+/// against the `(` opening the group, which is `](` exactly. Reporting that as a broken link is the
+/// crying-wolf failure this module is built to avoid, and the fix belongs in the scanner rather than
+/// in the prose that happened to trip it.
+///
+/// Blanking rather than deleting, so a target's own text is untouched — `` [`foo`](bar.md) `` still
+/// yields `bar.md`, because only the span between the backticks is replaced.
+fn without_code(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_fence = false;
+
+    for line in text.split_inclusive('\n') {
+        let fence = line.trim_start().starts_with("```");
+        if fence {
+            in_fence = !in_fence;
+        }
+        if fence || in_fence {
+            out.extend(line.chars().map(|c| if c == '\n' { '\n' } else { ' ' }));
+            continue;
+        }
+
+        // Backtick *runs*, not single backticks. CommonMark opens a span with a run of N and closes it
+        // with a run of exactly N, which is how you write a span containing a backtick — and this
+        // repository's docs use that form constantly (``` `` `code` `` ```). Toggling per character made
+        // a two-backtick opener cancel itself, so the span stayed visible and a placeholder inside one
+        // was reported as a broken link. Caught by this checker on the very commit that added it.
+        let chars: Vec<char> = line.chars().collect();
+        let mut at = 0;
+        while at < chars.len() {
+            if chars[at] != '`' {
+                out.push(chars[at]);
+                at += 1;
+                continue;
+            }
+
+            let run = run_length(&chars, at);
+            let close = closing_run(&chars, at + run, run);
+            let blank_to = close.map_or(at + run, |found| found + run);
+            for c in &chars[at..blank_to] {
+                out.push(if *c == '\n' { '\n' } else { ' ' });
+            }
+            at = blank_to;
+        }
+    }
+
+    out
+}
+
+/// How many backticks start at `at`.
+fn run_length(chars: &[char], at: usize) -> usize {
+    chars[at..].iter().take_while(|c| **c == '`').count()
+}
+
+/// Index of the next run of *exactly* `wanted` backticks at or after `from`.
+fn closing_run(chars: &[char], from: usize, wanted: usize) -> Option<usize> {
+    let mut at = from;
+    while at < chars.len() {
+        if chars[at] == '`' {
+            let run = run_length(chars, at);
+            if run == wanted {
+                return Some(at);
+            }
+            at += run;
+        } else {
+            at += 1;
+        }
+    }
+    None
 }
 
 fn link_targets(text: &str) -> Vec<String> {
@@ -289,4 +413,160 @@ fn link_targets(text: &str) -> Vec<String> {
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The false positive that expanding the file set turned up.
+    ///
+    /// `[a-z0-9](` is `](` as far as a naive scan is concerned. This is the regex from
+    /// `docs/ARCHITECTURE.md` §subdomain validation, verbatim.
+    #[test]
+    fn a_regex_in_a_code_span_is_not_a_link() {
+        let text = "Validate: `^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])?$`, 3–63 characters.";
+
+        assert!(
+            link_targets(&without_code(text)).is_empty(),
+            "{:?}",
+            link_targets(&without_code(text))
+        );
+    }
+
+    /// A double-backtick span is the idiomatic way to write code containing a backtick, and this
+    /// repository's docs use it constantly. Toggling per character made the opener cancel itself.
+    #[test]
+    fn a_double_backtick_span_is_blanked_like_any_other() {
+        let text = "the form `` [`Name`](placeholder) `` shows the syntax";
+
+        assert!(
+            link_targets(&without_code(text)).is_empty(),
+            "{:?}",
+            link_targets(&without_code(text))
+        );
+    }
+
+    #[test]
+    fn an_unterminated_backtick_does_not_swallow_the_rest_of_the_line() {
+        // A stray backtick is a typo, not a licence to stop checking. Only the tick is blanked.
+        let text = "oops ` and then [real](README.md)";
+
+        assert_eq!(
+            link_targets(&without_code(text)),
+            vec!["README.md".to_owned()]
+        );
+    }
+
+    #[test]
+    fn a_link_whose_text_is_code_still_resolves() {
+        // Blanking rather than deleting is what keeps this working: only the span between the
+        // backticks is replaced, so the `](` that follows is still where it was.
+        let text = "see [`TunnelManager`](crates/core/src/tunnel.rs) for the loop";
+
+        assert_eq!(
+            link_targets(&without_code(text)),
+            vec!["crates/core/src/tunnel.rs".to_owned()]
+        );
+    }
+
+    #[test]
+    fn a_link_inside_a_fenced_block_is_not_checked() {
+        // A fence often holds sample markdown or shell output; neither is a claim about this repo.
+        let text = "before\n```\n[sample](does/not/exist.md)\n```\nafter [real](README.md)\n";
+
+        assert_eq!(
+            link_targets(&without_code(text)),
+            vec!["README.md".to_owned()]
+        );
+    }
+
+    #[test]
+    fn external_links_and_anchors_are_skipped() {
+        let text = "[a](https://x.test) [b](mailto:x@y.test) [c](#section) [d](docs/API.md)";
+
+        assert_eq!(
+            link_targets(&without_code(text)),
+            vec!["docs/API.md".to_owned()]
+        );
+    }
+
+    /// Proves `check_relative_links` reads the *discovered* set, not a hardcoded few.
+    ///
+    /// The helper test below only shows `markdown_files` walks correctly; reverting the call site to a
+    /// three-entry list left it green, which is the same trap as testing a buffer's wire path and not
+    /// its record. This drives the real function against a tree whose files are named nothing like the
+    /// old list, so a return to one would report zero problems and fail here.
+    #[test]
+    fn link_checking_covers_every_discovered_file() {
+        let root = std::env::temp_dir().join("nport-verify-docs-link-coverage");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("nested")).expect("mkdir");
+        std::fs::create_dir_all(root.join("node_modules")).expect("mkdir");
+        std::fs::write(root.join("top.md"), "[x](gone-a.md)").expect("write");
+        std::fs::write(root.join("nested/deep.md"), "[y](gone-b.md)").expect("write");
+        std::fs::write(root.join("node_modules/dep.md"), "[z](gone-c.md)").expect("write");
+
+        let problems = check_relative_links(&root).expect("check");
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(
+            problems.iter().any(|p| p.contains("gone-a.md")),
+            "{problems:?}"
+        );
+        assert!(
+            problems.iter().any(|p| p.contains("gone-b.md")),
+            "a file below the root was not checked: {problems:?}"
+        );
+        assert!(
+            !problems.iter().any(|p| p.contains("gone-c.md")),
+            "node_modules was walked: {problems:?}"
+        );
+    }
+
+    #[test]
+    fn markdown_discovery_finds_the_docs_and_skips_the_noise() {
+        // The whole point of replacing `LINKED_DOCS`: a doc added tomorrow is covered without anyone
+        // remembering to list it. Asserted against the real tree, since that is what ships.
+        let repo = crate::codegen::repo_root().expect("repo root");
+        let found = markdown_files(&repo).expect("walk");
+        let relative: Vec<String> = found
+            .iter()
+            .map(|p| {
+                p.strip_prefix(&repo)
+                    .unwrap_or(p)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+
+        for expected in ["README.md", "docs/ROADMAP.md", "crates/CLAUDE.md"] {
+            assert!(relative.iter().any(|p| p == expected), "missing {expected}");
+        }
+        assert!(
+            relative.len() > 20,
+            "found only {} — the walk is not reaching the tree",
+            relative.len()
+        );
+        // Compared component by component, not as a substring: `.github/pull_request_template.md`
+        // contains `.git` and is a file the walk *should* find. A substring test here would have
+        // demanded the walk skip it — the same boundary mistake this checker's own path rules avoid.
+        for path in &found {
+            for component in path.components() {
+                let name = component.as_os_str().to_string_lossy();
+                assert!(
+                    !SKIPPED_DIRS.contains(&name.as_ref()),
+                    "walked into {name}: {}",
+                    path.display()
+                );
+            }
+        }
+        assert!(
+            relative
+                .iter()
+                .any(|p| p == ".github/pull_request_template.md"),
+            "the walk should still reach .github, which merely starts with `.git`"
+        );
+    }
 }
