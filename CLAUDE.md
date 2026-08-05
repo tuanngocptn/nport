@@ -6,7 +6,7 @@ Guidance for Claude Code working in this repository. Read this file first; it te
 
 NPort tunnels HTTP/HTTPS from localhost to a public `*.nport.link` URL over Cloudflare's edge. It is free, MIT-licensed, and **account-free** — no signup, no API keys, `nport 3000 -s myapp` and you have a URL. v3 is a from-scratch rewrite that replaces the bundled `cloudflared` binary with a native Rust implementation of Cloudflare's tunnel connector protocol.
 
-**Status: Phase 0 done, no product code.** Both workspaces, Biome, Turborepo, the pinned Rust toolchain, CI, and both `wrangler.jsonc` files exist; every crate is a stub and no app has been written. See `docs/ROADMAP.md` for what lands when, and treat every path in the repo map below as a target, not a fact — check before you assume a file exists.
+**Status: 2a and 2b complete, nothing deployed.** `apps/api` provisions, leases, and reaps, tested in real `workerd`; `crates/protocol`, `crates/core` and the `nport` CLI connect, proxy, inspect and tear down. `apps/web` and `apps/desktop` are booting scaffolds, not implementations. **No port has been opened to the internet by this code** — the Cloudflare API paths have never met the live API, and closing that gap (Gate G2) is the only work that matters. `docs/ROADMAP.md` § The critical path.
 
 ## The four apps
 
@@ -34,7 +34,7 @@ Do not violate these without adding an ADR to `docs/DECISIONS.md` first.
 
 ```
 apps/api/          Hono control plane, one Cloudflare account + zone → apps/api/CLAUDE.md
-(apps/registry/    the node directory — Phase 6, ADR-0031, not yet written)
+(apps/registry/    the node directory — Phase 5, ADR-0031, not yet written)
 apps/web/          Next.js site + user docs    → apps/web/CLAUDE.md
 apps/desktop/      Tauri app                   → apps/desktop/CLAUDE.md
 crates/cli/        the `nport` binary          → crates/CLAUDE.md
@@ -55,7 +55,7 @@ Dependency direction is one-way: `protocol → core → {cli, desktop}`, and `co
 
 ## Commands
 
-The lint, test, and codegen commands run today against stubs. `dev:*` needs Phase 2.
+`pnpm dev` brings every surface up and provisions offline against an in-memory Cloudflare — `docs/CONTRIBUTING.md` § Dev loop.
 
 ```bash
 corepack enable && pnpm install    # bootstrap; also installs the git hooks
@@ -83,7 +83,7 @@ pnpm codegen       cargo xtask codegen   # regenerate; must leave the tree clean
 | Website content, SEO, styling | `docs/mockup/README.md` → `apps/web/CLAUDE.md` → `packages/design-tokens/` |
 | Desktop UI or IPC | `docs/mockup/README.md` → `apps/desktop/CLAUDE.md` |
 | Storage, leases, expiry, abuse | `docs/ARCHITECTURE.md` §4–§7 → `apps/api/src/do/` |
-| Scaling past one Cloudflare account | ADR-0031 → `docs/ARCHITECTURE.md` §1 → `docs/ROADMAP.md` Phase 6 |
+| Scaling past one Cloudflare account | ADR-0031 → `docs/ARCHITECTURE.md` §1 → `docs/ROADMAP.md` Phase 5 |
 | "Why is it built this way?" | `docs/DECISIONS.md` |
 | Tests | `docs/TESTING.md` |
 | Releasing or publishing | `docs/RELEASE.md` |

@@ -48,7 +48,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 
 **Decision.** Rewrite all four surfaces on the `v3-new-architect` branch. Keep the product promise (one command, custom subdomain, free, no account) and the brand; keep nothing else.
 
-**Consequences.** A long period with no shippable artifact, mitigated by the phased roadmap and gates in `docs/ROADMAP.md`. v2 stays deployed and supported until Phase 5 sunset. Existing users keep `npm i -g nport` working (ADR-0012).
+**Consequences.** A long period with no shippable artifact, mitigated by the phased roadmap and gates in `docs/ROADMAP.md`. v2 stays deployed and supported until the Phase 6 sunset. Existing users keep `npm i -g nport` working (ADR-0012).
 
 **Rejected.** Incremental migration — the storage and error-taxonomy changes are breaking and touch every component, so incrementalism buys nothing.
 
