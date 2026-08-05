@@ -35,13 +35,43 @@ use crate::event::{ShutdownReason, TunnelEvent};
 use crate::inspector::Observer;
 use crate::manager::{Connector, TunnelConfig, TunnelHandle, TunnelManager};
 
-/// How often the lease is renewed.
+/// The fallback beat rate, used only when the server does not say.
 ///
 /// `docs/ARCHITECTURE.md` §3c. Distinct from the QUIC keep-alive in `docs/PROTOCOL.md` §12: that one
 /// keeps the *edge connection* up, this one keeps the *lease* alive, and either can fail while the
-/// other is healthy. The server drops a lease after 120 s without one, so this has room for three
-/// misses before anything is lost.
+/// other is healthy.
+///
+/// **The rate normally comes from `GET /v1/meta`**, which publishes `heartbeatIntervalMs` as a
+/// quarter of the grace period for exactly this purpose — `apps/api/CLAUDE.md` says a limit is
+/// surfaced there "so clients discover rather than hardcode it". This value was hardcoded and the
+/// published one was read by nobody, which meant the server could not shorten its own grace period:
+/// drop it to 60 s and a client still beating every 30 s has one miss of headroom instead of four;
+/// drop it to 30 s and every tunnel dies on schedule, with nothing anywhere saying why. Invariant 3
+/// makes the server authoritative for time limits, and a client picking its own beat rate is the
+/// client enforcing one.
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Bounds on what the server may talk us into.
+///
+/// Trusting `heartbeatIntervalMs` is right — it already carries the server's own headroom — but not
+/// unboundedly: a zero would spin, and an hour would silently disable renewal. The floor is also
+/// what makes this testable, since `pnpm smoke` shortens the grace period to watch a real beat.
+const MIN_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(1);
+const MAX_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(300);
+
+/// The beat rate the server asks for, clamped, or [`HEARTBEAT_INTERVAL`] if it did not say.
+///
+/// A failure to read `/v1/meta` must never stop a tunnel that has already been provisioned, so this
+/// takes an `Option` and falls back rather than propagating.
+#[must_use]
+fn heartbeat_interval(published_ms: Option<u64>) -> Duration {
+    match published_ms {
+        Some(ms) if ms > 0 => {
+            Duration::from_millis(ms).clamp(MIN_HEARTBEAT_INTERVAL, MAX_HEARTBEAT_INTERVAL)
+        }
+        _ => HEARTBEAT_INTERVAL,
+    }
+}
 
 /// How many events a slow consumer may fall behind before the oldest are dropped.
 const EVENT_BUFFER: usize = 256;
@@ -112,6 +142,12 @@ impl Tunnel {
         inspector: Option<Arc<dyn Observer>>,
     ) -> Result<Self, StartError> {
         let api = Api::new(&config.backend).map_err(StartError::Provision)?;
+
+        // **Before the claim, and failure here is not fatal.** The interval is the only thing read
+        // from it, and a tunnel that provisions fine should not be refused because a discovery
+        // endpoint hiccuped — so this is an `Option`, not a `?`.
+        let published = api.meta().await.ok().map(|meta| meta.heartbeat_interval_ms);
+
         let lease = api
             .create_tunnel(config.subdomain.clone(), client)
             .await
@@ -150,7 +186,13 @@ impl Tunnel {
             }
         };
 
-        Ok(Self::serve(config, api, lease, connector))
+        Ok(Self::serve(
+            config,
+            api,
+            lease,
+            connector,
+            heartbeat_interval(published),
+        ))
     }
 
     /// Everything after provisioning, split out so the tests can drive it with a fake connector.
@@ -159,6 +201,7 @@ impl Tunnel {
         api: Api,
         lease: nport_contract::CreateTunnelResponse,
         connector: C,
+        beat: Duration,
     ) -> Self {
         let (events, _) = broadcast::channel(EVENT_BUFFER);
         let (stop, stopped) = oneshot::channel();
@@ -171,7 +214,14 @@ impl Tunnel {
         });
 
         let handle = TunnelManager::spawn(config, connector);
-        let task = tokio::spawn(run(api, lease.clone(), handle, events.clone(), stopped));
+        let task = tokio::spawn(run(
+            api,
+            lease.clone(),
+            handle,
+            events.clone(),
+            stopped,
+            beat,
+        ));
 
         Self {
             url: lease.url,
@@ -229,6 +279,7 @@ async fn run(
     handle: TunnelHandle,
     events: broadcast::Sender<TunnelEvent>,
     stopped: oneshot::Receiver<()>,
+    beat: Duration,
 ) {
     // The manager has its own stream; consumers of a `Tunnel` see one. Forwarding rather than
     // handing the manager this channel keeps `TunnelManager` usable on its own, which is what its
@@ -244,7 +295,7 @@ async fn run(
 
     let reason = tokio::select! {
         _ = stopped => ShutdownReason::Requested,
-        () = heartbeat(&api, &lease, &events) => ShutdownReason::LeaseExpired,
+        () = heartbeat(&api, &lease, &events, beat) => ShutdownReason::LeaseExpired,
         _ = manager_ended => ShutdownReason::ConnectionsExhausted,
     };
 
@@ -303,11 +354,12 @@ async fn heartbeat(
     api: &Api,
     lease: &nport_contract::CreateTunnelResponse,
     events: &broadcast::Sender<TunnelEvent>,
+    beat: Duration,
 ) {
     let mut announced = i64::try_from(lease.expires_at).unwrap_or(i64::MAX);
 
     loop {
-        tokio::time::sleep(HEARTBEAT_INTERVAL).await;
+        tokio::time::sleep(beat).await;
 
         match api.heartbeat(&lease.subdomain, &lease.owner_token).await {
             Ok(renewed) => {
@@ -556,7 +608,7 @@ mod tests {
         let (backend, _) = control_plane("HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n").await;
         let api = Api::new(&backend).expect("backend");
 
-        let tunnel = Tunnel::serve(config(backend), api, lease(), AlwaysUp);
+        let tunnel = Tunnel::serve(config(backend), api, lease(), AlwaysUp, HEARTBEAT_INTERVAL);
         let events = tunnel.events();
 
         assert_eq!(tunnel.url(), "https://myapp.nport.link");
@@ -581,7 +633,7 @@ mod tests {
             control_plane("HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n").await;
         let api = Api::new(&backend).expect("backend");
 
-        let tunnel = Tunnel::serve(config(backend), api, lease(), AlwaysUp);
+        let tunnel = Tunnel::serve(config(backend), api, lease(), AlwaysUp, HEARTBEAT_INTERVAL);
         let _ = collect(tunnel.events(), 1).await;
         tunnel.shutdown().await;
 
@@ -599,7 +651,7 @@ mod tests {
         let (backend, _) = control_plane("HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n").await;
         let api = Api::new(&backend).expect("backend");
 
-        let tunnel = Tunnel::serve(config(backend), api, lease(), AlwaysUp);
+        let tunnel = Tunnel::serve(config(backend), api, lease(), AlwaysUp, HEARTBEAT_INTERVAL);
         let seen = collect(tunnel.events(), 2).await;
 
         assert!(
@@ -628,7 +680,13 @@ mod tests {
         let (backend, _) = control_plane("HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n").await;
         let api = Api::new(&backend).expect("backend");
 
-        let tunnel = Tunnel::serve(config(backend), api, lease(), AlwaysFatal);
+        let tunnel = Tunnel::serve(
+            config(backend),
+            api,
+            lease(),
+            AlwaysFatal,
+            HEARTBEAT_INTERVAL,
+        );
         let seen = collect(tunnel.events(), 3).await;
 
         assert!(
@@ -667,9 +725,53 @@ mod tests {
     }
 
     #[test]
+    fn the_beat_rate_comes_from_the_server() {
+        // `GET /v1/meta` publishes `heartbeatIntervalMs` as a quarter of the grace period so a client
+        // does not have to guess, and this value being hardcoded meant the server could not shorten
+        // its own grace: the published number was read by nobody.
+        assert_eq!(heartbeat_interval(Some(5_000)), Duration::from_secs(5));
+        assert_eq!(heartbeat_interval(Some(45_000)), Duration::from_secs(45));
+    }
+
+    #[test]
+    fn an_absent_or_nonsense_interval_falls_back() {
+        // A `/v1/meta` that could not be read must not stop a tunnel that provisioned fine, and a
+        // zero would spin the loop instead of pacing it.
+        assert_eq!(heartbeat_interval(None), HEARTBEAT_INTERVAL);
+        assert_eq!(heartbeat_interval(Some(0)), HEARTBEAT_INTERVAL);
+    }
+
+    #[test]
+    fn the_server_cannot_talk_us_into_an_absurd_rate() {
+        // Trusting the published value is right; trusting it unboundedly is not. An hour would
+        // silently disable renewal, which looks exactly like the lease expiring on its own.
+        assert_eq!(
+            heartbeat_interval(Some(3_600_000)),
+            MAX_HEARTBEAT_INTERVAL,
+            "clamped from above"
+        );
+        assert_eq!(
+            heartbeat_interval(Some(1)),
+            MIN_HEARTBEAT_INTERVAL,
+            "clamped from below"
+        );
+    }
+
+    #[test]
     fn the_heartbeat_has_room_for_misses() {
-        // The server drops a lease after 120 s of silence. An interval that left no margin would
-        // turn one lost packet into a lost tunnel.
+        // The fallback is used when the server does not say, so it still has to be safe against the
+        // documented default grace of 120 s. An interval that left no margin would turn one lost
+        // packet into a lost tunnel.
         assert!(HEARTBEAT_INTERVAL * 3 < Duration::from_secs(120));
+
+        // And the same property has to hold for what the server asks for, since `heartbeatIntervalMs`
+        // is a quarter of whatever grace it is running: four beats per window, three misses of room.
+        for grace_ms in [30_000_u64, 60_000, 120_000, 600_000] {
+            let beat = heartbeat_interval(Some(grace_ms / 4));
+            assert!(
+                beat * 3 < Duration::from_millis(grace_ms),
+                "grace {grace_ms}ms leaves no room at a {beat:?} beat"
+            );
+        }
     }
 }

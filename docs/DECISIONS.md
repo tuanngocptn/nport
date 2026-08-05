@@ -44,6 +44,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0034 | Resource bounds on request input live in the contract, not in callers | Accepted |
 | 0035 | DNS-over-TLS discovery fallback, on the workspace's single crypto provider | Accepted |
 | 0036 | The deny list answers two questions; cleanup gets the narrower one | Accepted |
+| 0037 | The heartbeat interval is discovered from `/v1/meta`, not hardcoded | Accepted |
 
 ---
 
@@ -722,3 +723,21 @@ Smoke tests ask for a generated name rather than a `smoke-` one. That loses noth
 - **`pnpm smoke` is now a tier** (`docs/TESTING.md`), because the two defects above were both invisible to `pnpm test`: it runs `workerd` but never `wrangler dev`, never the `nport` binary, and never `src/cloudflare/dev-fake.ts`.
 
 **Rejected.** *Unreserving `smoke-` so smoke tests can claim it* — it would let a stranger take `smoke-anything` and lose the "recognisably ours" signal, to buy a nicer hostname in CI logs. *Dropping `nport-` from the deny list* — it is what stops a user claiming a name the generator might later hand out, which is a collision with real consequences. *Teaching the sweep to special-case the two prefixes inline* — the distinction belongs beside the list it refines, where the next person reading `RESERVED_PREFIXES` will see it, rather than in one caller that happens to have got it right.
+
+## ADR-0037 — The heartbeat interval is discovered from `/v1/meta`, not hardcoded
+
+**Status.** Accepted, 2026-08-05.
+
+**Context.** `GET /v1/meta` publishes `heartbeatIntervalMs` as a quarter of `HEARTBEAT_GRACE_SECONDS`, and it exists for one reason: `apps/api/CLAUDE.md` says a limit is surfaced there "so clients discover rather than hardcode it". `core::tunnel` hardcoded 30 s and never called `Api::meta()` — which was therefore dead code in a client that had a method for it.
+
+The consequence is that **the server could not shorten its own grace period**. Drop it from 120 s to 60 s, a plausible response to abuse, and a client still beating every 30 s has one miss of headroom instead of four. Drop it to 30 s and every tunnel dies on schedule with nothing anywhere explaining why. Invariant 3 makes the server authoritative for time limits, and a client choosing its own beat rate is a client enforcing one.
+
+**Decision.** Fetch `/v1/meta` in `Tunnel::start`, before the claim, and use `heartbeatIntervalMs` clamped to 1–300 s. A failure to read it falls back to the 30 s constant rather than propagating, because a discovery endpoint hiccuping must not refuse a tunnel that would otherwise provision.
+
+**Consequences.**
+
+- One extra `GET` per tunnel start, on our own server, on a path that already makes two requests.
+- The relationship the fallback rests on is now asserted for *any* grace rather than only the default: at a quarter of the window there are four beats per grace and three misses of room, checked across 30 s to 600 s.
+- **The end-to-end beat rate is not provable locally, and `pnpm smoke` says so rather than pretending.** The obvious check — "is the lease alive past its grace?" — cannot work while the credential is fake: the connector exhausts its retries within about twenty seconds and deletes its own lease, so a later query returns 404 for the wrong reason. A check that goes green when beats land and red when the pool gives up measures neither, and this one did exactly that until it was caught by reverting the fix and watching it pass anyway. What the smoke test asserts instead is the *endpoint*: a heartbeat is accepted, it does not move `expiresAt` (defect R6), and one from the wrong holder is refused. The client's rate is covered by unit tests, and proving it end to end is step 3 of `docs/ROADMAP.md` § The critical path.
+
+**Rejected.** *Publishing the grace period itself and letting the client divide* — the server already did the division, and two places computing the same headroom is how they drift. *No clamp* — a zero would spin the loop and an hour would silently disable renewal, which looks exactly like the lease expiring on its own. *Failing the tunnel when `/v1/meta` is unreachable* — it makes a discovery endpoint load-bearing for provisioning, which is the coupling ADR-0031 spent an ADR avoiding for the registry.

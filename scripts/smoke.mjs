@@ -44,6 +44,7 @@ import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { access } from "node:fs/promises"
 import { createServer } from "node:http"
+import { connect } from "node:net"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -54,6 +55,15 @@ const ORIGIN_PORT = 3210
 const API = `http://localhost:${API_PORT}`
 const ORIGIN_BODY = "nport smoke origin\n"
 
+/**
+ * A deliberately short grace period, so one heartbeat happens inside the run.
+ *
+ * At the deployed 120 s the beat is every 30 s and no smoke test would ever see one. Twenty seconds
+ * makes it five, which is the whole reason ADR-0037's fix is checkable here at all.
+ */
+const GRACE_SECONDS = 20
+const EXPECTED_BEAT_MS = (GRACE_SECONDS * 1000) / 4
+
 /** Matches `.dev.vars`, which lowers the floor so a local CLI is not refused by its own gate. */
 const UA = "nport/3.0.0-dev (smoke; test)"
 
@@ -62,6 +72,9 @@ const children = []
 let originServer
 
 let failures = 0
+
+/** Everything `wrangler dev` printed, so a mid-run death is diagnosable. */
+let apiOutput = ""
 
 function pass(what) {
   console.log(`  ✓ ${what}`)
@@ -83,10 +96,34 @@ function check(condition, what, detail) {
   }
 }
 
-// ── proof of work ─────────────────────────────────────────────────────────────────────
+// ── sources ───────────────────────────────────────────────────────────────────────────
 //
-// Solved for real at the deployed difficulty rather than lowered, because the point of an
-// end-to-end test is that the parts agree — and a 20-bit solve is about a second here.
+// **A fresh source per run, or the abuse controls treat the smoke test as the abuser.** They are
+// per-source and they accumulate: the hourly create quota fills up, and ADR-0028 escalates proof-of-
+// work difficulty by a bit for every few creates. Reusing one address across runs therefore made
+// each run slower than the last until a solve took long enough to break the run — which is the
+// controls working exactly as designed, on the wrong target.
+//
+// Documentation ranges only: `2001:db8::/32` (RFC 3849) and `203.0.113.0/24` (TEST-NET-3).
+
+const RUN = Math.floor(Math.random() * 0xffff)
+  .toString(16)
+  .padStart(4, "0")
+
+/** A /64 nobody else has used, so the per-source cap and difficulty both start clean. */
+const v6 = (host) => `2001:db8:${RUN}:1::${host}`
+
+/**
+ * A fresh IPv4 per run, for the same reason — and this half was missed the first time.
+ *
+ * Randomising only the v6 source left `203.0.113.200` accumulating creates across runs until the
+ * escalated difficulty tripped this test's own ceiling, which looked like the server dying. One
+ * address per purpose, all inside the run's own block, so no check spends another's quota.
+ */
+const V4_BASE = (Number.parseInt(RUN, 16) % 120) + 10
+const v4 = (offset) => `203.0.113.${V4_BASE + offset}`
+
+// ── proof of work ─────────────────────────────────────────────────────────────────────
 
 function hasLeadingZeroBits(digest, bits) {
   const whole = Math.floor(bits / 8)
@@ -97,10 +134,38 @@ function hasLeadingZeroBits(digest, bits) {
   return rest === 0 || digest[whole] >>> (8 - rest) === 0
 }
 
-function solve(challenge, bits) {
+/**
+ * The difficulty above which this stops trying.
+ *
+ * The deployed floor is 20 bits, ~1 s here. Anything much above that means a source has been
+ * hammered and the escalation dial has moved, which for a smoke test is a bug in the test rather
+ * than something to grind through — and grinding through it is what used to break the run.
+ */
+const MAX_SOLVABLE_BITS = 22
+
+/**
+ * Solves a challenge **without holding the event loop for the whole search**.
+ *
+ * A synchronous loop here is the subtle one: at the floor it finishes in about a second and looks
+ * fine, and at 24 bits it blocks for a minute — during which node answers nothing, undici's
+ * keep-alive socket to the server is closed underneath it, and the *next* request fails with a bare
+ * `TypeError: fetch failed` that reads exactly like the server having crashed. It took a packet's
+ * worth of bisecting to learn the server was healthy the whole time.
+ */
+async function solve(challenge, bits) {
+  if (bits > MAX_SOLVABLE_BITS) {
+    throw new Error(
+      `difficulty is ${bits} bits, above this test's ${MAX_SOLVABLE_BITS}-bit ceiling — ` +
+        "the source has been used too often, which means the run is not using a fresh one",
+    )
+  }
   for (let nonce = 0; ; nonce += 1) {
     const digest = createHash("sha256").update(`${challenge}.${nonce}`).digest()
     if (hasLeadingZeroBits(digest, bits)) return String(nonce)
+    // Yield often enough that sockets stay alive, rarely enough that it costs nothing measurable.
+    if ((nonce & 0xffff) === 0xffff) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
   }
 }
 
@@ -136,13 +201,27 @@ async function createTunnel(ip, subdomain) {
     body: {
       ...(subdomain === undefined ? {} : { subdomain }),
       challenge: challenge.json.challenge,
-      nonce: solve(challenge.json.challenge, challenge.json.difficulty),
+      nonce: await solve(challenge.json.challenge, challenge.json.difficulty),
       client: "cli",
     },
   })
 }
 
 // ── the stack ─────────────────────────────────────────────────────────────────────────
+
+/** Whether something already answers on `port`. */
+function inUse(port) {
+  return new Promise((resolve) => {
+    const socket = connect({ port, host: "127.0.0.1" })
+    const settle = (answer) => {
+      socket.destroy()
+      resolve(answer)
+    }
+    socket.once("connect", () => settle(true))
+    socket.once("error", () => settle(false))
+    setTimeout(() => settle(false), 1_000)
+  })
+}
 
 function track(child, name) {
   child.on("error", (error) => {
@@ -163,11 +242,41 @@ async function startOrigin() {
 function startApi() {
   // `wrangler dev` rather than `pnpm dev:api`, so the port is ours to choose and the output is
   // this process's to read.
+  //
+  // **The short grace is what makes the heartbeat observable.** `GET /v1/meta` publishes the beat
+  // rate as a quarter of the grace period, and the client now reads it (ADR-0037), so a 20-second
+  // grace means a beat every 5 seconds instead of every 30. That is not a test-only hook: it is the
+  // production discovery path, exercised by turning the production dial.
   return track(
-    spawn("pnpm", ["exec", "wrangler", "dev", "--port", String(API_PORT)], {
-      cwd: join(ROOT, "apps", "api"),
-      stdio: ["ignore", "pipe", "pipe"],
-    }),
+    spawn(
+      "pnpm",
+      [
+        "exec",
+        "wrangler",
+        "dev",
+        "--port",
+        String(API_PORT),
+        "--var",
+        `HEARTBEAT_GRACE_SECONDS:${GRACE_SECONDS}`,
+        // **The hourly quota is lifted, and only the hourly quota.** The CLI cannot set
+        // `cf-connecting-ip`, so every run of the binary arrives as the same `"unknown"` source and
+        // they accumulate: after twenty runs in an hour the CLI checks fail with
+        // `CREATE_QUOTA_EXCEEDED`, which is the control working and the harness being the abuser. The
+        // *concurrency* cap stays at its real value, because that is the one the IPv6 check asserts,
+        // and the hourly quota has its own coverage in `test/abuse-controls.test.ts`.
+        "--var",
+        "MAX_CREATES_PER_HOUR_PER_SOURCE:1000",
+      ],
+      {
+        cwd: join(ROOT, "apps", "api"),
+        stdio: ["ignore", "pipe", "pipe"],
+        // **Its own process group.** `pnpm exec wrangler` is three processes deep and `workerd` is
+        // the one holding the port, so killing the child we spawned left that alive — every run
+        // leaked one, and the next run then talked to the *previous* run's server and reported its
+        // configuration instead of ours. Detaching lets the whole group be signalled at once.
+        detached: true,
+      },
+    ),
     "wrangler dev",
   )
 }
@@ -188,7 +297,14 @@ async function waitForHealth(deadlineMs = 90_000) {
 
 function cleanup() {
   for (const child of children) {
-    child.kill("SIGKILL")
+    try {
+      // Negative pid means the process *group*, which is the only way `workerd` goes with it.
+      if (child.pid !== undefined) {
+        process.kill(-child.pid, "SIGKILL")
+      }
+    } catch {
+      child.kill("SIGKILL")
+    }
   }
   originServer?.close()
 }
@@ -218,11 +334,28 @@ async function checkControlPlane() {
 
   const meta = await api("/v1/meta")
   check(meta.status === 200, "GET /v1/meta answers 200", meta.text)
+  check(
+    meta.json?.heartbeatIntervalMs === EXPECTED_BEAT_MS,
+    `GET /v1/meta derives the beat from the grace (${EXPECTED_BEAT_MS} ms)`,
+    meta.text,
+  )
   // Clients discover limits rather than hardcoding them, so an absent field is a real regression.
   check(
     typeof meta.json?.powDifficulty === "number" && typeof meta.json?.tunnelDurationMs === "number",
     "GET /v1/meta reports the limits clients need",
     meta.text,
+  )
+}
+
+async function checkRedirect() {
+  console.log("\nthe root redirect")
+  // v2 behaviour some users still hit by hand, and nothing else exercises it end to end.
+  const response = await fetch(`${API}/`, { redirect: "manual" })
+  check(response.status === 301, "GET / is a 301", String(response.status))
+  check(
+    response.headers.get("location") === "https://nport.link",
+    "…to the site",
+    response.headers.get("location") ?? "no location header",
   )
 }
 
@@ -234,7 +367,7 @@ async function checkControlPlane() {
  */
 async function checkProvisioning() {
   console.log("\nprovisioning through the dev fake")
-  const created = await createTunnel("203.0.113.200")
+  const created = await createTunnel(v4(0))
   check(created.status === 201, "POST /v1/tunnels answers 201", created.text)
   if (created.status !== 201) return
 
@@ -255,7 +388,7 @@ async function checkProvisioning() {
 
   const released = await api(`/v1/tunnels/${body.subdomain}`, {
     method: "DELETE",
-    ip: "203.0.113.200",
+    ip: v4(0),
     body: { ownerToken: body.ownerToken },
   })
   check(released.status === 204, "DELETE /v1/tunnels/:subdomain answers 204", released.text)
@@ -269,7 +402,7 @@ async function checkIpv6Cap() {
   console.log("\nper-source cap over IPv6 (ADR-0033)")
   const results = []
   for (let index = 1; index <= 4; index += 1) {
-    results.push(await createTunnel(`2001:db8:aaaa:bbbb::${index}`))
+    results.push(await createTunnel(v6(index)))
   }
   const [first, second, third, fourth] = results
   check(
@@ -357,15 +490,110 @@ async function checkCli() {
     stderr,
   )
 
+  // **A real heartbeat, observed.** `core::tunnel` used to beat on a hardcoded 30 s and ignore what
+  // the server published, so no run this short could ever have seen one (ADR-0037). With the rate
+  // taken from `/v1/meta` the grace above makes it 5 s, and the lease's expiry is what proves the
+  // server answered: a heartbeat does not extend it (defect R6), so the check is that the tunnel is
+  // still *there* well past the point a missed beat would have killed it.
+  const subdomain = url.replace("https://", "").replace(".nport.test", "")
+
+  // **No assertion here about the client's beat rate, and that is deliberate.** The obvious one —
+  // "is the lease still alive past its grace period?" — cannot work in this environment, and it took
+  // a while to see why: the credential is fake, so the connector exhausts its retries and tears the
+  // tunnel down within about twenty seconds. Any later query then returns 404 because the CLI
+  // *successfully deleted its own lease*, which reads exactly like an expiry. An assertion that
+  // green means "beats landed" and red means "the pool gave up" measures neither.
+  //
+  // Proving the client beats at the rate the server published needs a tunnel that stays up, which
+  // needs a real credential — step 3 of `docs/ROADMAP.md` § The critical path. Until then the rate
+  // mapping is covered by unit tests in `core::tunnel` (ADR-0037), and what *is* checkable here is
+  // the endpoint itself, below.
+
   cli.kill("SIGINT")
   const { code } = await exited
   check(code === 0, "Ctrl+C exits 0 after a graceful shutdown", `exit code ${code}\n${stderr}`)
   check(stderr.includes("stopped"), "the shutdown is announced", stderr)
 
   // The lease must be gone, not merely left to expire. This is the assertion v2 could not make.
-  const subdomain = url.replace("https://", "").replace(".nport.test", "")
   const gone = await api(`/v1/tunnels/${subdomain}`)
   check(gone.status === 404, "the CLI released its lease on the way out", gone.text)
+}
+
+/**
+ * The heartbeat endpoint, driven directly.
+ *
+ * Distinct from "does the client beat at the right rate", which this environment cannot show. What it
+ * does show is the contract the client depends on: a heartbeat is accepted, and it **does not extend
+ * the lease** — the server owns `expiresAt` and liveness is not renewal, which is defect R6 and the
+ * reason invariant 3 exists.
+ */
+async function checkHeartbeatEndpoint() {
+  console.log("\nthe heartbeat endpoint")
+  const created = await createTunnel(v4(1))
+  if (created.status !== 201) {
+    fail("could not provision a tunnel to beat against", created.text)
+    return
+  }
+  const { subdomain, ownerToken, expiresAt } = created.json
+
+  const beat = await api(`/v1/tunnels/${subdomain}/heartbeat`, {
+    method: "POST",
+    ip: v4(1),
+    body: { ownerToken },
+  })
+  check(beat.status === 200, "a heartbeat is accepted", beat.text)
+  check(
+    beat.json?.expiresAt === expiresAt,
+    "and does not extend the lease — the server owns the ceiling (defect R6)",
+    `${beat.json?.expiresAt} vs ${expiresAt}`,
+  )
+
+  const wrongToken = await api(`/v1/tunnels/${subdomain}/heartbeat`, {
+    method: "POST",
+    ip: v4(1),
+    body: { ownerToken: "A".repeat(43) },
+  })
+  check(
+    wrongToken.status === 403 && wrongToken.json?.error?.code === "INVALID_OWNER_TOKEN",
+    "a heartbeat from the wrong holder is refused",
+    wrongToken.text,
+  )
+
+  await api(`/v1/tunnels/${subdomain}`, { method: "DELETE", ip: v4(1), body: { ownerToken } })
+}
+
+/** `--quiet` is the scripting contract, and it is one line or it is broken. */
+async function checkQuiet() {
+  console.log("\nthe nport binary, --quiet")
+  const cli = track(
+    spawn(
+      "cargo",
+      ["run", "-q", "-p", "nport", "--", String(ORIGIN_PORT), "--quiet", "--backend", API],
+      { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] },
+    ),
+    "nport --quiet",
+  )
+
+  let stdout = ""
+  cli.stdout.on("data", (chunk) => {
+    stdout += chunk
+  })
+  const exited = new Promise((resolve) => cli.on("exit", () => resolve()))
+
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline && !stdout.includes("https://")) {
+    if (cli.exitCode !== null) break
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
+
+  check(
+    /^https:\/\/nport-[a-z2-7]{13}\.nport\.test\n$/.test(stdout),
+    "stdout is exactly one URL and a newline",
+    JSON.stringify(stdout),
+  )
+
+  cli.kill("SIGINT")
+  await exited
 }
 
 // ── run ───────────────────────────────────────────────────────────────────────────────
@@ -376,7 +604,13 @@ async function main() {
   if (!(await checkPreconditions())) return
 
   await startOrigin()
-  startApi()
+  const wrangler = startApi()
+  // Kept so a death mid-run reports what the server said rather than `TypeError: fetch failed`.
+  for (const stream of [wrangler.stdout, wrangler.stderr]) {
+    stream?.on("data", (chunk) => {
+      apiOutput += chunk
+    })
+  }
 
   if (!(await waitForHealth())) {
     fail("wrangler dev never became healthy", `no 200 from ${API}/v1/health within 90 s`)
@@ -384,10 +618,13 @@ async function main() {
   }
 
   await checkControlPlane()
+  await checkRedirect()
   await checkProvisioning()
   await checkIpv6Cap()
   await checkInputBounds()
+  await checkHeartbeatEndpoint()
   await checkCli()
+  await checkQuiet()
 }
 
 // Cleanup from a handler rather than after `main`, so an exception or a Ctrl+C still stops the
@@ -403,9 +640,21 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 try {
   await main()
 } catch (error) {
-  fail("the smoke test threw", error?.stack ?? String(error))
+  fail(
+    "the smoke test threw",
+    `${error?.stack ?? String(error)}\n\n--- wrangler dev said ---\n${apiOutput.slice(-3_000)}`,
+  )
 } finally {
   cleanup()
+}
+
+// A leaked `workerd` makes the *next* run measure the wrong server, and the port guard above turns
+// that into a clear refusal — but saying so here is what connects the two.
+if (await inUse(API_PORT)) {
+  console.log(
+    `\nwarning: something still holds port ${API_PORT}. Stop it before the next run:\n` +
+      `  lsof -ti:${API_PORT} | xargs kill -9`,
+  )
 }
 
 console.log(
