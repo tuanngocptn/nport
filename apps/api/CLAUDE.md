@@ -60,7 +60,7 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 
 **Add an endpoint** — `packages/contract` (schema + route) → `pnpm codegen` → `src/routes/` → `src/errors.ts` if new codes → test in `test/` → `docs/API.md` if the lifecycle changes.
 
-**Add an error code** — `packages/contract/src/errors.ts` → `pnpm codegen` (regenerates `docs/ERRORS.md`, `crates/contract`, and the website page) → add translations in `crates/cli` → assert the status mapping in a test.
+**Add an error code** — `packages/contract/src/errors.ts` → `pnpm codegen` (regenerates `docs/ERRORS.md`, `crates/contract`, and the website page) → translate it in `crates/cli/src/i18n.rs`, or add it to that file's `UNTRANSLATED` test list with the reason a user cannot act on it; a test enforces one or the other → assert the status mapping in a test.
 
 **Change the provisioning saga** — `docs/ARCHITECTURE.md` §3a first, then `src/do/subdomain-lease.ts`. Every new step needs a journal entry, a compensation, and an integration test that kills the isolate mid-saga.
 

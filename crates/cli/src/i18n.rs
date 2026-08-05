@@ -150,14 +150,37 @@ pub fn text(lang: Lang, message: Message) -> &'static str {
     }
 }
 
+/// Codes deliberately left untranslated, with the reason each one is not a user's problem.
+///
+/// **This list is the rule, and a test enforces it in both directions**: everything here must have no
+/// translation, and everything *not* here must have all three. Adding a code to the registry
+/// therefore forces a decision rather than silently falling through — which is how six client-facing
+/// codes ended up rendering as bare `[CODE]` lines, including the one every `pnpm dev` run produces.
+/// Test-only, because production needs no list: the fallback triggers on `describe` returning
+/// `None`, and this exists to say *which* `None`s are intentional.
+#[cfg(test)]
+pub const UNTRANSLATED: [ErrorCode; 6] = [
+    // Server-side, and nothing a user can act on. `docs/ERRORS.md` is the right place for these.
+    ErrorCode::Internal,
+    ErrorCode::UpstreamCloudflareError,
+    // A client bug if it ever reaches a user: the CLI solves proof of work itself, so a missing or
+    // invalid solution means *nport* got it wrong, and a translated sentence would imply otherwise.
+    ErrorCode::PowRequired,
+    ErrorCode::PowInvalid,
+    // Likewise. The CLI holds the `ownerToken` it was issued and sends the body the contract defines,
+    // so these mean a bug here or a proxy rewriting requests — not something to phrase for a user.
+    ErrorCode::InvalidOwnerToken,
+    ErrorCode::InvalidRequest,
+];
+
 /// What to tell the user about an error code.
 ///
-/// **Not every code is translated, and that is deliberate rather than unfinished.** The registry has
-/// thirty codes and most of them can only be produced by a control plane a CLI user is not operating;
-/// the ones below are the ones a person running `nport` can actually cause and act on. Anything else
-/// falls back to the code itself plus its documentation URL, which is a worse experience than a
-/// sentence and a much better one than a guess — and `docs/ERRORS.md` is generated, so the web page
-/// behind that URL is always current in a way a hand-written translation is not.
+/// **Not every code is translated, and that is deliberate rather than unfinished** — see
+/// [`UNTRANSLATED`] for the six and why each is excluded. Everything else a person running `nport` can
+/// cause is here in all three languages. An untranslated code falls back to the code itself plus its
+/// documentation URL, which is a worse experience than a sentence and a much better one than a guess —
+/// and `docs/ERRORS.md` is generated, so the page behind that URL is always current in a way a
+/// hand-written translation is not.
 #[must_use]
 pub fn describe(lang: Lang, code: ErrorCode) -> Option<&'static str> {
     use ErrorCode as E;
@@ -178,9 +201,18 @@ pub fn describe(lang: Lang, code: ErrorCode) -> Option<&'static str> {
         (Lang::En, E::EdgeProtocolError) => {
             "Cloudflare's edge answered in a way nport did not understand — please upgrade, then report it"
         }
+        (Lang::En, E::EdgeRegistrationRefused) => {
+            "Cloudflare's edge refused this tunnel's credential — it may have expired or been revoked"
+        }
         (Lang::En, E::TunnelLost) => "the tunnel connection was lost",
         (Lang::En, E::LeaseExpired) => "the tunnel's time is up",
         (Lang::En, E::ProvisionFailed) => "the tunnel could not be created",
+        (Lang::En, E::DnsConflict) => "that name already points somewhere else — try another",
+        (Lang::En, E::TunnelNotFound) => "that tunnel no longer exists",
+        (Lang::En, E::ChallengeExpired) => "that took too long — nport will try again",
+        (Lang::En, E::ShutdownTimeout) => "some requests were still in flight when time ran out",
+        (Lang::En, E::ConfigUnreadable) => "~/.nport/config.toml could not be read",
+        (Lang::En, E::ConfigUnwritable) => "~/.nport/config.toml could not be written",
 
         (Lang::Vi, E::SubdomainInUse) => "tên đó đã có người dùng — hãy thử tên khác, hoặc bỏ -s",
         (Lang::Vi, E::SubdomainReserved) => "tên đó được giữ riêng",
@@ -198,9 +230,18 @@ pub fn describe(lang: Lang, code: ErrorCode) -> Option<&'static str> {
         (Lang::Vi, E::EdgeProtocolError) => {
             "biên Cloudflare trả lời theo cách nport không hiểu — hãy nâng cấp, rồi báo lỗi"
         }
+        (Lang::Vi, E::EdgeRegistrationRefused) => {
+            "biên Cloudflare đã từ chối thông tin xác thực của đường hầm này — có thể nó đã hết hạn hoặc bị thu hồi"
+        }
         (Lang::Vi, E::TunnelLost) => "đã mất kết nối đường hầm",
         (Lang::Vi, E::LeaseExpired) => "đường hầm đã hết thời gian",
         (Lang::Vi, E::ProvisionFailed) => "không tạo được đường hầm",
+        (Lang::Vi, E::DnsConflict) => "tên đó đã trỏ tới nơi khác — hãy thử tên khác",
+        (Lang::Vi, E::TunnelNotFound) => "đường hầm đó không còn tồn tại",
+        (Lang::Vi, E::ChallengeExpired) => "việc đó mất quá nhiều thời gian — nport sẽ thử lại",
+        (Lang::Vi, E::ShutdownTimeout) => "vẫn còn một số yêu cầu đang dở khi hết thời gian",
+        (Lang::Vi, E::ConfigUnreadable) => "không đọc được ~/.nport/config.toml",
+        (Lang::Vi, E::ConfigUnwritable) => "không ghi được ~/.nport/config.toml",
 
         (Lang::Es, E::SubdomainInUse) => "ese nombre ya está en uso — prueba otro, u omite -s",
         (Lang::Es, E::SubdomainReserved) => "ese nombre está reservado",
@@ -218,9 +259,20 @@ pub fn describe(lang: Lang, code: ErrorCode) -> Option<&'static str> {
         (Lang::Es, E::EdgeProtocolError) => {
             "el borde de Cloudflare respondió de un modo que nport no entiende — actualiza y repórtalo"
         }
+        (Lang::Es, E::EdgeRegistrationRefused) => {
+            "el borde de Cloudflare rechazó la credencial de este túnel — puede haber caducado o haber sido revocada"
+        }
         (Lang::Es, E::TunnelLost) => "se perdió la conexión del túnel",
         (Lang::Es, E::LeaseExpired) => "se acabó el tiempo del túnel",
         (Lang::Es, E::ProvisionFailed) => "no se pudo crear el túnel",
+        (Lang::Es, E::DnsConflict) => "ese nombre ya apunta a otro sitio — prueba otro",
+        (Lang::Es, E::TunnelNotFound) => "ese túnel ya no existe",
+        (Lang::Es, E::ChallengeExpired) => "eso tardó demasiado — nport lo intentará de nuevo",
+        (Lang::Es, E::ShutdownTimeout) => {
+            "algunas peticiones seguían en curso cuando se agotó el tiempo"
+        }
+        (Lang::Es, E::ConfigUnreadable) => "no se pudo leer ~/.nport/config.toml",
+        (Lang::Es, E::ConfigUnwritable) => "no se pudo escribir ~/.nport/config.toml",
 
         _ => return None,
     })
@@ -229,6 +281,58 @@ pub fn describe(lang: Lang, code: ErrorCode) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every code a user can reach has a sentence, in every language.
+    ///
+    /// The gap this closes was real and unglamorous: `EDGE_REGISTRATION_REFUSED` — what the edge says
+    /// when it refuses a credential, and the ending of every `pnpm dev` run — rendered as
+    /// `0: [EDGE_REGISTRATION_REFUSED] — more: …` while its three sibling edge codes all had prose.
+    #[test]
+    fn every_user_facing_code_is_translated_everywhere() {
+        for code in ErrorCode::ALL {
+            if UNTRANSLATED.contains(&code) {
+                continue;
+            }
+            for lang in [Lang::En, Lang::Vi, Lang::Es] {
+                assert!(
+                    describe(lang, code).is_some(),
+                    "{code:?} has no {lang:?} sentence — translate it, or add it to UNTRANSLATED \
+                     with the reason it is not a user's problem"
+                );
+            }
+        }
+    }
+
+    /// And the exclusion list does not rot into a list of things that *are* translated.
+    #[test]
+    fn the_untranslated_list_says_what_is_true() {
+        for code in UNTRANSLATED {
+            for lang in [Lang::En, Lang::Vi, Lang::Es] {
+                assert!(
+                    describe(lang, code).is_none(),
+                    "{code:?} is translated but still listed as UNTRANSLATED — remove it from the list"
+                );
+            }
+        }
+    }
+
+    /// A sentence is a sentence, not a code wearing one.
+    #[test]
+    fn no_translation_smuggles_in_a_code() {
+        // `docs/ERRORS.md` owns the code and the renderer appends it; a sentence repeating it would
+        // print it twice, and one that *is* it would defeat translating at all.
+        for code in ErrorCode::ALL {
+            for lang in [Lang::En, Lang::Vi, Lang::Es] {
+                if let Some(sentence) = describe(lang, code) {
+                    assert!(
+                        !sentence.contains(code.as_str()),
+                        "{code:?} in {lang:?} repeats its own code: {sentence}"
+                    );
+                    assert!(!sentence.is_empty(), "{code:?} in {lang:?} is empty");
+                }
+            }
+        }
+    }
 
     /// A stand-in environment, so no test touches the real one.
     fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
@@ -350,6 +454,10 @@ mod tests {
     fn an_untranslated_code_is_absent_rather_than_english() {
         // `None` is what makes the caller fall back to the code plus its documentation URL. Silently
         // returning English here would hide the gap and ship it to a Vietnamese user.
-        assert_eq!(describe(Lang::Vi, ErrorCode::DnsConflict), None);
+        //
+        // Uses a code from `UNTRANSLATED` on purpose. This test used to name `DnsConflict`, which was
+        // an example of the gap rather than of the policy — and it quietly became wrong the moment
+        // that code got the sentence it should always have had.
+        assert_eq!(describe(Lang::Vi, ErrorCode::Internal), None);
     }
 }

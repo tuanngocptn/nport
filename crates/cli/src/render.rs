@@ -334,8 +334,10 @@ mod tests {
     fn an_untranslated_code_points_at_its_documentation() {
         // The fallback, and why it is acceptable: the page is generated from the same registry, so
         // it cannot go stale the way a hand-written translation can.
-        let line = Renderer::new(Lang::Vi, Verbosity::Normal).error(ErrorCode::DnsConflict);
-        assert!(line.contains("nport.link/errors/dns-conflict"), "{line}");
+        // A code from `i18n::UNTRANSLATED`, so this stays a test of the fallback rather than of one
+        // code's translation status.
+        let line = Renderer::new(Lang::Vi, Verbosity::Normal).error(ErrorCode::Internal);
+        assert!(line.contains("nport.link/errors/internal"), "{line}");
     }
 
     #[test]

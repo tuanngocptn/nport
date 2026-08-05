@@ -52,7 +52,7 @@ cargo xtask codegen                     # must leave the tree clean
 
 1. `#![forbid(unsafe_code)]` in every crate.
 2. `thiserror` in libraries, `anyhow` only in `crates/cli`'s `main`. A library returning `anyhow::Error` has thrown away its callers' ability to branch.
-3. **Every user-reachable error maps to a code in `docs/ERRORS.md`.** Libraries carry codes; only `crates/cli` turns them into prose, because only it knows the user's language.
+3. **Every user-reachable error maps to a code in `docs/ERRORS.md`.** Libraries carry codes; only `crates/cli` turns them into prose, because only it knows the user's language. A new code must be translated in all three languages **or** added to the `UNTRANSLATED` list in `i18n.rs`'s tests with the reason it is not a user's problem — a test fails otherwise, which is what stops a code from quietly rendering as `[CODE]`.
 4. **Never format for humans below `crates/cli`.** v2 built chalk-coloured English help text inside `Error.message` in its API client, which bypassed i18n entirely.
 5. Workspace dependencies only — declare in the root `[workspace.dependencies]`, reference with `{ workspace = true }`.
 6. No blocking I/O in `async fn`. No lock held across an `.await`.
