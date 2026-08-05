@@ -250,6 +250,21 @@ fn check_error_codes(repo: &Path) -> Result<Vec<String>, String> {
     Ok(problems)
 }
 
+/// A repository-relative path with forward slashes, whatever the platform uses natively.
+///
+/// Both the problem messages and the tests speak in the form the docs themselves use, so neither has
+/// to translate. The first version let `to_string_lossy` through raw and the Windows job failed on
+/// `docs\\ROADMAP.md` while macOS and Linux passed — a test-only break, since the checker itself was
+/// correct, but a real one and only the matrix could see it.
+fn repo_relative(repo: &Path, path: &Path) -> String {
+    path.strip_prefix(repo)
+        .unwrap_or(path)
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Every markdown file in the repository, minus [`SKIPPED_DIRS`].
 ///
 /// Discovered rather than listed. The predecessor was a three-entry `LINKED_DOCS` const standing
@@ -287,11 +302,7 @@ fn check_relative_links(repo: &Path) -> Result<Vec<String>, String> {
     let mut problems = Vec::new();
 
     for path in markdown_files(repo)? {
-        let doc = path
-            .strip_prefix(repo)
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .into_owned();
+        let doc = repo_relative(repo, &path);
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
@@ -525,21 +536,29 @@ mod tests {
         );
     }
 
+    /// Built with `join` so the input uses whatever separator the platform does, asserted with
+    /// forward slashes because that is the form the docs are written in.
+    ///
+    /// This is the assertion the previous commit got wrong. It compared a `to_string_lossy` path
+    /// against a forward-slash literal, which holds on macOS and Linux and fails on Windows — and the
+    /// three-OS matrix is the only thing that could see it, since `cargo test` locally exercises one
+    /// separator. The checker was fine; the test was not.
+    #[test]
+    fn a_repo_relative_path_always_uses_forward_slashes() {
+        let repo = Path::new("/tmp/repo");
+        let nested = repo.join("docs").join("conventions").join("rust.md");
+
+        assert_eq!(repo_relative(repo, &nested), "docs/conventions/rust.md");
+        assert_eq!(repo_relative(repo, &repo.join("README.md")), "README.md");
+    }
+
     #[test]
     fn markdown_discovery_finds_the_docs_and_skips_the_noise() {
         // The whole point of replacing `LINKED_DOCS`: a doc added tomorrow is covered without anyone
         // remembering to list it. Asserted against the real tree, since that is what ships.
         let repo = crate::codegen::repo_root().expect("repo root");
         let found = markdown_files(&repo).expect("walk");
-        let relative: Vec<String> = found
-            .iter()
-            .map(|p| {
-                p.strip_prefix(&repo)
-                    .unwrap_or(p)
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect();
+        let relative: Vec<String> = found.iter().map(|p| repo_relative(&repo, p)).collect();
 
         for expected in ["README.md", "docs/ROADMAP.md", "crates/CLAUDE.md"] {
             assert!(relative.iter().any(|p| p == expected), "missing {expected}");
