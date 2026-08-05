@@ -153,12 +153,18 @@ fn path_candidates(line: &str) -> Vec<String> {
             continue;
         }
         // Must look like a path, not like prose.
+        // Every extension this repository actually keeps in a layout block. The list had five and
+        // missed `.tsx`, `.mjs`, `.jsonc`, `.html` and `.capnp`, so a bare filename with one of those
+        // was skipped rather than checked — `index.html` in `apps/desktop/CLAUDE.md` was the only live
+        // instance and it happens to exist, so this closes a latent gap rather than a current lie. It
+        // is the same hand-maintained-list-behind-a-guarantee shape as `LAYOUT_DOCS` and `LINKED_DOCS`.
+        const CHECKED_EXTENSIONS: [&str; 10] = [
+            ".rs", ".ts", ".tsx", ".mjs", ".md", ".toml", ".json", ".jsonc", ".html", ".capnp",
+        ];
         let looks_like_path = token.contains('/')
-            || token.ends_with(".rs")
-            || token.ends_with(".ts")
-            || token.ends_with(".md")
-            || token.ends_with(".toml")
-            || token.ends_with(".json");
+            || CHECKED_EXTENSIONS
+                .iter()
+                .any(|extension| token.ends_with(extension));
         if !looks_like_path {
             continue;
         }

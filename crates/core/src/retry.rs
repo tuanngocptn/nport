@@ -133,7 +133,21 @@ pub fn backoff(attempt: u32, jitter_fraction: f64) -> Duration {
 
     // Full jitter: a uniform draw across `0..=scaled`, rather than `scaled ± a bit`. Partial jitter
     // still leaves a peak; full jitter spreads the herd across the whole window, which is the point.
-    let fraction = jitter_fraction.clamp(0.0, 1.0);
+    // **`clamp` does not neutralise NaN** — it returns it unchanged, and `Duration::mul_f64` then
+    // panics ("cannot convert float seconds to Duration"). `crates/CLAUDE.md`: a panic in
+    // `crates/core` kills the desktop app's window. No caller can currently produce one —
+    // `manager::jitter_fraction` divides a bounded integer by a constant — so this is a guard on a
+    // `pub` function's documented precondition rather than a live defect.
+    //
+    // NaN falls back to the *full* window, not zero. The failure this function exists to prevent is a
+    // herd of clients retrying in lockstep too soon, so when the fraction is meaningless the safe
+    // reading is "wait the whole thing". Both infinities are already handled: `clamp` maps them to
+    // `1.0` and `0.0`.
+    let fraction = if jitter_fraction.is_nan() {
+        1.0
+    } else {
+        jitter_fraction.clamp(0.0, 1.0)
+    };
     scaled.mul_f64(fraction)
 }
 
@@ -218,6 +232,22 @@ mod tests {
         assert_eq!(backoff(2, 1.0), RETRY_BASE * 2);
         assert_eq!(backoff(3, 1.0), RETRY_BASE * 4);
         assert_eq!(backoff(9, 1.0), RETRY_CAP);
+    }
+
+    #[test]
+    fn a_meaningless_jitter_fraction_waits_rather_than_panicking() {
+        // `clamp` passes NaN straight through and `mul_f64` panics on it, which in `crates/core` means
+        // the desktop app's window disappearing. Unreachable from any current caller — this pins the
+        // `pub` contract rather than a bug that happened.
+        assert_eq!(
+            backoff(1, f64::NAN),
+            RETRY_BASE,
+            "NaN must wait the full window"
+        );
+
+        // The two infinities were always fine; asserted so a future rewrite of the guard keeps them so.
+        assert_eq!(backoff(1, f64::INFINITY), RETRY_BASE);
+        assert_eq!(backoff(1, f64::NEG_INFINITY), Duration::ZERO);
     }
 
     #[test]
