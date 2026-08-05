@@ -371,6 +371,20 @@ fn emit_type(
             writeln!(out, "    #[serde(rename = \"{property}\")]").unwrap();
         }
         if optional {
+            // **An absent field must serialize as absent, not as `null`.** The contract expresses
+            // optionality with zod's `.optional()`, which accepts a missing key and *rejects*
+            // `null` — that is `.nullable()`, a different thing. Without this attribute, a `None`
+            // goes out as `"subdomain": null` and the server answers `INVALID_REQUEST`.
+            //
+            // Not hypothetical: it made `nport 3000` — the most common invocation there is, the one
+            // that asks the server to generate a name — fail with a 400 against every backend. Every
+            // test and every manual run had passed `-s`, so nothing caught it until someone ran the
+            // command the README leads with.
+            writeln!(
+                out,
+                "    #[serde(skip_serializing_if = \"Option::is_none\")]"
+            )
+            .unwrap();
             writeln!(out, "    pub {field}: Option<{rust_type}>,").unwrap();
         } else {
             writeln!(out, "    pub {field}: {rust_type},").unwrap();

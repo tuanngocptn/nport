@@ -725,6 +725,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn omitting_the_subdomain_omits_the_field_rather_than_sending_null() {
+        // `nport 3000` — no `-s`, the most common invocation and the one the README leads with.
+        //
+        // The contract says `subdomain: requestedSubdomainSchema.optional()`, and zod's `.optional()`
+        // accepts a **missing key**; `null` is `.nullable()`, a different thing. Without
+        // `skip_serializing_if` on the generated struct, `None` went out as `"subdomain": null` and
+        // every backend answered 400 INVALID_REQUEST.
+        //
+        // Asserted on the raw JSON on purpose. Deserializing into `CreateTunnelRequest` maps both
+        // `null` and absent to `None`, so a round-trip through the struct cannot see this at all —
+        // which is why every existing test passed while the command was broken.
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+
+        let served = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for response in [
+                json_response!(
+                    "200 OK",
+                    r#"{"challenge":"c.h","difficulty":4,"expiresAt":1785000000000}"#
+                ),
+                json_response!(
+                    "201 Created",
+                    r#"{"expiresAt":1785000000000,"ownerToken":"owner","subdomain":"auto-name","tunnelId":"t","tunnelToken":"tok","url":"https://auto-name.nport.link"}"#
+                ),
+            ] {
+                let (mut socket, _) = listener.accept().await.expect("accept");
+                let seen = read_request(&mut socket).await;
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("respond");
+                socket.shutdown().await.expect("shutdown");
+                requests.push(seen);
+            }
+            requests
+        });
+
+        let api = Api::new(&format!("http://{addr}")).expect("backend");
+        api.create_tunnel(None, ClientKind::Cli)
+            .await
+            .expect("a generated name");
+        let requests = served.await.expect("server task");
+
+        let body = requests[1]
+            .split("\r\n\r\n")
+            .nth(1)
+            .expect("a body")
+            .to_owned();
+        assert!(
+            !body.contains("subdomain"),
+            "an omitted subdomain must not appear in the body at all, got {body}"
+        );
+        assert!(
+            !body.contains("null"),
+            "no field may serialize as null: {body}"
+        );
+    }
+
+    #[tokio::test]
     async fn a_refusal_carries_its_code_and_not_its_message() {
         // ADR-0018, in one assertion. v2 matched substrings like "currently in use"; this returns a
         // code a caller can branch on, and keeps the message only for a bug report.

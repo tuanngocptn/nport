@@ -250,6 +250,10 @@ export class CloudflareClient {
         "DELETE",
         `/accounts/${this.#config.accountId}/cfd_tunnel/${tunnelId}`,
         null,
+        // Declared here as well as handled below, so the client logs it as routine rather than as
+        // an error. The two have to agree: tolerating a status while still shouting about it is
+        // the worst of both.
+        [404],
       )
     } catch (error) {
       // **A tunnel that is already gone is this method's whole purpose, achieved.** Alarms are
@@ -314,8 +318,9 @@ export class CloudflareClient {
     method: "GET" | "POST" | "DELETE",
     path: string,
     body: object | null,
+    tolerate: readonly number[] = [],
   ): Promise<T> {
-    return (await this.#callWithInfo<T>(operation, method, path, body)).result
+    return (await this.#callWithInfo<T>(operation, method, path, body, tolerate)).result
   }
 
   /**
@@ -329,6 +334,7 @@ export class CloudflareClient {
     method: "GET" | "POST" | "DELETE",
     path: string,
     body: object | null,
+    tolerate: readonly number[] = [],
   ): Promise<{ result: T; info: CloudflareEnvelope<T>["result_info"] }> {
     let lastError: CloudflareError | undefined
 
@@ -370,13 +376,23 @@ export class CloudflareClient {
       }
 
       const codes = (envelope?.errors ?? []).map((error) => error.code)
-      console.error("cloudflare api error", {
+      const detail = {
         operation,
         status: response.status,
         // Codes and messages from the `errors` array only. A failure envelope carries no token,
         // and this is the detail an operator needs (rule 8: log it, never return it).
         errors: (envelope?.errors ?? []).map((error) => `[${error.code}] ${error.message}`),
-      })
+      }
+      // A status the caller has said it expects is not an error, and logging it as one trains
+      // people to ignore the ones that are. `deleteTunnel` tolerating 404 is the case in hand: on a
+      // second alarm delivery it is the normal outcome, and it was printing a red `[ERROR]` on an
+      // otherwise clean `pnpm dev` start. Still logged — an operator wants to know a delete found
+      // nothing — just not at a level that implies something needs doing.
+      if (tolerate.includes(response.status)) {
+        console.info("cloudflare api returned a tolerated status", detail)
+      } else {
+        console.error("cloudflare api error", detail)
+      }
 
       const retryable = isRetryableStatus(response.status)
       lastError = new CloudflareError(operation, response.status, codes, retryable)

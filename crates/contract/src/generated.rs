@@ -368,6 +368,7 @@ pub struct CreateTunnelRequest {
     /// A solution satisfying the challenge's difficulty.
     pub nonce: String,
     /// Desired subdomain. Normalized server-side; omit to have one generated.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub subdomain: Option<String>,
 }
 
@@ -445,6 +446,7 @@ pub struct TunnelStatusResponse {
     pub active: bool,
     /// Milliseconds since the Unix epoch, UTC.
     #[serde(rename = "expiresAt")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
     /// The normalized subdomain that was claimed.
     pub subdomain: String,
