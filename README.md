@@ -35,7 +35,9 @@ Progress and phases: [`docs/ROADMAP.md`](docs/ROADMAP.md). The v3 CLI will still
 
 Exposes a local port at a public HTTPS URL, routed over Cloudflare's global network. Useful for sharing work in progress, receiving webhooks from GitHub or Stripe, testing on real mobile devices, and demoing to clients without deploying.
 
-Tunnel traffic goes from Cloudflare's edge straight to your machine — **it never passes through NPort's own servers.** The backend only creates and cleans up tunnels.
+Tunnel traffic goes from Cloudflare's edge straight to your machine — it is never relayed through a server of ours. The control plane only creates and cleans up tunnels.
+
+**NPort is for development and demos, not production.** Your URL is served by the Cloudflare account that provisioned it, which from 3.x may be run by someone other than us ([ADR-0031](docs/DECISIONS.md)). Whoever operates it can see and modify traffic through that URL, the same as any hosting provider you do not control. Do not put credentials, personal data, or anything you would mind a stranger reading through a tunnel.
 
 ## Documentation
 

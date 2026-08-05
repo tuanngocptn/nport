@@ -37,7 +37,35 @@ How NPort v3 works. For *why* it is built this way, see `docs/DECISIONS.md`. For
 
 **The trust boundary that matters:** because there are no accounts, `apps/api` cannot authenticate *who* is asking. It can only make claims verifiable and make abuse expensive. Every design decision in §7 follows from that.
 
-**NPort never sees tunnel traffic.** Request bodies flow edge → connector → localhost. The control plane only provisions and reaps. This is a privacy property worth preserving.
+**The control plane never sees tunnel traffic.** Request bodies flow edge → connector → localhost; provisioning and reaping are the whole of its involvement, and no byte of a request transits a Worker (§3b).
+
+**That is not the same as nobody seeing it.** The hostname lives in a Cloudflare zone, Cloudflare terminates TLS there, and the account that owns the zone can attach a Worker route to it — which sees full request and response bodies, and which the tunnel's owner cannot detect. Today that account is ours. From 3.x it may be a third party's (ADR-0031), and the honest statement of the property is therefore: **traffic reaches your machine from the edge of whichever account provisioned the tunnel, and is exposed to whoever runs it.** NPort targets development and demos, which is what makes that acceptable; hardening it is unscheduled in `docs/ROADMAP.md` § Deferred.
+
+### Topology from 3.x — a registry and many nodes
+
+The diagram above is one node. **A Cloudflare zone lives in exactly one account, and a
+`<tunnel-id>.cfargotunnel.com` CNAME only routes when the record and the tunnel are in the same
+account**, so `*.nport.link` cannot be spread across accounts. Every shard needs its own domain as
+well as its own account, which is what forces the shape below (ADR-0031).
+
+```text
+                        ┌─ registry.nport.link ──────────────┐
+   nport CLI ──────────►│  GET /v1/nodes   the directory     │◄──── nodes register
+   or desktop           │  no credentials, provisions nothing│      and are probed
+        │               └────────────────────────────────────┘
+        │ probes a few, picks the fastest with capacity
+        │
+        ├──► api.nport.link   node #1, our account   ──► *.nport.link
+        ├──► api.nport.dev    node #2, someone else  ──► *.nport.dev
+        └──► …                anyone may run one
+```
+
+The registry is **advisory, not load-bearing**: the client caches the list, so a registry that is
+down costs nothing. Selection is the client's — the registry never assigns a node.
+
+Enrolment is open and anonymous, gated only by proof of work, a DNS TXT proof of domain control,
+and a liveness probe. There is no shared secret, and therefore **no assurance about who runs a
+node** — see the trust note in §1 and § Deferred in `docs/ROADMAP.md`.
 
 ## 2. Components
 
@@ -47,7 +75,8 @@ How NPort v3 works. For *why* it is built this way, see `docs/DECISIONS.md`. For
 | `crates/core` | `TunnelManager`: provision → connect → proxy → teardown. Connection pool, reconnect, local proxy, event stream, optional inspector. **Headless.** | `crates/protocol`, `crates/contract`, `api.nport.link`, localhost |
 | `crates/cli` | Argument parsing, terminal rendering, config file, i18n, signal handling | `crates/core` |
 | `apps/desktop` | GUI, tray, traffic inspector UI, auto-update | `crates/core` via Tauri IPC |
-| `apps/api` | Control plane: validate, claim, provision, heartbeat, reap | Cloudflare API, its own Durable Objects |
+| `apps/api` | **A node.** Control plane: validate, claim, provision, heartbeat, reap. One Cloudflare account, one zone | Cloudflare API, its own Durable Objects, the registry |
+| `apps/registry` | **The directory.** Accepts node registrations, probes them, answers `GET /v1/nodes`. Holds no credentials and provisions nothing (ADR-0031) | the nodes it has listed |
 | `apps/web` | Marketing site, user docs, error-code pages | nothing at runtime |
 | `packages/contract` | The API contract: zod schemas, OpenAPI, error registry | — (build-time authority) |
 

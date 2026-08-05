@@ -329,6 +329,23 @@ Tunnel list and one-click start; tray integration; the traffic inspector over `c
 
 **The scope is `docs/FEATURES.md` §§2–7, §9, and §12** — the mapping table above — against the design in `docs/mockup/NPort Desktop.dc.html`. Two things to settle before components are written, both recorded in `apps/desktop/CLAUDE.md`: the design draws seven surfaces where the planned layout has four views, and every surface in the token sheet is a `backdrop-filter` glass layer, which is the property that degrades worst on WebKitGTK. §8 is excluded, per the mapping table. §12 is design work that has not been done at all — the mockup is macOS Tahoe only.
 
+## Phase 6 — Federation: a registry and many nodes
+
+**Unblocks at G2, not before.** ADR-0031. Today's control plane is one Worker on one account and one zone, and three ceilings bind at once — DNS records per zone, tunnels per account, and the per-account API rate limit. A zone cannot span accounts, so each shard needs its own domain as well as its own account.
+
+`apps/api` becomes a **node**, essentially unchanged: it is already one deployment bound to one zone with its own credentials. `apps/registry` is new and small — a directory that accepts registrations, probes what it lists, and answers `GET /v1/nodes`. It holds no Cloudflare credentials and provisions nothing. `crates/core` gains a discovery step before the `Api` client it already has.
+
+- `packages/contract`: `nodeSchema`, the list and registration schemas, `activeTunnels` on `GET /v1/meta`, and three codes — `NO_NODE_AVAILABLE`, `NODE_UNREACHABLE`, `REGISTRATION_REFUSED`
+- `apps/registry`: the `Directory` DO, open registration behind proof of work and a DNS TXT domain proof, and a cron that probes and delists
+- `apps/api`: `NODE_ID`, `PUBLIC_URL`, `REGISTRY_URL`, self-registration on the existing `scheduled` export, and current usage on `/v1/meta`
+- `crates/core::discovery`: fetch, cache to `~/.nport/nodes.json`, probe a few in parallel, pick the fastest with capacity, fail over — but **never after `POST /v1/tunnels` has been sent**, which is not idempotent
+
+**Why after G2.** Nothing is deployed and the Cloudflare API paths have never met the live API. Federating an unproven provisioning path multiplies one unknown by N. Waiting costs nothing: the instance that closes G2 becomes node #1 and keeps serving `*.nport.link`.
+
+**The registry is advisory.** The client caches the list, so a registry that is down does not stop a tunnel being created. That is what allows a single directory without a single point of failure, and it is the property to protect if this design is ever revised.
+
+**Gate G6.** Two nodes on two Cloudflare accounts and two domains, both listed; a client discovers, picks, provisions, and fails over to the second when the first is stopped mid-run.
+
 ## Phase 5 — v2 sunset
 
 Keep the legacy shim alive for installed 2.x clients. Then, in order: `npm deprecate nport@2` with a pointer to the 3.x migration note; announce a date; after that date return `426 CLIENT_TOO_OLD`; eventually remove the shim.
@@ -342,11 +359,14 @@ Dates and the exact sequence live in `docs/RELEASE.md`.
 - **Phase 4 follows Phase 3.** The desktop app needs a stable `core`.
 - **G2 precedes 2c.** 2a, 2b, and 2c *can* run in parallel once the contract is frozen, and for a while they did. They no longer do: with 2a and 2b both code-complete and nothing deployed, the only work that moves the project is getting a port open, and the site can be built against a tunnel that demonstrably works rather than one that is only tested.
 - **`docs/FEATURES.md` §8 precedes nothing.** It is blocked on an ADR, not on a phase.
+- **G2 precedes Phase 6.** Federating a provisioning path that has never run against the live Cloudflare API multiplies one unknown by the number of nodes. Once G2 closes, Phase 6 can run in parallel with 3 and 4 — it touches the contract, `apps/api`, and `crates/core`, none of which the release pipeline or the desktop app own.
 
 ## Deferred
 
 Not scheduled. Each needs an ADR to promote. See `docs/ARCHITECTURE.md` §9 for why each is out of scope.
 
 TCP/UDP/ICMP tunnelling (ADR-0020) · custom domains · tunnel password protection · multiple ports per tunnel · CLI traffic inspection · request replay in the desktop inspector · self-hosted control-plane one-click deploy.
+
+**Defending a tunnel against the node that issued it.** From Phase 6 a node runs on someone else's Cloudflare account, and the account that owns the zone can attach a Worker route to the hostname — seeing and modifying full request and response bodies, undetectably from the client. Nothing here defends against that, deliberately: NPort is for development and demos, and the exposure is documented in `README.md`, `docs/ARCHITECTURE.md` §1, and ADR-0031 rather than mitigated. Promoting it would mean some combination of trust tiers with signed node entries, an operator identity, and a client-side consent step — a large surface, and one worth designing properly rather than bolting on. Do not confuse this with the *documentation* of the exposure, which is not deferred and is already written.
 
 Three of those appear in `docs/FEATURES.md` as ordinary backlog items — tunnel password protection as §1's edge basic auth, request replay as §2's **Replay**, and the one-click deploy as §9's own-Cloudflare onboarding. Being drawn in the mockup does not schedule them. **Accounts and monetisation** (§8) belong on this list too, and are the one entry here that contradicts an invariant rather than merely postponing a feature.

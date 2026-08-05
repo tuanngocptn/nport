@@ -554,3 +554,35 @@ The `quick-xml` ignore rests on reachability, not on severity. `plist` parses th
 - None of this touches `crates/cli`. The advisories and licences here are reachable only from `apps/desktop/src-tauri`, and the CLI's graph is unchanged — which is why scoping matters more than the count.
 
 **Rejected.** *Blanket `allow = ["MPL-2.0"]`* — accepts an unbounded future set to fix a bounded present one. *Dropping `cargo deny` for the desktop crate* — the desktop app ships signed installers to end users; it needs supply-chain review more than the CLI does, not less. *Waiting for GTK4* — WebKitGTK has no GTK4 release, so this is waiting for someone else's project to finish a port with no date. *Vendoring or patching `plist`* — a fork to dodge a DoS in a parser reading our own bundle metadata is more risk than it removes.
+
+---
+
+## ADR-0031 — A registry of independent nodes, rather than one control plane
+
+**Date** 2026-08-05 · **Status** Accepted
+
+**Context.** The control plane is one Worker bound to one Cloudflare account and one zone — `docs/SELF_HOSTING.md` states it outright: "One zone per deployment." Three ceilings bind at once and every one of them is per-account or per-zone.
+
+**DNS records per zone.** Each active tunnel is one CNAME, so a zone's record budget is a hard cap on concurrent tunnels. **Tunnels per account**, since `cfd_tunnel` objects are account-scoped. And the **Cloudflare API rate limit**, per-account, which `docs/ARCHITECTURE.md` §6 already names as "the real ceiling on provisioning throughput".
+
+Adding accounts alone does not help, because of a constraint that shapes everything below: **a zone lives in exactly one Cloudflare account, and a `<tunnel-id>.cfargotunnel.com` CNAME only routes when the DNS record and the tunnel are in the same account.** `*.nport.link` therefore cannot be served by more than one account. A shard needs its own domain as well as its own account.
+
+**Decision.** Split the control plane in two.
+
+A **registry** at `registry.nport.link` that is only a directory: it accepts registrations, probes what it has listed, and answers `GET /v1/nodes`. It holds no Cloudflare credentials and provisions nothing.
+
+Many **nodes**, each on its own Cloudflare account and its own domain, each doing exactly what `apps/api` does today. `api.nport.link` becomes node #1 and keeps serving `*.nport.link`, so no existing URL shape changes.
+
+Enrolment is **anonymous and open**: any node self-registers, with no shared secret. The gate is proof of work (reusing `apps/api/src/domain/pow.ts`), a DNS TXT proof that the node controls the domain it claims, and a liveness probe of its `/v1/meta`.
+
+**Selection is the client's.** The registry returns the list; `crates/core` probes a handful in parallel and picks the fastest with capacity, caching the list at `~/.nport/nodes.json`. A registry that is down therefore costs nothing — which is the property that lets a directory be a single point of listing without being a single point of failure.
+
+**Consequences.**
+
+- Capacity becomes additive. A new domain plus a new account is a new shard, and anyone can contribute one.
+- **A node operator can read and modify traffic through the tunnels they issue**, and the tunnel's owner cannot detect it. The hostname is in the operator's zone, Cloudflare terminates TLS there, and a Worker route on that zone sees full request and response bodies. This is accepted because NPort's purpose is exposing a local dev server for testing and demos, not production traffic. Hardening it is in `docs/ROADMAP.md` § Deferred, unscheduled.
+- **A privacy claim stops being true and had to be withdrawn.** `README.md` and §1 of `docs/ARCHITECTURE.md` said tunnel traffic "never passes through NPort's own servers". With third-party nodes that is wrong, and both now say what is actually true. Correcting the sentence is not optional in the way the hardening is: shipping a claim we know to be false is a different kind of decision from declining to defend against a threat.
+- `--backend` keeps working and skips discovery entirely, so a self-hoster and `pnpm dev:cli` are untouched. A node with no `REGISTRY_URL` never registers, which is the private deployment `docs/SELF_HOSTING.md` already describes.
+- Three new error codes and a discovery step are additive to `contract-v1`; nothing existing changes shape.
+
+**Rejected.** *One shared zone across accounts* — does not route, per the constraint above; this is a property of Cloudflare Tunnel, not a configuration we could fix. *Subdomain zones per node* (`*.hk.nport.link`) — keeps one brand domain, but Cloudflare's subdomain setup has historically been Enterprise-gated and universal SSL does not cover a third label, so it trades a domain purchase for a plan dependency and a certificate problem. *Secret-based enrolment* — a shared secret that every prospective operator must obtain is a manual gate that defeats the point of open contribution, and a leaked one is worth no more than no secret at all. *Registry-assigned selection* — makes the registry load-bearing at provision time; client-side selection with a cached list keeps it advisory.

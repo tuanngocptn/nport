@@ -33,7 +33,8 @@ Do not violate these without adding an ADR to `docs/DECISIONS.md` first.
 ## Repo map
 
 ```
-apps/api/          Hono control plane          → apps/api/CLAUDE.md
+apps/api/          Hono control plane, one Cloudflare account + zone → apps/api/CLAUDE.md
+(apps/registry/    the node directory — Phase 6, ADR-0031, not yet written)
 apps/web/          Next.js site + user docs    → apps/web/CLAUDE.md
 apps/desktop/      Tauri app                   → apps/desktop/CLAUDE.md
 crates/cli/        the `nport` binary          → crates/CLAUDE.md
@@ -82,6 +83,7 @@ pnpm codegen       cargo xtask codegen   # regenerate; must leave the tree clean
 | Website content, SEO, styling | `docs/mockup/README.md` → `apps/web/CLAUDE.md` → `packages/design-tokens/` |
 | Desktop UI or IPC | `docs/mockup/README.md` → `apps/desktop/CLAUDE.md` |
 | Storage, leases, expiry, abuse | `docs/ARCHITECTURE.md` §4–§7 → `apps/api/src/do/` |
+| Scaling past one Cloudflare account | ADR-0031 → `docs/ARCHITECTURE.md` §1 → `docs/ROADMAP.md` Phase 6 |
 | "Why is it built this way?" | `docs/DECISIONS.md` |
 | Tests | `docs/TESTING.md` |
 | Releasing or publishing | `docs/RELEASE.md` |
