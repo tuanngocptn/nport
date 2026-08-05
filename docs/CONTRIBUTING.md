@@ -56,7 +56,7 @@ A preflight runs first. It creates `apps/api/.dev.vars` if it is missing, says w
 
 **`pnpm smoke`** drives that whole stack end to end and asserts on it — worth running before a push, and required after touching `src/cloudflare/dev-fake.ts` or the CLI's output, neither of which any other tier covers (`docs/TESTING.md` § Smoke tests).
 
-**`FAKE_CLOUDFLARE="1"`** routes the five Cloudflare calls to an in-memory fake (`apps/api/src/cloudflare/dev-fake.ts`), so `POST /v1/tunnels` succeeds with no credentials. What it buys is most of the system, and a full run looks like this:
+**`FAKE_CLOUDFLARE="1"`** routes every Cloudflare call to an in-memory fake (`apps/api/src/cloudflare/dev-fake.ts`), so `POST /v1/tunnels` succeeds with no credentials. What it buys is most of the system, and a full run looks like this:
 
 ```
 challenge 200 → tunnels 201 → the URL banner → a real QUIC dial to Cloudflare's edge

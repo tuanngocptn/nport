@@ -3,7 +3,7 @@
  *
  * ## Why this exists
  *
- * `POST /v1/tunnels` calls Cloudflare five times. Without a real scoped token every one of those is
+ * `POST /v1/tunnels` calls Cloudflare three times. Without a real scoped token every one of those is
  * rejected upstream, so the whole interesting half of the control plane — the saga, the lease, the
  * `ownerToken`, the CLI's provisioning path — cannot be exercised locally at all. That is a poor
  * trade for a project whose first-run promise is that nothing needs configuring.

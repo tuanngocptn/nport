@@ -609,7 +609,7 @@ That does not settle it, because the same schema documents **no POST at all** on
 
 **Consequences.**
 
-- Provisioning is at most five Cloudflare calls rather than four, against a free-plan budget of fifty — and exactly four whenever the inline field is present, because the second call is conditional.
+- Provisioning makes three Cloudflare calls rather than two, against a free-plan budget of fifty — and two whenever the inline field is present, because the second call is conditional. `test/tunnels.test.ts` asserts the exact list, so the number stops being a comment.
 - **Both branches are tested, and that is not optional.** Whichever shape production turns out to answer with, the other becomes dead code — so a suite that covered only one would be exercising the path that never runs. `test/fake-cloudflare.ts` defaults to the documented shape and has a switch for v2's; `src/cloudflare/dev-fake.ts` takes the documented path, so `pnpm dev` exercises it by hand.
 - A failure fetching the token is a new way to end up holding an orphan tunnel with no credential. It compensates identically to a failed create, which is why the token fetch lives inside `createTunnel` rather than beside it: the saga sees one operation either way.
 - **The branch not taken must be deleted once the live API answers.** A permanently dead path in the most important call in the system is worse than either half of it, and the first successful provision is the observation that resolves it.

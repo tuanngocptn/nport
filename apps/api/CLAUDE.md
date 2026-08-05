@@ -55,7 +55,7 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 10. **A 429 or 503 that knows when it frees up must say so in `Retry-After`.** `retryAfterSeconds` in `errors.ts` derives it from `details.retryAfter` (a duration) or `details.resetAt` (an instant), clamped to 1 s–1 h. A refusal carrying neither — `CONCURRENCY_LIMIT` — deliberately sends no header, because waiting is not the remedy.
 11. **No module-level mutable state.** Isolates are shared across callers.
 12. **Never log a token, an `ownerToken`, or a raw IP.** Source identity is `HMAC(ip, secret)` only.
-13. Watch the subrequest budget — 50 on the free plan. Provisioning uses ~5; any loop over CF calls needs an explicit bound.
+13. Watch the subrequest budget — 50 on the free plan, and a Durable Object hop counts. Provisioning makes **3** Cloudflare calls (`create-tunnel`, `tunnel-token`, `create-dns`), 4 when a DNS conflict forces an ownership check; teardown makes 4. `test/tunnels.test.ts` asserts both lists, so a new saga step shows up as a failing test rather than as a number in a comment. Any loop over CF calls needs an explicit bound.
 
 ## Common tasks
 

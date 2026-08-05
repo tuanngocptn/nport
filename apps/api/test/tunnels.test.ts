@@ -128,6 +128,45 @@ describe("POST /v1/tunnels", () => {
     expect((await createTunnel("notoken")).status).toBe(201)
   })
 
+  it("stays inside the free plan's subrequest budget", async () => {
+    // **A hard ceiling, not a guideline.** The free plan allows 50 subrequests per invocation and a
+    // Durable Object call counts, so a saga that grows a step silently moves the whole request closer
+    // to failing outright. `apps/api/CLAUDE.md` rule 13 and `docs/ARCHITECTURE.md` §6 both put a
+    // number on provisioning; nothing asserted it until now, which is how a stated budget drifts.
+    const created = await createTunnel("budget")
+    expect(created.status).toBe(201)
+
+    const provisioning = [...cloudflare.calls]
+    expect(provisioning, `Cloudflare calls for one provision: ${provisioning.join(", ")}`).toEqual([
+      "create-tunnel",
+      "tunnel-token",
+      "create-dns",
+    ])
+
+    const body = (await created.json()) as CreatedTunnel
+    const before = cloudflare.calls.length
+    const released = await SELF.fetch(`https://api.nport.link/v1/tunnels/budget`, {
+      method: "DELETE",
+      headers: { "user-agent": UA, "content-type": "application/json" },
+      body: JSON.stringify({ ownerToken: body.ownerToken }),
+    })
+    expect(released.status).toBe(204)
+
+    // Teardown proves the record is ours before deleting it (invariant 8), so it costs a lookup the
+    // provision does not: find-dns, delete-dns, clear-connections, delete-tunnel.
+    const teardown = cloudflare.calls.slice(before)
+    expect(teardown, `Cloudflare calls for one teardown: ${teardown.join(", ")}`).toEqual([
+      "find-dns",
+      "delete-dns",
+      "clear-connections",
+      "delete-tunnel",
+    ])
+
+    // The number the docs quote, and the reason it is quoted: both halves have to fit inside 50 with
+    // the Durable Object hops and the platform's own overhead alongside them.
+    expect(provisioning.length + teardown.length).toBeLessThanOrEqual(10)
+  })
+
   it("never lets a credential be cached", async () => {
     // This body is the only time either token is issued. A cache on the path would be a credential
     // store nobody chose to build.
