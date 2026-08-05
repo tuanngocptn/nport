@@ -211,7 +211,9 @@ async fn serve(tunnel: Tunnel, renderer: Renderer, port: u16) -> ExitCode {
 }
 
 fn show(renderer: &Renderer, event: &TunnelEvent, port: u16) {
-    if let Some((stream, line)) = renderer.event(event, port) {
+    // One event can produce lines on both streams — `Provisioned` puts the URL on stdout and its
+    // banner on stderr, so `URL=$(nport 3000)` captures the URL and nothing else.
+    for (stream, line) in renderer.event(event, port) {
         match stream {
             Stream::Stdout => println!("{line}"),
             Stream::Stderr => eprintln!("{line}"),

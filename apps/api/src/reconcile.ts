@@ -28,7 +28,7 @@
  * deleting a stranger's record is v2's subdomain-takeover defect (R7).
  */
 
-import { isReserved } from "@nport/contract"
+import { isProtectedFromCleanup } from "@nport/contract"
 import type { CloudflareClient } from "./cloudflare/client"
 import { cnameTargetFor, tunnelNameFor } from "./cloudflare/client"
 import { cloudflareFor } from "./cloudflare/factory"
@@ -96,9 +96,12 @@ export async function reconcile(env: Env): Promise<ReconcileReport> {
       // prefix is the only thing that distinguishes them.
       continue
     }
-    if (isReserved(subdomain)) {
-      // The deny list is shared with the sweeper precisely so cleanup can never remove one of our own
-      // records (`docs/ARCHITECTURE.md` §7).
+    if (isProtectedFromCleanup(subdomain)) {
+      // `isProtectedFromCleanup`, **not `isReserved`**. The deny list answers two questions and only
+      // the narrower one belongs here: `api` and `_dmarc` are infrastructure and must survive, while
+      // the `nport-` and `smoke-` prefixes are ours alone to create and therefore ours to reap.
+      // Using the claim-time predicate skipped every orphaned *generated* name — the default for any
+      // `nport 3000` without `-s`, so most of them (ADR-0036).
       skippedReserved += 1
       continue
     }

@@ -132,6 +132,26 @@ export const RESERVED_SUBDOMAINS: readonly string[] = [
  */
 export const RESERVED_PREFIXES: readonly string[] = ["smoke-", "nport-", "_"]
 
+/**
+ * The prefixes on that list that mark a name as **NPort's own**, rather than as infrastructure.
+ *
+ * The deny list answers two different questions and only one of them is "may a stranger claim this".
+ * The other is the sweeper's: *may cleanup delete the record behind this name?* For `api`, `www` and
+ * `_dmarc` the answer is no — those records are load-bearing and deleting one is the failure the list
+ * exists to prevent. For these two prefixes the answer is **yes, and it has to be**, because we are
+ * the only one who ever creates them.
+ *
+ * Conflating the two questions cost the sweeper its commonest case. A generated name is
+ * `nport-<base32>`, so its tunnel is `nport-nport-<base32>` and the subdomain the sweep extracts
+ * begins with `nport-` — reserved, therefore skipped, therefore never reaped. Since a generated name
+ * is what every `nport 3000` without `-s` gets, that was most orphans (ADR-0036).
+ *
+ * `docs/TESTING.md` had the rationale exactly backwards, which is what made it hard to see: it said
+ * `smoke-` was reserved "so reconciliation can identify them", when reserving a prefix is precisely
+ * what makes reconciliation leave it alone.
+ */
+export const NPORT_OWNED_PREFIXES: readonly string[] = ["smoke-", "nport-"]
+
 /** Why a name was rejected. Travels in `details.reason` so a client can say something useful. */
 export type RejectionReason =
   | "empty"
@@ -283,9 +303,11 @@ export function checkSubdomainShape(input: string): SubdomainCheck {
 /**
  * Whether a name is reserved, ignoring every other rule.
  *
- * The reconciliation sweeper needs exactly this and nothing else: before deleting an orphaned
- * DNS record it must confirm the name is not one of ours, and it does not care whether the name
- * would have passed length or charset validation.
+ * The claim-time question: *may a stranger take this?* Length and charset are somebody else's
+ * problem, which is why this exists separately from [`validateSubdomain`].
+ *
+ * **Not the sweeper's question.** Cleanup wants [`isProtectedFromCleanup`] — see there for the
+ * difference, and for the bug that came of treating them as one.
  */
 export function isReserved(subdomain: string): boolean {
   if (subdomain.length > MAX_INPUT_LENGTH) {
@@ -298,4 +320,26 @@ export function isReserved(subdomain: string): boolean {
     RESERVED_SUBDOMAINS.includes(normalized) ||
     RESERVED_PREFIXES.some((prefix) => normalized.startsWith(prefix))
   )
+}
+
+/**
+ * Whether cleanup must leave this name's DNS record alone.
+ *
+ * The reconciliation sweeper's question, and it is **narrower than [`isReserved`]**: a name can be
+ * un-claimable and still be ours to delete. Reserved *names* — `api`, `www`, `_dmarc` — are
+ * infrastructure, and deleting one is the failure `docs/ARCHITECTURE.md` §7's deny list exists to
+ * prevent. The two NPort-owned prefixes are the opposite: nobody but us creates them, so an orphan
+ * carrying one is exactly what the sweep is for (ADR-0036).
+ *
+ * Using `isReserved` here meant the sweep skipped every orphaned generated name — the default naming
+ * for any `nport 3000` without `-s`, and therefore most orphans. Three tests in
+ * `apps/api/test/reconcile.test.ts` pin both halves: `nport-` and `smoke-` are reaped, `api`,
+ * `www` and `_dmarc` are not.
+ */
+export function isProtectedFromCleanup(subdomain: string): boolean {
+  if (!isReserved(subdomain)) {
+    return false
+  }
+  const normalized = normalizeSubdomain(subdomain)
+  return !NPORT_OWNED_PREFIXES.some((prefix) => normalized.startsWith(prefix))
 }

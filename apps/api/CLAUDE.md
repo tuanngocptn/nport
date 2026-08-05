@@ -32,6 +32,7 @@ test/                   workerd integration tests + test/fake-cloudflare.ts
 ## Commands
 
 ```bash
+pnpm smoke                            # end-to-end against wrangler dev — the only tier that runs dev-fake.ts
 pnpm dev                              # this, plus apps/web and apps/desktop
 pnpm dev:api                          # wrangler dev with local DOs
 pnpm --filter @nport/api test         # vitest-pool-workers
@@ -53,7 +54,7 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 9. **No CORS headers, ever.** Their absence is an abuse control (`docs/API.md`).
 10. **No module-level mutable state.** Isolates are shared across callers.
 11. **Never log a token, an `ownerToken`, or a raw IP.** Source identity is `HMAC(ip, secret)` only.
-12. Watch the subrequest budget — 50 on the free plan. Provisioning uses ~4; any loop over CF calls needs an explicit bound.
+12. Watch the subrequest budget — 50 on the free plan. Provisioning uses ~5; any loop over CF calls needs an explicit bound.
 
 ## Common tasks
 
@@ -65,13 +66,14 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 
 **Change a limit** — `wrangler.jsonc` `vars`, surface it in `GET /v1/meta` so clients discover rather than hardcode it, and note the value in `docs/OPERATIONS.md`.
 
-**Add a reserved subdomain** — `packages/contract/src/subdomain.ts` plus a fixture case. The sweeper shares this list, so a name added here is also protected from cleanup.
+**Add a reserved subdomain** — `packages/contract/src/subdomain.ts` plus a fixture case. A reserved *name* is also protected from cleanup; a reserved *prefix* may not be, because `nport-` and `smoke-` are ours to reap (`isProtectedFromCleanup`, ADR-0036).
 
 **Change an abuse limit** — `wrangler.jsonc` § vars, then confirm `GET /v1/meta` still reports it (clients discover limits rather than hardcoding them) and that `test/abuse-controls.test.ts` reads the var instead of the number.
 
 ## Gotchas
 
 - **DO alarms are at-least-once.** A handler that deletes on second delivery must tolerate the record already being gone.
+- **`src/cloudflare/dev-fake.ts` has no unit tests and never will — `pnpm smoke` is its coverage.** Nothing in `pnpm test` loads it, so a change there can break `pnpm dev` for everyone with the whole gate green. Run `pnpm smoke` after touching it.
 - **`test/fake-cloudflare.ts` is only worth what it gets right, and it must never be more generous than Cloudflare.** It once returned a `result_info.total_pages` on the tunnels list, which that endpoint does not send — so the sweep silently never left page 1 and the suite agreed with the bug. Before trusting a fake response shape, check it: `docs/OPERATIONS.md` § Verifying the Cloudflare API surface.
 - **The sweep advances its cursor *before* doing the work, not after.** Advancing only on success looks tidier and lets one undeletable orphan pin the sweep to its page forever, starving every other page — v2's defect R8 through a different door.
 - **`.dev.vars` reaches the test isolate**, because `vitest-pool-workers` reads it alongside `wrangler.jsonc`. A local `FAKE_CLOUDFLARE=1` therefore routed the saga past `test/fake-cloudflare.ts` and failed 36 tests, all pointing at the saga rather than the config. Anything the suite's meaning depends on is pinned in `vitest.config.ts` (`docs/TESTING.md`).

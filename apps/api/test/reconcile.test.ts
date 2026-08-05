@@ -195,6 +195,49 @@ describe("ownership proof", () => {
   })
 })
 
+describe("names the sweep may and may not reap", () => {
+  it("reaps an orphaned generated name", async () => {
+    // **Generated names are the default** — every `nport 3000` with no `-s` gets `nport-<base32>`,
+    // so its tunnel is `nport-nport-<base32>` and the subdomain the sweep extracts starts with
+    // `nport-`. That is a *reserved prefix*, and the sweep skipped every one of them: a whole class
+    // of orphan, the commonest class, that reconciliation structurally refused to touch.
+    //
+    // The deny list exists so cleanup can never delete one of *our own infrastructure* records
+    // (`api`, `_dmarc`). A generated name is the opposite of that — unambiguously ours, and created
+    // by us, so it must be reapable.
+    seedOrphan("nport-ab12cd34ef5gh")
+
+    await sweep()
+
+    expect(cloudflare.tunnels.size).toBe(0)
+    expect(cloudflare.dns.size).toBe(0)
+  })
+
+  it("reaps an orphaned smoke-test name", async () => {
+    // Same shape, and the reason `docs/TESTING.md`'s plan for `smoke.yml` was self-defeating: it
+    // reserved `smoke-` "so reconciliation can identify them", when reserving a prefix is what makes
+    // the sweeper *skip* it. A leaked smoke lease was the one thing cleanup would never reap.
+    seedOrphan("smoke-linux-4711")
+
+    await sweep()
+
+    expect(cloudflare.tunnels.size).toBe(0)
+  })
+
+  it("still refuses to touch a reserved infrastructure name", async () => {
+    // The half that must not change. A record for `api` or `_dmarc` is load-bearing, and deleting one
+    // is the failure the deny list exists to prevent.
+    seedOrphan("api")
+    seedOrphan("_dmarc")
+    seedOrphan("www")
+
+    await sweep()
+
+    expect(cloudflare.tunnels.size).toBe(3)
+    expect(cloudflare.dns.size).toBe(3)
+  })
+})
+
 describe("the sweep cursor", () => {
   it("advances a page at a time and wraps", async () => {
     // Bounded per invocation, unbounded over time — the fix for v2's cleanup ceiling (defect R8), whose

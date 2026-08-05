@@ -4,6 +4,7 @@ import fixtures from "../fixtures/subdomains.json" with { type: "json" }
 import {
   checkSubdomain,
   checkSubdomainShape,
+  isProtectedFromCleanup,
   isReserved,
   MAX_INPUT_LENGTH,
   MAX_LENGTH,
@@ -197,5 +198,47 @@ describe("resource bounds", () => {
   it("does not call an oversized name reserved", () => {
     // `isReserved` is the sweeper's guard, and it must answer rather than spend the input's length.
     expect(isReserved(`api${ZONE_SUFFIX.repeat(60_000)}`)).toBe(false)
+  })
+})
+
+/**
+ * The two questions the deny list answers, and why they are not the same one.
+ *
+ * "May a stranger claim this?" and "may cleanup delete this record?" have different answers for our
+ * own prefixes, and treating them as one question meant the reconciliation sweep skipped every
+ * orphaned generated name — the commonest kind (ADR-0036).
+ */
+describe("isProtectedFromCleanup", () => {
+  it("protects reserved infrastructure names", () => {
+    for (const name of ["api", "www", "mail", "_dmarc", "_acme-challenge"]) {
+      expect(isProtectedFromCleanup(name), name).toBe(true)
+    }
+  })
+
+  it("does not protect NPort's own prefixes, because they are ours to reap", () => {
+    // A generated name is `nport-<base32>`; nobody else can create one, so an orphan carrying it is
+    // exactly what the sweep exists for.
+    expect(isProtectedFromCleanup("nport-ab12cd34ef5gh")).toBe(false)
+    expect(isProtectedFromCleanup("smoke-linux-4711")).toBe(false)
+  })
+
+  it("does not protect an ordinary name", () => {
+    expect(isProtectedFromCleanup("myapp")).toBe(false)
+  })
+
+  it("stays stricter than isReserved in exactly one direction", () => {
+    // Anything protected must also be unclaimable; the reverse does not hold, and that asymmetry is
+    // the whole point. A name cleanup may delete but a stranger may not claim is fine; a name a
+    // stranger may claim but cleanup may not delete would be an unreapable orphan factory.
+    for (const name of ["api", "_dmarc", "nport-ab12cd34ef5gh", "smoke-x", "myapp", "www"]) {
+      if (isProtectedFromCleanup(name)) {
+        expect(isReserved(name), `${name} is protected but not reserved`).toBe(true)
+      }
+    }
+  })
+
+  it("normalizes before deciding, like every other entry point", () => {
+    expect(isProtectedFromCleanup("API")).toBe(true)
+    expect(isProtectedFromCleanup("NPORT-AB12CD34EF5GH")).toBe(false)
   })
 })

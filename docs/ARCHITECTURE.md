@@ -247,7 +247,9 @@ The ASN is additional key material and **not** a defence against a distributed a
 
 ### Reserved subdomains
 
-A real deny list, not v2's single `['api']` entry — infrastructure (`api`, `www`, `mail`, `smtp`, `ns1`, `mx`, `_acme-challenge`, `_dmarc`), product (`app`, `docs`, `blog`, `status`, `cdn`, `admin`, `dashboard`, `staging`), and phishing-prone names (`login`, `signin`, `secure`, `verify`, `account`, `billing`, `paypal`, `wallet`), plus the `smoke-*` and `nport-*` prefixes. **Shared with the reconciliation sweeper**, so cleanup can never delete a reserved record.
+A real deny list, not v2's single `['api']` entry — infrastructure (`api`, `www`, `mail`, `smtp`, `ns1`, `mx`, `_acme-challenge`, `_dmarc`), product (`app`, `docs`, `blog`, `status`, `cdn`, `admin`, `dashboard`, `staging`), and phishing-prone names (`login`, `signin`, `secure`, `verify`, `account`, `billing`, `paypal`, `wallet`), plus the `smoke-*` and `nport-*` prefixes.
+
+**The list answers two questions, and only one of them is the sweeper's.** "May a stranger claim this?" is `isReserved`, and every entry above says no. "May cleanup delete the record behind this?" is `isProtectedFromCleanup`, and for the two NPort-owned prefixes the answer is **yes** — nobody but us creates a `nport-` or `smoke-` name, so an orphan carrying one is exactly what the sweep is for. Sharing one predicate between both questions meant the sweep skipped every orphaned *generated* name, which is the default naming and therefore most orphans (ADR-0036).
 
 ### Subdomain validation
 

@@ -47,65 +47,72 @@ impl Renderer {
         Self { lang, verbosity }
     }
 
-    /// The line for an event, or `None` when it should not be shown.
+    /// The lines for an event, each with the stream it belongs on. Empty when nothing is shown.
     ///
     /// Returning the text rather than printing it is what makes every case below testable without a
     /// terminal — and the reason this file has tests at all.
+    ///
+    /// **A list rather than one line, because `Provisioned` spans both streams.** It used to return a
+    /// single stdout string holding the URL *and* three lines of banner, which quietly broke the one
+    /// promise [`Stream`] documents: `URL=$(nport 3000)` came back with four lines in it. The URL is
+    /// data and the banner is chatter, and they belong on different file descriptors.
     #[must_use]
-    pub fn event(&self, event: &TunnelEvent, port: u16) -> Option<(Stream, String)> {
+    pub fn event(&self, event: &TunnelEvent, port: u16) -> Vec<(Stream, String)> {
         match event {
             TunnelEvent::Provisioned { url, .. } if self.verbosity == Verbosity::Quiet => {
-                Some((Stream::Stdout, url.clone()))
+                vec![(Stream::Stdout, url.clone())]
             }
             TunnelEvent::Provisioned {
                 url, expires_at, ..
             } => {
-                let mut line = String::new();
-                let _ = write!(line, "{url}");
+                // The URL alone on stdout, so a shell substitution works **without** `--quiet` — and
+                // `--quiet` goes back to meaning "spare me the banner" rather than being the only way
+                // to script this.
+                let mut banner = String::new();
                 let _ = write!(
-                    line,
-                    "\n  {} http://localhost:{port}",
+                    banner,
+                    "  {} http://localhost:{port}",
                     text(self.lang, Message::Forwarding)
                 );
                 let _ = write!(
-                    line,
+                    banner,
                     "\n  {} {}",
                     text(self.lang, Message::Expires),
                     local_time(*expires_at)
                 );
-                let _ = write!(line, "\n  {}", text(self.lang, Message::StopHint));
-                Some((Stream::Stdout, line))
+                let _ = write!(banner, "\n  {}", text(self.lang, Message::StopHint));
+                vec![(Stream::Stdout, url.clone()), (Stream::Stderr, banner)]
             }
 
-            _ if self.verbosity == Verbosity::Quiet => None,
+            _ if self.verbosity == Verbosity::Quiet => Vec::new(),
 
-            TunnelEvent::ConnectionUp { index, colo } => Some((
+            TunnelEvent::ConnectionUp { index, colo } => vec![(
                 Stream::Stderr,
                 format!(
                     "{} {index} ({colo})",
                     text(self.lang, Message::ConnectionUp)
                 ),
-            )),
-            TunnelEvent::ConnectionLost { index } => Some((
+            )],
+            TunnelEvent::ConnectionLost { index } => vec![(
                 Stream::Stderr,
                 format!("{} {index}", text(self.lang, Message::ConnectionLost)),
-            )),
+            )],
             TunnelEvent::ConnectionRetrying {
                 index,
                 attempt,
                 delay,
-            } => Some((
+            } => vec![(
                 Stream::Stderr,
                 format!(
                     "{} {index} ({attempt}) — {}s",
                     text(self.lang, Message::Retrying),
                     delay.as_secs()
                 ),
-            )),
+            )],
             TunnelEvent::ConnectionGaveUp { index, code } => {
-                Some((Stream::Stderr, format!("{index}: {}", self.error(*code))))
+                vec![(Stream::Stderr, format!("{index}: {}", self.error(*code)))]
             }
-            TunnelEvent::ShuttingDown { reason } => Some((
+            TunnelEvent::ShuttingDown { reason } => vec![(
                 Stream::Stderr,
                 match reason {
                     // Not a failure: the four hours are up, and saying "error" would be wrong
@@ -118,8 +125,8 @@ impl Renderer {
                     // a tunnel that stops with no explanation is the worst possible ending.
                     _ => text(self.lang, Message::ShuttingDown).to_owned(),
                 },
-            )),
-            TunnelEvent::Stopped { drained } => Some((
+            )],
+            TunnelEvent::Stopped { drained } => vec![(
                 Stream::Stderr,
                 if *drained {
                     text(self.lang, Message::Stopped).to_owned()
@@ -132,8 +139,11 @@ impl Renderer {
                         self.error(ErrorCode::ShutdownTimeout)
                     )
                 },
-            )),
-            _ => None,
+            )],
+            // `TunnelEvent` is `#[non_exhaustive]`; an event this build does not render is silence
+            // here and a compile error nowhere, which is why `crates/CLAUDE.md` says to add the arm
+            // in both consumers.
+            _ => Vec::new(),
         }
     }
 
@@ -194,6 +204,17 @@ mod tests {
         }
     }
 
+    /// Everything the renderer would put on one stream, joined as the terminal would show it.
+    fn on(renderer: &Renderer, event: &TunnelEvent, stream: Stream) -> String {
+        renderer
+            .event(event, 3000)
+            .into_iter()
+            .filter(|(where_it_goes, _)| *where_it_goes == stream)
+            .map(|(_, line)| line)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     #[test]
     fn quiet_prints_the_url_on_stdout_and_nothing_else() {
         // `URL=$(nport 3000 --quiet)` has to work, which means exactly one line on stdout and no
@@ -202,40 +223,66 @@ mod tests {
 
         assert_eq!(
             renderer.event(&provisioned(), 3000),
-            Some((Stream::Stdout, "https://myapp.nport.link".to_owned()))
+            vec![(Stream::Stdout, "https://myapp.nport.link".to_owned())]
         );
-        assert_eq!(
-            renderer.event(
-                &TunnelEvent::ConnectionUp {
-                    index: 0,
-                    colo: "hkg09".to_owned()
-                },
-                3000
-            ),
-            None
+        assert!(
+            renderer
+                .event(
+                    &TunnelEvent::ConnectionUp {
+                        index: 0,
+                        colo: "hkg09".to_owned()
+                    },
+                    3000
+                )
+                .is_empty()
         );
     }
 
     #[test]
-    fn the_url_goes_to_stdout_and_progress_to_stderr() {
-        // The split that makes a shell substitution possible while a human still sees what happened.
+    fn the_url_is_the_only_thing_on_stdout() {
+        // **The regression this replaces:** the banner used to be one stdout string carrying the URL
+        // *and* three lines of decoration, so `URL=$(nport 3000)` came back with four lines in it —
+        // while the doc comment on `Stream` promised the opposite. `--quiet` hid the problem by
+        // suppressing the extras, which made the only working way to script this the flag rather than
+        // the default.
         let renderer = renderer(Verbosity::Normal);
 
-        let (stream, line) = renderer.event(&provisioned(), 3000).expect("a line");
-        assert_eq!(stream, Stream::Stdout);
-        assert!(line.starts_with("https://myapp.nport.link"), "{line}");
-        assert!(line.contains("localhost:3000"), "{line}");
+        assert_eq!(
+            on(&renderer, &provisioned(), Stream::Stdout),
+            "https://myapp.nport.link",
+            "stdout carries the URL and nothing else"
+        );
 
-        let (stream, _) = renderer
-            .event(
-                &TunnelEvent::ConnectionUp {
-                    index: 1,
-                    colo: "hkg09".to_owned(),
-                },
-                3000,
-            )
-            .expect("a line");
-        assert_eq!(stream, Stream::Stderr);
+        let banner = on(&renderer, &provisioned(), Stream::Stderr);
+        assert!(banner.contains("localhost:3000"), "{banner}");
+        assert!(banner.contains("Ctrl+C"), "{banner}");
+        assert!(
+            !banner.contains("https://"),
+            "the URL must not be repeated: {banner}"
+        );
+    }
+
+    #[test]
+    fn progress_never_reaches_stdout() {
+        // Every non-`Provisioned` event is chatter, and chatter on stdout is what corrupts a pipe.
+        let renderer = renderer(Verbosity::Normal);
+        for event in [
+            TunnelEvent::ConnectionUp {
+                index: 1,
+                colo: "hkg09".to_owned(),
+            },
+            TunnelEvent::ConnectionLost { index: 1 },
+            TunnelEvent::ShuttingDown {
+                reason: ShutdownReason::Requested,
+            },
+            TunnelEvent::Stopped { drained: true },
+        ] {
+            assert_eq!(
+                on(&renderer, &event, Stream::Stdout),
+                "",
+                "{event:?} put something on stdout"
+            );
+        }
     }
 
     #[test]
@@ -249,7 +296,7 @@ mod tests {
                 },
                 3000,
             )
-            .expect("a line")
+            .remove(0)
             .1;
         assert!(!line.to_lowercase().contains("error"), "{line}");
         assert!(!line.contains('['), "a code has no place here: {line}");
@@ -261,7 +308,7 @@ mod tests {
         // there would look identical to a clean one, which is what `drained` exists to prevent.
         let line = renderer(Verbosity::Normal)
             .event(&TunnelEvent::Stopped { drained: false }, 3000)
-            .expect("a line")
+            .remove(0)
             .1;
         assert!(line.contains("SHUTDOWN_TIMEOUT"), "{line}");
     }
@@ -304,7 +351,7 @@ mod tests {
                 },
                 3000,
             )
-            .expect("a line")
+            .remove(0)
             .1;
         assert!(line.contains("20s"), "{line}");
         assert!(line.contains('3'), "{line}");

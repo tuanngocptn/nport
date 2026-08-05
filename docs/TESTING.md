@@ -23,6 +23,7 @@ The strategy spans two languages, three runtimes (Node, `workerd`, native), and 
 | Property (Rust) | `crates/protocol`, validators | `proptest` | ~s | every commit |
 | **Golden fixtures** | `crates/protocol/tests/fixtures` | `cargo test` | ms | every commit |
 | Live edge | `crates/protocol/tests/live` | `cargo test -- --ignored` | ~30 s | nightly, releases |
+| **Smoke (local stack)** | `scripts/smoke.mjs` | `pnpm smoke` | ~40 s | before a push, after any dev-fake or CLI change |
 | Smoke (end-to-end) | `.github/workflows/smoke.yml` | real tunnels, 6 OS | minutes | nightly, releases |
 | Canary (protocol) | `.github/workflows/protocol-canary.yml` | live handshake | seconds | every 6 h |
 
@@ -149,7 +150,9 @@ The subdomain normalizer is the highest-value target: it runs in **both** TypeSc
 NPORT_TEST_BACKEND=https://api.nport.link cargo test -p nport-protocol -- --ignored
 ```
 
-They create real tunnels under `smoke-*` and **must clean up in a `Drop` guard**, not at the end of the happy path — a panic mid-test otherwise leaks a lease until expiry. The `smoke-*` prefix is reserved (`docs/ARCHITECTURE.md` §7) so reconciliation can identify them.
+They create real tunnels and **must clean up in a `Drop` guard**, not at the end of the happy path — a panic mid-test otherwise leaks a lease until expiry.
+
+**They must ask for a *generated* name, not `smoke-anything`.** This paragraph used to say the opposite, and it was wrong twice over: `smoke-` is a reserved *prefix*, so claiming one is a `403`; and reserving a prefix is what makes reconciliation **skip** it, which is the reverse of "so reconciliation can identify them" — a leaked `smoke-` lease would have been the one thing cleanup never reaped. A generated `nport-<base32>` name is unguessable, recognisably ours, and reapable. ADR-0036.
 
 ### Manual live drivers — Phase 1 only
 
@@ -173,7 +176,19 @@ Run a traffic loop alongside it. Four connections staying registered is the crit
 
 ## Smoke tests
 
-`smoke.yml`, nightly and on every release, across six runners. Installs the published artifact — not a local build — creates `smoke-<os>-<runid>.nport.link`, asserts a **byte-exact** response through the tunnel, exercises a WebSocket echo, then shuts down gracefully and verifies the lease is gone.
+There are two, and they answer different questions.
+
+### `pnpm smoke` — the local stack, on demand
+
+`scripts/smoke.mjs`. Starts `wrangler dev` and a local origin on ports of its own, then drives the real Worker and the real `nport` binary: proof of work at the deployed difficulty, a claim, the journaled saga, the URL, a graceful Ctrl+C, and the lease gone afterwards. It also re-checks the three fixes that only a running stack can prove — the per-source cap over IPv6 (ADR-0033), the oversized-input bound (ADR-0034), and the connector-token fetch (ADR-0032).
+
+**It exists because `pnpm test` covers none of that.** The vitest suite runs in real `workerd`, but it never starts `wrangler dev`, never runs the binary, and never loads `src/cloudflare/dev-fake.ts` — so a change to the dev fake could break `pnpm dev` for everybody with the whole gate green. That nearly happened when the connector token moved to its own endpoint, and the first run of this script found two real defects that eleven review passes had not.
+
+The credential is fake, so the edge refuses registration on purpose: everything up to the lease is real, the QUIC dial genuinely happens, and what gets exercised past that point is the retry ladder and the release. A tunnel that carries traffic needs a deployment.
+
+### `smoke.yml` — the published artifact, nightly
+
+Nightly and on every release, across six runners. Installs the published artifact — not a local build — creates a tunnel under a **generated** name, asserts a **byte-exact** response through it, exercises a WebSocket echo, then shuts down gracefully and verifies the lease is gone.
 
 v2's smoke test only checked that the process stayed alive for 30 s and that the log contained no error strings. It would have passed while serving nothing. Assert on the response body.
 

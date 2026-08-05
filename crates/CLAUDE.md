@@ -39,6 +39,7 @@ The reason is concrete, not stylistic: a stray `println!` in `core` corrupts the
 ## Commands
 
 ```bash
+pnpm smoke                              # the local stack end to end; see docs/TESTING.md
 cargo run -p nport -- 3000 -s test
 cargo run -p nport -- 3000 -s test --backend http://localhost:8787
 cargo test                              # hermetic

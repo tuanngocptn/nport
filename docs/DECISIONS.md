@@ -43,6 +43,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0033 | Source identity is keyed on an IPv6 prefix, not a full address | Accepted |
 | 0034 | Resource bounds on request input live in the contract, not in callers | Accepted |
 | 0035 | DNS-over-TLS discovery fallback, on the workspace's single crypto provider | Accepted |
+| 0036 | The deny list answers two questions; cleanup gets the narrower one | Accepted |
 
 ---
 
@@ -695,3 +696,29 @@ When both fail, the **system** resolver's error is what surfaces.
 - `aws-lc-rs` linkage on the two musl targets is now load-bearing for DNS as well as for QUIC. `Cargo.toml` already flags that as the thing to watch at release time (Phase 3).
 
 **Rejected.** *`tls-ring`* — the second-provider trap above, and the failure mode is a runtime panic in a shipped binary. *DoH instead of DoT* — cloudflared uses DoT and §4 pins it; matching upstream costs nothing and diverging would need its own justification. *Always resolving over DoT* — discards split-horizon DNS, is slower, and turns a fallback into a hard dependency on one IP address. *A hardcoded edge IP list as the real fallback* — forbidden by §4 and by the module's own invariant: upstream has none, and inventing one means shipping an address that will one day route somewhere else.
+
+## ADR-0036 — The deny list answers two questions; cleanup gets the narrower one
+
+**Status.** Accepted, 2026-08-05.
+
+**Context.** Writing `scripts/smoke.mjs` — a local end-to-end smoke test — turned up two defects in ten minutes that eleven review passes had not, because both live in code no other tier runs.
+
+The first was a contradiction in `docs/TESTING.md`. It said the smoke tests "create real tunnels under `smoke-*`" *and* that "the `smoke-*` prefix is reserved so reconciliation can identify them". Both halves are wrong. `smoke-` is a reserved prefix, so a claim for it is `403 SUBDOMAIN_RESERVED` — the planned `smoke-<os>-<runid>` name could never have been created, and Phase 3 would have discovered that while writing the workflow. And the stated reason is backwards: `docs/ARCHITECTURE.md` §7 shares the deny list with the sweeper **so cleanup can never delete a reserved record**, so reserving a prefix makes reconciliation *skip* it. A leaked `smoke-` lease would have been the one orphan cleanup refused to touch.
+
+Following that inversion found the real bug. A generated name is `nport-<base32>`, so its Cloudflare tunnel is `nport-nport-<base32>`, and the subdomain `reconcile.ts` extracts begins with `nport-` — reserved, therefore skipped. **Generated names are what every `nport 3000` without `-s` gets**, so the sweep was structurally unable to reap most orphans. R8's family for the fourth time.
+
+**Decision.** Split the predicate by purpose, not the list.
+
+`RESERVED_PREFIXES` is unchanged, so claim behaviour and `contract-v1` are untouched. `isReserved` remains the claim-time question. A new `isProtectedFromCleanup` answers the sweeper's: reserved **and not** one of the two `NPORT_OWNED_PREFIXES` (`nport-`, `smoke-`). `reconcile.ts` uses that one.
+
+Smoke tests ask for a generated name rather than a `smoke-` one. That loses nothing: a generated name is unguessable, already carries the `nport-` prefix reconciliation recognises, and is now reapable.
+
+**Consequences.**
+
+- Orphaned generated-name tunnels are reaped. Infrastructure names are still untouchable, and three tests pin both halves rather than one.
+- **The invariant is unchanged and the mechanism is narrower.** Invariant 8 is about proving ownership of a *record* before deleting it, and that proof — a `CNAME` whose content is exactly `<tunnel_id>.cfargotunnel.com` — is untouched. This changes only which names are exempt from being examined at all.
+- `_` stays protected, because `_dmarc` and `_acme-challenge` are real records in the zone.
+- Two predicates that differ subtly are a drift risk, so a test asserts the containment: anything protected must also be reserved. The reverse must not hold, and that asymmetry is the point — a name a stranger may claim but cleanup may not delete would be an unreapable-orphan factory.
+- **`pnpm smoke` is now a tier** (`docs/TESTING.md`), because the two defects above were both invisible to `pnpm test`: it runs `workerd` but never `wrangler dev`, never the `nport` binary, and never `src/cloudflare/dev-fake.ts`.
+
+**Rejected.** *Unreserving `smoke-` so smoke tests can claim it* — it would let a stranger take `smoke-anything` and lose the "recognisably ours" signal, to buy a nicer hostname in CI logs. *Dropping `nport-` from the deny list* — it is what stops a user claiming a name the generator might later hand out, which is a collision with real consequences. *Teaching the sweep to special-case the two prefixes inline* — the distinction belongs beside the list it refines, where the next person reading `RESERVED_PREFIXES` will see it, rather than in one caller that happens to have got it right.
