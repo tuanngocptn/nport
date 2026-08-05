@@ -42,7 +42,8 @@
 
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { access } from "node:fs/promises"
+import { writeFileSync } from "node:fs"
+import { access, mkdir } from "node:fs/promises"
 import { createServer } from "node:http"
 import { connect } from "node:net"
 import { dirname, join } from "node:path"
@@ -562,6 +563,62 @@ async function checkHeartbeatEndpoint() {
   await api(`/v1/tunnels/${subdomain}`, { method: "DELETE", ip: v4(1), body: { ownerToken } })
 }
 
+/**
+ * A broken `~/.nport/config.toml` is reported clearly, and in the user's language.
+ *
+ * `NPORT_HOME` is a real seam in `config::path`, so this needs no access to the developer's own
+ * config. The language assertion is the one that matters: the config failure used to print
+ * `thiserror`'s English Display, because it happened before the language was resolved — defect R20's
+ * shape, on the one path where a user is already puzzled.
+ */
+async function checkConfigErrors() {
+  console.log("\nthe config file")
+  const home = join(ROOT, "node_modules", ".cache", "nport-smoke-home")
+  await mkdir(join(home, ".nport"), { recursive: true })
+  const file = join(home, ".nport", "config.toml")
+
+  const run = (contents, extra) =>
+    new Promise((resolve) => {
+      writeFileSync(file, contents)
+      const cli = spawn("cargo", ["run", "-q", "-p", "nport", "--", "3000", ...extra], {
+        cwd: ROOT,
+        env: { ...process.env, NPORT_HOME: home },
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+      let stderr = ""
+      cli.stderr.on("data", (chunk) => {
+        stderr += chunk
+      })
+      cli.on("exit", (code) => resolve({ code, stderr }))
+      cli.on("error", () => resolve({ code: -1, stderr: "spawn failed" }))
+    })
+
+  const typo = await run("porrt = 3000\n", [])
+  check(typo.code === 1, "a typo in the config is fatal, not a silent default", String(typo.code))
+  check(typo.stderr.includes("CONFIG_UNREADABLE"), "…and carries its registry code", typo.stderr)
+  // The detail is what makes it actionable, and `deny_unknown_fields` is what produces it.
+  check(
+    typo.stderr.includes("expected one of") && typo.stderr.includes("porrt"),
+    "…and names the offending key and the valid ones",
+    typo.stderr,
+  )
+
+  const spanish = await run("porrt = 3000\n", ["--lang", "es"])
+  check(
+    spanish.stderr.includes("no se pudo leer"),
+    "the failure is reported in the requested language",
+    spanish.stderr,
+  )
+
+  // A file that parses must not be fatal — the fatal path is for files that cannot be used.
+  const valid = await run('lang = "es"\n', [])
+  check(
+    !valid.stderr.includes("CONFIG_UNREADABLE"),
+    "a valid config is not reported as broken",
+    valid.stderr,
+  )
+}
+
 /** `--quiet` is the scripting contract, and it is one line or it is broken. */
 async function checkQuiet() {
   console.log("\nthe nport binary, --quiet")
@@ -625,6 +682,7 @@ async function main() {
   await checkHeartbeatEndpoint()
   await checkCli()
   await checkQuiet()
+  await checkConfigErrors()
 }
 
 // Cleanup from a handler rather than after `main`, so an exception or a Ctrl+C still stops the

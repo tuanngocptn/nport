@@ -70,7 +70,7 @@ The v2 CLI got several basics wrong; these are the corrections, and they are all
 5. **Locale is detected**: `--lang` → `NPORT_LANG` → config → `$LC_ALL`/`$LC_MESSAGES`/`$LANG` / `GetUserDefaultLocaleName` → `en`.
 6. **Probe the local port before provisioning.** Failing fast with `LOCAL_PORT_CLOSED` beats creating a tunnel to nothing.
 7. **Shutdown is structured and re-entrant.** A second Ctrl+C must not fire a second delete. v2's signal handler called an async cleanup and never awaited it.
-8. Config is `~/.nport/config.toml`, read lazily, and a corrupt file is a clear error — never a silent default.
+8. Config is `~/.nport/config.toml`, read lazily, and a corrupt file is a clear error — never a silent default. **Report it through the renderer, not with `{error}`**: the language must be resolved without the config's contribution, since the config is what failed, and printing `thiserror`'s Display there is defect R20 reappearing inside `crates/cli`. `NPORT_HOME` overrides the location, which is the seam `pnpm smoke` uses.
 
 ## Common tasks
 

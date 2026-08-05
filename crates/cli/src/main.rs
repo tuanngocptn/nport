@@ -81,7 +81,23 @@ async fn run(args: Args) -> ExitCode {
         Err(error) => {
             // A corrupt file is a clear error, never a silent default — a typo must not quietly
             // change what the tool does.
-            eprintln!("nport: {error} [{}]", error.code());
+            //
+            // **Resolved without the config, because the config is what failed.** This used to print
+            // `{error}` directly, which is `thiserror`'s English Display — so `--lang es` and
+            // `NPORT_LANG=vi` were both ignored on the one path where the user is already confused.
+            // That is defect R20's shape (prose reaching a user outside the i18n path), and it was
+            // structural: the renderer did not exist yet. It does not need the file to exist — the
+            // flag and the environment are exactly the two sources a user can still set while their
+            // config is broken.
+            let renderer = Renderer::new(
+                Lang::detect(args.lang.as_deref(), None, env),
+                Verbosity::Normal,
+            );
+            // Sentence, code, then the specific reason in parentheses — the same shape the port probe
+            // below uses. The reason comes from `toml` and stays English, which is the right trade:
+            // "unknown field `porrt`, expected one of …" is what makes this actionable, and it is a
+            // technical detail rather than a sentence.
+            eprintln!("nport: {} ({error})", renderer.error(error.code()));
             return ExitCode::FAILURE;
         }
     };
@@ -247,6 +263,27 @@ fn env(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A config failure is reported in the user's language, not in English.
+    ///
+    /// The fix this pins is an ordering one: the config error used to be printed before `lang` was
+    /// resolved, because resolution consulted the config — so `--lang` and `NPORT_LANG` were both
+    /// ignored on the one path where the user is already puzzled. Resolution does not need the file:
+    /// the flag and the environment are exactly the two sources still available when it is broken.
+    #[test]
+    fn a_config_failure_still_honours_the_language() {
+        let no_env = |_: &str| None;
+
+        for (flag, expected) in [("vi", "không đọc được"), ("es", "no se pudo leer")] {
+            // `None` for the config's contribution, which is what `main` passes on this path.
+            let renderer = Renderer::new(Lang::detect(Some(flag), None, no_env), Verbosity::Normal);
+            let line = renderer.error(nport_contract::ErrorCode::ConfigUnreadable);
+            assert!(
+                line.contains(expected),
+                "--lang {flag} should have been honoured: {line}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn the_probe_sees_a_listening_port_and_a_closed_one() {
