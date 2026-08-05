@@ -12,7 +12,7 @@ A gate is a hard stop: every criterion must pass before the next phase starts. G
 
 G1 criteria 2, 3, and 4 met; 5 is partial; 1 is unverified for want of dashboard access. Gate G0 is closed: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `cargo fmt --check`, `clippy -D warnings`, `cargo test`, and both codegen steps pass locally and in CI. **Nothing has been deployed** — no Worker, no DNS record, no Cloudflare API call outside the protocol spike's own tunnels.
 
-`crates/protocol` parses tokens, discovers the edge, completes a QUIC handshake, registers connections, **proxies HTTP end-to-end**, **carries WebSockets**, and **sustains a four-connection pool across forced disconnects**. Two and a half of the six open questions in `docs/PROTOCOL.md` §17 are answered, and risks P1, P2, and P3 are closed.
+`crates/protocol` parses tokens, discovers the edge, completes a QUIC handshake, registers connections, **proxies HTTP end-to-end**, **carries WebSockets**, and **sustains a four-connection pool across forced disconnects**. **Four and a half of the six** open questions in `docs/PROTOCOL.md` §17 are answered, and risks P1, P2, and P3 are closed. Two more fell to source reading on 2026-08-05 rather than to the edge — one of them because the question had the wrong shape, not because it was hard.
 
 | G1 criterion | State |
 | --- | --- |
@@ -119,6 +119,10 @@ Step 4 was expected to be the time sink — capnp-RPC interop (P1) plus the no-p
 5. Golden byte fixtures captured for every frame type (`docs/TESTING.md`)
 
 Answer the six open questions in `docs/PROTOCOL.md` §17 as you go and record them there with dates — that is a deliverable of this phase, not a side effect.
+
+**Four are answered, and only one of the four needed the edge.** Q1, Q4 and Q6 came from reading the pinned source; Q3 needed a live handshake. The lesson §17 records after Q1 held twice more: *"unresolvable" sometimes means "not yet read carefully enough"*. Q4 is the one worth knowing about — it asked for the full set of `ConnectionError.cause` strings, and the answer is that there is no such set to enumerate, because `shouldRetry :Bool` carries the decision and `cause` is prose. A question can be unanswerable because it is the wrong question.
+
+The two left are deliberately unequal. **Q2's remaining half** — whether the edge rejects an unknown feature string — source cannot answer, because cloudflared only ever *sends* features; it needs one live registration carrying a bogus one, a minute's work the next time a live tunnel exists. **Q5** — per-account connection and rate limits — is left alone on purpose: answering it means driving someone's account into a Cloudflare limit, and the number would be one Cloudflare can change without telling us. `core::supervisor`'s four-connection bound and retry budget already turn such a limit into an ordinary retryable refusal.
 
 **If G1 fails, take the ADR-0017 ladder** — HTTP/2 transport first, then the `CloudflaredConnector` shim. Do not extend the timebox by pressing on; the ladder exists precisely so that a failure here costs a transport, not the release.
 

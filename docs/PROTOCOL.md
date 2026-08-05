@@ -16,8 +16,8 @@ Specification for `crates/protocol`. NPort speaks this protocol directly instead
 | **Pinned commit** | `3a2b45c2a511fcdd81b68c190938e4ffadbea5dc` (2026-07-22) |
 | Corresponding release | `2026.7.3` |
 | Upstream licence | Apache-2.0 — permits reimplementation and copying the `.capnp` schema, with attribution and NOTICE |
-| Last verified against the live edge | **2026-08-03.** Discovery (§4), QUIC handshake (§5), `registerConnection` (§8), a **full HTTP exchange proxied end-to-end** with headers and body byte-identical in both directions, and a **WebSocket echo over 100 round-trips** plus a 64 KiB frame (§11) |
-| Implementation status | Phase 1 in progress: token parsing, edge discovery, QUIC handshake, registration RPC, HTTP framing, and WebSocket done. The connection pool is next |
+| Last verified against the live edge | **2026-08-03.** Discovery (§4), QUIC handshake (§5), `registerConnection` (§8), a **full HTTP exchange proxied end-to-end** with headers and body byte-identical in both directions, and a **WebSocket echo over 100 round-trips** plus a 64 KiB frame (§11). The DoT fallback in §4 was verified separately on **2026-08-05** against `1.1.1.1:853` |
+| Implementation status | **Phase 1 complete.** Token parsing, all three discovery paths, QUIC handshake, registration RPC, the session that holds the control stream open, HTTP framing, WebSocket, and the four-connection pool. `src/h2.rs` is the one unwritten piece (ADR-0017 Fallback 1). Four of §17's six open questions are answered |
 
 Every constant below cites the Go file and symbol it was read from. **When you need a value that is not in this document, read it from the pinned commit and add it here with a citation — never guess, and never copy a number from a blog post.** Re-pin deliberately: bump the SHA, re-read the cited symbols, update this file, and record the bump in `docs/DECISIONS.md`.
 
@@ -280,6 +280,8 @@ Incoming streams are dispatched by reading the first 6 bytes and matching a sign
 > This is the single most likely first-attempt failure. If registration hangs or the edge closes the stream immediately, check this first.
 
 **2. Write the 8-byte data-stream preamble in a single `write_all`.** Upstream's `readVersion` uses a bare `stream.Read(version)` rather than `io.ReadFull`, so a peer that splits the two version bytes across packets desyncs the reader. Don't be that peer.
+
+**And write it on the response too — it is required, not merely conventional.** `ReadConnectResponseData` refuses a wrong or absent signature outright (§17 Q6), so a `ConnectResponse` sent bare is a decode failure rather than a tolerated shortcut.
 
 ### Length framing
 
@@ -682,11 +684,21 @@ Golden byte fixtures live in `crates/protocol/tests/fixtures/` and are the regre
 
 ## 17. Open questions
 
-Not answered by the source reads so far. The Phase 1 spike must answer the rest; record answers here with the date. Q1 turned out to be answerable from source after all, which is a useful reminder that "unresolvable" sometimes means "not yet read carefully enough".
+Not answered by the source reads so far. The Phase 1 spike must answer the rest; record answers here with the date.
+
+**Four of the six were answerable from source, not from the edge**, and Q1 was the first of them — a useful reminder that "unresolvable" sometimes means "not yet read carefully enough". Q4 and Q6 followed on 2026-08-05 by the same route, and one of them turned out to be the wrong question rather than a hard one. Of the two that remain, one needs a single live registration and the other should not be probed at all.
 
 1. ~~Does the edge dispatch `registerConnection` on `0xea58385c65416035` (`TunnelServer`) or `0xf71695ec7fe85497` (`RegistrationServer`)?~~ — **answered 2026-08-03 from the generated Go: `0xf71695ec7fe85497`.** Never an edge-behaviour question; it was a misreading of the Go wrapper (§8).
-2. **Partly answered 2026-08-03.** No minimum `ClientInfo.version` is enforced: registration succeeded sending `nport/3.0.0-dev`, which does not resemble cloudflared's `YYYY.M.P`. Whether *unknown feature strings* are rejected is still open — only the five defaults have been sent.
+2. **Partly answered 2026-08-03.** No minimum `ClientInfo.version` is enforced: registration succeeded sending `nport/3.0.0-dev`, which does not resemble cloudflared's `YYYY.M.P`. Whether *unknown feature strings* are rejected is still open — only the five defaults have been sent, and **source cannot answer this half**: cloudflared only ever *sends* features, so what the edge does with an unrecognised one is observable only by sending one. It needs one live registration carrying a bogus feature, which is a minute of work the moment a live tunnel exists for another reason.
 3. ~~Does the edge accept a classical-only key exchange (no PQ group)?~~ — **answered 2026-08-03: yes.** `secp256r1` alone completes the handshake.
-4. What is the full set of `ConnectionError.cause` values? Only `EDUPCONN` and substring `Unauthorized` are handled upstream. — **unanswered**
-5. Are there per-account connection-count or registration rate limits? — **unanswered**
-6. Does the edge *require* the data-stream preamble on `ConnectResponse`, or merely tolerate it? cloudflared always writes it. — **unanswered**
+4. ~~What is the full set of `ConnectionError.cause` values?~~ — **answered 2026-08-05 from source: the set is not enumerable, and it does not need to be.** `ConnectionError` carries `shouldRetry :Bool` alongside `cause` (`tunnelrpc/proto/tunnelrpc.capnp` → `ConnectionError @0xf5f383d2785edb86`), and *that* is the edge's authoritative retryability signal. `cause` is a human-readable detail.
+
+   cloudflared compares exactly **one** cause string — `EDUPCONN` (`connection/errors.go` → `DuplicateConnectionError`) — and it does so because that case needs a different *action* than `shouldRetry` can express: rotate to another address rather than retry this one. Every other decision upstream is structural rather than textual: `serverRegistrationErrorFromRPC` branches on whether the error is a `tunnelpogs.RetryableError`, never on its text.
+
+   So the question was the wrong shape. It assumed a closed vocabulary to match against, and the protocol deliberately does not have one — which is fortunate, because a closed vocabulary owned by someone else is exactly what ADR-0018 exists to avoid depending on. `core::retry` already reads `should_retry` as the general case and keeps only the two string comparisons that change the action, so this confirms the design rather than changing it. `Unauthorized` is the one place we deliberately override `shouldRetry: false`, because a freshly created tunnel has not propagated and the same address starts working shortly.
+5. Are there per-account connection-count or registration rate limits? — **unanswered, and deliberately not probed.** Answering it means deliberately driving someone's account into a Cloudflare limit, which is abuse of a service we do not pay for and would teach us a threshold that Cloudflare can change without telling us. The useful mitigation does not depend on the answer: `core::supervisor` already bounds concurrent connections at four per tunnel and gives up on a budget, so a limit shows up as a retryable refusal the existing ladder handles. Promote this only if a real deployment hits something that looks like a ceiling.
+6. ~~Does the edge *require* the data-stream preamble on `ConnectResponse`, or merely tolerate it?~~ — **answered 2026-08-05 from source: required.** `tunnelrpc/quic/request_client_stream.go` → `ReadConnectResponseData` calls `determineProtocol` and fails outright unless the six bytes are `dataStreamProtocolSignature`: `fmt.Errorf("wrong protocol signature %v", signature)`. It then consumes the two version bytes before handing the remainder to the capnp decoder. A response without the preamble is not tolerated — it is a decode error, and the two version bytes would be eaten as capnp framing.
+
+   **One honest caveat:** this is cloudflared's own reader for the same wire package, not the edge's. Cloudflare's edge is closed source, so this is strong symmetric evidence — same package, and cloudflared's writer always emits the preamble — rather than a direct observation. It is enough to settle the implementation question, which was only ever "may we omit it?": no. `write_connect_response` already writes it unconditionally, so nothing changes in code.
+
+   Worth recording alongside: `readVersion`'s own comment is *"This is a NO-OP for now. We could cause a branching if we wanted to use multiple versions."* That is the silent-change hook §6 warns about, stated by upstream in the source.
