@@ -27,7 +27,8 @@
     "dev:desktop": "pnpm --filter @nport/desktop dev",
     "dev:cli": "cargo run -p nport -- 3000 --backend http://localhost:8787",
     "smoke": "node scripts/smoke.mjs",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "deploy:check": "node scripts/deploy-check.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.6",

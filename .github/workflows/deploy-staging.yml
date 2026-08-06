@@ -1,0 +1,202 @@
+name: Deploy staging
+
+# Staging lives on its own Cloudflare account with its own zone (ADR-0038), so nothing here can
+# reach production even if every value in it were wrong. That is the point of the separation: the
+# first deployments this project has ever run should not be able to touch the account that will
+# one day hold real tunnels.
+#
+# Manual dispatch as well as push, because the first few runs want a human choosing the moment.
+
+on:
+  push:
+    branches: [v3-new-architect]
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one half-way: an interrupted `wrangler deploy` can leave a
+# Worker live on new code with a Durable Object migration half-applied, and migrations are
+# forward-only (`docs/RELEASE.md`). Queueing is the slow, correct behaviour.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+
+jobs:
+  # ── Everything that can fail without an account ────────────────────────────────────────
+  #
+  # Deliberately first and deliberately complete. A deploy that fails after `wrangler deploy` has
+  # already run has changed the world; a deploy that fails here has not.
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      # Wrangler's `vars` are `notInheritable`, so an environment block that is missing a key
+      # deploys happily and answers with numbers nobody configured. Nothing in `wrangler deploy`
+      # warns about it.
+      - name: Environment shape
+        run: pnpm deploy:check
+
+      # Resolves the real config against the real schema without contacting Cloudflare. Catches a
+      # malformed route or a binding that does not exist before an account is involved.
+      - name: Dry-run both Workers
+        run: |
+          pnpm --filter @nport/api exec wrangler deploy --dry-run --env staging
+          pnpm --filter @nport/web exec wrangler deploy --dry-run --env staging || \
+            echo "note: the site needs a build before a dry run means anything; deploy job covers it"
+
+  # ── Infrastructure ─────────────────────────────────────────────────────────────────────
+  terraform:
+    name: Terraform
+    needs: gate
+    runs-on: ubuntu-latest
+    environment: staging
+    defaults:
+      run:
+        working-directory: infra/terraform/staging
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.9
+          terraform_wrapper: false
+
+      # The backend cannot take variables, so it is written here from the account id rather than
+      # committed. R2's S3 API is account-scoped: the endpoint *is* the account.
+      - name: Write the backend config
+        run: |
+          cat > backend.hcl <<EOF
+          bucket    = "${{ vars.TF_STATE_BUCKET || 'nport-tfstate' }}"
+          endpoints = { s3 = "https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com" }
+          EOF
+
+      - run: terraform fmt -check -diff
+      - run: terraform init -input=false -backend-config=backend.hcl
+      - run: terraform validate
+
+      - name: Plan
+        run: terraform plan -input=false -out=tfplan -var "account_id=${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" -var "zone_name=${{ vars.STAGING_ZONE || 'nport.online' }}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+      # Applies the plan file, not a fresh evaluation — so what lands is exactly what was reviewed
+      # in the step above, even if something changed underneath in between.
+      - name: Apply
+        run: terraform apply -input=false -auto-approve tfplan
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+  # ── The control plane ──────────────────────────────────────────────────────────────────
+  api:
+    name: Deploy API
+    needs: terraform
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # No secrets are set here, and that is the rule rather than an omission: `docs/OPERATIONS.md`
+      # § Secrets keeps the Worker's runtime credentials out of Actions entirely. They are put in
+      # place once with `wrangler secret put --env staging` and survive every deploy after that.
+      - name: wrangler deploy
+        run: pnpm --filter @nport/api exec wrangler deploy --env staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ── The site ───────────────────────────────────────────────────────────────────────────
+  web:
+    name: Deploy site
+    needs: terraform
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # OpenNext builds and deploys with its own command; `wrangler deploy` on `.open-next/worker.js`
+      # would ship a Worker with no assets and still return 200 (`apps/web/CLAUDE.md` § Gotchas).
+      - name: Build and deploy
+        run: |
+          pnpm --filter @nport/web exec opennextjs-cloudflare build --env staging
+          pnpm --filter @nport/web exec opennextjs-cloudflare deploy --env staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ── Proof ──────────────────────────────────────────────────────────────────────────────
+  #
+  # A deploy that reports success and serves nothing is v2's smoke test all over again — it checked
+  # that a process stayed alive and would have passed while serving an empty site
+  # (`docs/TESTING.md`). These assert on *content*: that the control plane answers, and that the
+  # limits it reports are the staging numbers rather than whatever a missing var fell back to.
+  verify:
+    name: Verify
+    needs: [api, web]
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Control plane health
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS "https://${{ vars.STAGING_API_HOST || 'api.nport.online' }}/v1/health" -o health.json; then
+              cat health.json; exit 0
+            fi
+            echo "not ready yet (attempt $attempt); a custom domain can take a moment to propagate"
+            sleep 10
+          done
+          echo "control plane never answered"; exit 1
+
+      # The var that would be missing if the `notInheritable` trap had been walked into. Asserting a
+      # value rather than a 200 is what makes this a check instead of a formality.
+      - name: The staging limits are the ones deployed
+        run: |
+          curl -fsS "https://${{ vars.STAGING_API_HOST || 'api.nport.online' }}/v1/meta" -o meta.json
+          cat meta.json
+          node -e '
+            const meta = JSON.parse(require("fs").readFileSync("meta.json", "utf8"));
+            // Both are read straight from vars by src/routes/meta.ts, and both differ from the
+            // top-level block — so either being wrong means the staging env did not apply.
+            const expected = { powDifficulty: 16, tunnelDurationMs: 3600000 };
+            const wrong = Object.entries(expected).filter(([key, value]) => meta[key] !== value);
+            if (wrong.length > 0) {
+              for (const [key, value] of wrong) {
+                console.error(`${key} is ${JSON.stringify(meta[key])}, expected the staging value ${value}`);
+              }
+              console.error("the env.staging block did not apply — check `vars` is complete, it does not inherit");
+              process.exit(1);
+            }
+            console.log("staging vars confirmed live");
+          '
+
+      - name: The site answers
+        run: curl -fsS -o /dev/null -w "%{http_code}\n" "https://${{ vars.STAGING_SITE_HOST || 'nport.online' }}/"

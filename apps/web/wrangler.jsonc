@@ -19,7 +19,24 @@
   "routes": [
     { "pattern": "nport.link", "custom_domain": true },
     { "pattern": "www.nport.link", "custom_domain": true }
-  ]
+  ],
+
+  // Staging, on the separate account (ADR-0038). No `vars` here to repeat — the site has none — but
+  // the same `notInheritable` rule would apply the moment one is added, so add it to both blocks.
+  "env": {
+    "staging": {
+      "name": "nport-web-staging",
+      "routes": [
+        { "pattern": "nport.online", "custom_domain": true },
+        { "pattern": "www.nport.online", "custom_domain": true }
+      ],
+      "observability": { "enabled": true },
+      "assets": {
+        "directory": ".open-next/assets",
+        "binding": "ASSETS"
+      }
+    }
+  }
 
   // No KV or R2 incremental cache: the site is static content plus generated error
   // pages, with no ISR. Add one only if a route genuinely needs revalidation.

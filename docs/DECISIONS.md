@@ -741,3 +741,36 @@ The consequence is that **the server could not shorten its own grace period**. D
 - **The end-to-end beat rate is not provable locally, and `pnpm smoke` says so rather than pretending.** The obvious check — "is the lease alive past its grace?" — cannot work while the credential is fake: the connector exhausts its retries within about twenty seconds and deletes its own lease, so a later query returns 404 for the wrong reason. A check that goes green when beats land and red when the pool gives up measures neither, and this one did exactly that until it was caught by reverting the fix and watching it pass anyway. What the smoke test asserts instead is the *endpoint*: a heartbeat is accepted, it does not move `expiresAt` (defect R6), and one from the wrong holder is refused. The client's rate is covered by unit tests, and proving it end to end is step 3 of `docs/ROADMAP.md` § The critical path.
 
 **Rejected.** *Publishing the grace period itself and letting the client divide* — the server already did the division, and two places computing the same headroom is how they drift. *No clamp* — a zero would spin the loop and an hour would silently disable renewal, which looks exactly like the lease expiring on its own. *Failing the tunnel when `/v1/meta` is unreachable* — it makes a discovery endpoint load-bearing for provisioning, which is the coupling ADR-0031 spent an ADR avoiding for the registry.
+
+## ADR-0038 — Staging is a separate Cloudflare account, not a separate zone
+
+**Status.** Accepted, 2026-08-06.
+
+**Context.** Nothing has ever been deployed. The first deployments this project makes will be run by people learning the deploy path, against a control plane that creates and deletes DNS records at runtime and holds a credential that can provision tunnels on the whole account. The obvious cheap option — one account, `staging.nport.link` delegated as a second zone — shares three things that matter: the account's tunnel quota, the account-scoped API token, and the blast radius of any account-level mistake. `docs/ARCHITECTURE.md` §1 is explicit that the design assumes one Cloudflare account per deployment, and ADR-0031 exists because that assumption has a ceiling.
+
+**Decision.** Staging runs in its own Cloudflare account on its own domain, `nport.online`. Production keeps `nport.link`. The two share no token, no zone, no tunnel quota, and no state.
+
+**Consequences.**
+
+- A staging mistake cannot reach production, including one made by CI holding a token. This is the property that makes it acceptable to give Actions a deploy credential at all.
+- Two accounts to pay for and two to keep in the runbook. Both are free-plan eligible.
+- `wrangler.jsonc` names no account id; `CLOUDFLARE_ACCOUNT_ID` in the deploy environment selects it. Editing a constant cannot send a deploy to the wrong account.
+- The staging zone gets the *same* subdomain deny list, so `api`, `www` and the rest stay unclaimable there too. `staging` is already on that list, which is why `staging.nport.link` would have been an odd name to hand to a real tunnel.
+
+## ADR-0039 — Terraform manages infrastructure; it never mints a credential CI could use
+
+**Status.** Accepted, 2026-08-06.
+
+**Context.** `docs/OPERATIONS.md` § Secrets states that the Worker's runtime secrets "are set with `wrangler secret put` and never pass through Actions". The Cloudflare provider can create `cloudflare_api_token`, and doing so is genuinely attractive: the token needs exact scopes (Account → Cloudflare Tunnel → Edit, Zone → DNS → Edit), getting them right by hand is error-prone, and the runbook currently asks a human to do it.
+
+But a stack that CI applies is a stack CI can make emit anything it declares. If `terraform apply` can create a Tunnel-Edit token, then compromising the Actions runner yields the authority to provision tunnels on the account — which is precisely the authority the "never in CI" rule withholds. The token value would also land in state, where it is readable by anything holding the R2 keys.
+
+**Decision.** Terraform owns zone settings and the edge rate-limit ruleset. It does not create API tokens, and it does not manage Worker secrets. Both are bootstrap steps performed by a person, documented in `infra/terraform/README.md`.
+
+Terraform also does not manage the Workers, their routes, or their custom domains: `custom_domain: true` in `wrangler.jsonc` creates the DNS record, and two tools on one record fight on every deploy. The zone is a `data` source rather than a resource, so `terraform destroy` cannot take the zone with it.
+
+**Consequences.**
+
+- The stack is small. Its value is the rate-limit rule — which `docs/OPERATIONS.md` § Cloudflare setup step 7 had carried as "_TBD_ threshold" — plus settings that are otherwise dashboard clicks, and a frame production can copy.
+- Bootstrap is not fully automated, deliberately. The manual steps are exactly the ones whose automation would hand CI more authority than it should hold.
+- If tunnel records ever need to be *audited* rather than managed, that is a read-only job for the reconciliation cron, which already does it — not an import into this stack.

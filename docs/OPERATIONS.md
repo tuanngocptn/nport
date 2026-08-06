@@ -21,6 +21,22 @@ Runbook for the production service. v2 ran for years with no runbook; this is th
 
 Unlike v2, both custom domains are declared in `wrangler.jsonc` `routes` with `custom_domain: true` — not configured by hand in the dashboard. The repo is the source of truth.
 
+### Staging
+
+A **separate Cloudflare account** on a separate domain (ADR-0038), so nothing in it can reach the table above.
+
+| Resource | Identifier | Managed by |
+| --- | --- | --- |
+| Cloudflare account | staging-only, distinct from production | — |
+| Cloudflare zone | `nport.online` | added by hand; settings by `infra/terraform/staging` |
+| Worker (API) | `nport-api-staging` → `api.nport.online` | `apps/api/wrangler.jsonc` § `env.staging` |
+| Worker (site) | `nport-web-staging` → `nport.online`, `www.nport.online` | `apps/web/wrangler.jsonc` § `env.staging` |
+| Edge rate limit | ruleset on `api.nport.online` | `infra/terraform/staging` |
+| Terraform state | R2 bucket `nport-tfstate` | created once by hand — it holds its own state |
+| Deploy | `.github/workflows/deploy-staging.yml` | gate → terraform → workers → verify |
+
+Staging runs a **1-hour lease** and a **16-bit proof-of-work floor** against production's 4 hours and 20 bits: it exists to be exercised, so a forgotten test tunnel expires within the hour and an end-to-end run does not spend seconds per create. `infra/terraform/README.md` § Bootstrap is the one-time setup.
+
 ## Secrets
 
 ### Worker runtime (`wrangler secret put`, per environment)
@@ -40,7 +56,9 @@ Unlike v2, both custom domains are declared in `wrangler.jsonc` `routes` with `c
 
 `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `NPM_TOKEN`, `CARGO_REGISTRY_TOKEN`, `HOMEBREW_TAP_TOKEN`, `APPLE_ID` + `APPLE_TEAM_ID` + `APPLE_APP_PASSWORD` + `APPLE_CERTIFICATE` (+ password), `WINDOWS_CERTIFICATE` (+ password), `TAURI_SIGNING_PRIVATE_KEY` (+ password).
 
-Never in CI: the Worker runtime secrets above. They are set with `wrangler secret put` and never pass through Actions.
+Never in CI: the Worker runtime secrets above. They are set with `wrangler secret put` and never pass through Actions. **Terraform does not create them either, and does not create the tokens** (ADR-0039) — a stack CI can apply must not be able to mint a credential that provisions tunnels.
+
+Staging takes the same list with `--env staging`, against its own account's values. The GitHub Environment `staging` holds only what a *deploy* needs: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and the two R2 keys for Terraform state.
 
 ### Two names that must never be set on a deployed Worker
 
@@ -67,7 +85,7 @@ For a fresh deployment (also the basis of `docs/SELF_HOSTING.md`):
 4. `wrangler secret put` each runtime secret.
 5. Confirm `api.<domain>` resolves to the Worker and `GET /v1/health` returns 200.
 6. `wrangler deploy` in `apps/web`.
-7. Zone rate-limiting rule on `api.<domain>` — _TBD_ threshold.
+7. Zone rate-limiting rule on `api.<domain>` — `infra/terraform/staging` applies it: 600 requests / 60 s per IP per colo, blocked for 10 minutes. Deliberately well above the Worker's own 60/min per-source limiter, which it sits outside rather than replaces.
 8. Verify `api` and the rest of the reserved list cannot be claimed.
 
 ## Verifying the Cloudflare API surface

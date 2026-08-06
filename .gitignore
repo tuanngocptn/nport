@@ -60,3 +60,14 @@ npm-debug.log*
 # Claude Code's scratch worktrees. Each is a full git repository, so `git add -A` picks it up as a
 # gitlink — a commit pointing at a clone nobody else has. Ignored rather than remembered.
 .claude/worktrees/
+
+# Terraform — state, plans, and the local configs that hold account identifiers.
+# `terraform.tfstate` should never appear: the backend is R2 (infra/terraform/README.md).
+# `.terraform.lock.hcl` is deliberately NOT here — it pins provider versions and hashes, and CI
+# reproducing a plan depends on it, the same argument as `rust-toolchain.toml` and the pnpm lockfile.
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+backend.hcl
+terraform.tfvars
