@@ -48,6 +48,13 @@ Actions a deploy credential at all.
 Both are made the same way — Dashboard → **Manage Account → Account API Tokens → Create Token →
 Create Custom Token** — and both use `Edit` in the third dropdown on every row.
 
+They are separate because they live in different places and are worth different amounts. The CI
+token sits in GitHub and runs for a few minutes per push. The Worker's token sits *inside the running
+control plane*, which is account-free by design and therefore answers unauthenticated requests from
+anyone on the internet. Handing that process the deploy credential would mean any leak from it —
+a bad log line, an unlucky error path, a dependency — yields the authority to deploy code and rewrite
+the zone, instead of the authority to make one tunnel.
+
 **Account-owned, not user-owned.** Cloudflare offers both; these belong under the account. An
 account token survives the person who made it being removed from the account, and it *cannot* carry
 a user-scoped permission at all — which forecloses the mistake of granting `User → API Tokens` to
@@ -58,13 +65,6 @@ One consequence worth knowing: an account token cannot enumerate which accounts 
 `wrangler` must be told. `CLOUDFLARE_ACCOUNT_ID` is already passed on every job that runs it, which
 is why this costs nothing here — but it is why an account token appears "broken" in a local shell
 where that variable is unset.
-
-They are separate because they live in different places and are worth different amounts. The CI
-token sits in GitHub and runs for a few minutes per push. The Worker's token sits *inside the running
-control plane*, which is account-free by design and therefore answers unauthenticated requests from
-anyone on the internet. Handing that process the deploy credential would mean any leak from it —
-a bad log line, an unlucky error path, a dependency — yields the authority to deploy code and rewrite
-the zone, instead of the authority to make one tunnel.
 
 ### 2a. The CI token
 
@@ -136,8 +136,12 @@ set. One name, three uses, so they cannot disagree.
 | secret | `CLOUDFLARE_ACCOUNT_ID` | this account's id |
 | secret | `TF_API_TOKEN` | step 3 |
 
-**Four secrets and nothing else.** Only `WORKER_CF_API_TOKEN` reaches the Worker, and the HCP organization is not here — it is passed by the workflow caller, since it is in the workspace URL and not a secret at all. Add **required reviewers** here if a deploy should
-pause for a human — that is the mechanism for production, rather than a separate workflow.
+**Four secrets and nothing else.** Only `WORKER_CF_API_TOKEN` reaches the Worker. The HCP
+organization is not here: it is passed by the workflow caller, since it is in the workspace URL and
+not a secret at all.
+
+Add **required reviewers** on this environment if a deploy should pause for a human — that is the
+mechanism for production, rather than a separate workflow.
 
 ## 5. Deploy
 
@@ -157,7 +161,7 @@ shows up, and reading it beats reading a failed job.
 cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars    # account_id and zone_name
 
-export CLOUDFLARE_API_TOKEN=<step 2>
+export CLOUDFLARE_API_TOKEN=<step 2a>
 export TF_CLOUD_ORGANIZATION=<your organization>
 export TF_WORKSPACE=nport-staging
 
