@@ -101,6 +101,21 @@ export const ERRORS = {
     cause: "Missing or non-matching `ownerToken`",
     action: "Only the creator can modify a lease. Wait for expiry",
   },
+  /**
+   * Raised by the **registry**, not by a node — the only code in the set a tunnel user cannot
+   * reach. It answers `POST /v1/nodes`, which nothing but a node operator ever calls.
+   */
+  REGISTRATION_REFUSED: {
+    origin: "server",
+    status: 403,
+    retryable: false,
+    message: "The registry refused this node registration.",
+    cause:
+      "The domain proof is missing or does not match, or the node's own `GET /v1/meta` did not answer",
+    action:
+      "Publish the TXT record `docs/ARCHITECTURE.md` §1 describes; `details.reason` says which check failed",
+    details: ["reason"],
+  },
 
   // ── 404 / 409 / 410 · state ──────────────────────────────────────────────────────
   TUNNEL_NOT_FOUND: {
@@ -260,6 +275,28 @@ export const ERRORS = {
     cause: "Cannot write the config directory",
     action: "Check permissions on `~/.nport`",
     details: ["path"],
+  },
+  /**
+   * Discovery ran and produced nothing usable. Distinct from `NODE_UNREACHABLE`, which is about
+   * one node: this one says the *whole* list was exhausted, so failing over has nowhere left to go.
+   */
+  NO_NODE_AVAILABLE: {
+    origin: "client",
+    status: null,
+    retryable: true,
+    message: "No NPort node is available right now.",
+    cause: "Discovery found no listed node that answered and had capacity",
+    action: "Try again shortly, or pass `--backend <url>` to use a node directly",
+  },
+  NODE_UNREACHABLE: {
+    origin: "client",
+    status: null,
+    retryable: true,
+    message: "That NPort node did not answer.",
+    cause: "A node's `GET /v1/meta` probe failed or timed out",
+    action:
+      "Usually transient, and nport moves on to the next node. Only fatal when `--node` pinned this one",
+    details: ["nodeId"],
   },
   EDGE_DISCOVERY_FAILED: {
     origin: "client",

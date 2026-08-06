@@ -1,9 +1,13 @@
 /**
  * Route definitions: method, path, what each carries, and which errors it can return.
  *
- * This table is what `pnpm codegen` walks to emit `schema/nport-api.openapi.json`. Keeping it as
- * data rather than as decorators on Hono handlers means the OpenAPI document can be generated
- * without importing the Worker, so codegen has no dependency on `workerd` or on any binding.
+ * **Two tables, one per service.** [`ROUTES`] is a node's API and emits
+ * `schema/nport-api.openapi.json`; [`REGISTRY_ROUTES`] is the registry's and emits
+ * `schema/nport-registry.openapi.json` (ADR-0046). `pnpm codegen` walks both.
+ *
+ * Keeping them as data rather than as decorators on Hono handlers means each OpenAPI document can be
+ * generated without importing its Worker, so codegen has no dependency on `workerd` or on any
+ * binding — which matters more now that one of the two Workers does not exist yet.
  */
 
 import type { z } from "zod"
@@ -17,6 +21,9 @@ import {
   heartbeatRequestSchema,
   heartbeatResponseSchema,
   metaResponseSchema,
+  nodeListResponseSchema,
+  registerNodeRequestSchema,
+  registerNodeResponseSchema,
   tunnelStatusResponseSchema,
 } from "./schemas"
 
@@ -142,7 +149,72 @@ export const ROUTES = [
   },
 ] as const satisfies readonly RouteDefinition[]
 
+/**
+ * The **registry's** routes — a different service, so a different table (ADR-0046).
+ *
+ * `apps/registry` is its own deployable on its own host, holds no Cloudflare credentials, and
+ * provisions nothing (ADR-0031). Merging these into [`ROUTES`] would put two services in one OpenAPI
+ * document under one `servers` entry, and a generated client would then call
+ * `api.nport.link/v1/nodes` — a path that does not exist there. Two tables, two documents.
+ *
+ * `GET /v1/challenge` appears in both because both services gate writes with proof of work, using the
+ * same solver and the same schema. That is deliberate reuse of a shape, not a shared endpoint: the
+ * challenges are signed with different secrets and are not interchangeable.
+ */
+export const REGISTRY_ROUTES = [
+  {
+    method: "GET",
+    path: "/v1/challenge",
+    summary: "Issue a proof-of-work challenge for a node registration.",
+    response: challengeResponseSchema,
+    successStatus: 200,
+    requiresOwnerToken: false,
+    idempotent: true,
+    errors: [...UNIVERSAL_ERRORS],
+  },
+  {
+    method: "GET",
+    path: "/v1/nodes",
+    summary: "The node directory. Advisory — clients cache it.",
+    response: nodeListResponseSchema,
+    successStatus: 200,
+    requiresOwnerToken: false,
+    idempotent: true,
+    // No NO_NODE_AVAILABLE here: an empty directory is a 200 with an empty array. That code is
+    // client-side, raised once discovery has exhausted the list, and the registry never sends it.
+    errors: [...UNIVERSAL_ERRORS],
+  },
+  {
+    method: "POST",
+    path: "/v1/nodes",
+    summary: "Register or refresh a node, behind proof of work and a DNS TXT domain proof.",
+    request: registerNodeRequestSchema,
+    response: registerNodeResponseSchema,
+    successStatus: 201,
+    // There is no `ownerToken` for a node. Authority to change an entry is re-proved on every call by
+    // the TXT record, which is better than a bearer token an operator would have to store: it cannot
+    // leak from a config file, and it is revoked by deleting a DNS record.
+    requiresOwnerToken: false,
+    // Its *effect* is an upsert, so re-registering is safe. Marked false anyway, for the same reason
+    // `POST /v1/tunnels` is: a replayed request cannot succeed, because the challenge is single-use.
+    // A caller that wants to try again calls the method again, which takes a fresh challenge.
+    idempotent: false,
+    errors: [
+      ...UNIVERSAL_ERRORS,
+      "POW_REQUIRED",
+      "POW_INVALID",
+      "CHALLENGE_EXPIRED",
+      "REGISTRATION_REFUSED",
+    ],
+  },
+] as const satisfies readonly RouteDefinition[]
+
 /** `GET /v1/challenge` → the definition, for tests and for codegen. */
 export function findRoute(method: HttpMethod, path: string): RouteDefinition | undefined {
   return ROUTES.find((route) => route.method === method && route.path === path)
+}
+
+/** The same lookup against the registry's table. */
+export function findRegistryRoute(method: HttpMethod, path: string): RouteDefinition | undefined {
+  return REGISTRY_ROUTES.find((route) => route.method === method && route.path === path)
 }

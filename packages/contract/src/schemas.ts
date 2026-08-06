@@ -14,6 +14,13 @@
 import { z } from "zod"
 
 import { ERROR_CODES } from "./errors"
+import {
+  MAX_NODE_DOMAIN_LENGTH,
+  MAX_NODE_REGION_LENGTH,
+  MAX_NODE_URL_LENGTH,
+  MAX_NODE_VERSION_LENGTH,
+  NODE_ID_MAX_LENGTH,
+} from "./node"
 import { MAX_INPUT_LENGTH, MAX_LENGTH, MIN_LENGTH } from "./subdomain"
 
 /**
@@ -189,9 +196,137 @@ export const metaResponseSchema = z
     powDifficulty: z.number().int().min(1).max(32),
     maxConcurrentPerSource: z.number().int().positive(),
     maxCreatesPerHourPerSource: z.number().int().positive(),
+    /**
+     * Current usage, so discovery can pick a node with room (ADR-0031).
+     *
+     * **Both optional, and that is not laziness.** This endpoint is read by `crates/core::discovery`
+     * across *third-party* nodes, which may be running an older build — and `contract-v1` is frozen,
+     * so a required field would make an older node's `/v1/meta` fail to parse and delist it for
+     * being out of date rather than for being full. Absent means "capacity unknown", which discovery
+     * treats as usable: a node that does not say is not a node that says no.
+     */
+    activeTunnels: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe("Live tunnels on this node right now."),
+    maxActiveTunnels: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("This node's global cap. With `activeTunnels`, the headroom a client selects on."),
   })
   .describe(
     "Limits, discovered rather than hardcoded, so they can be tuned without a client release.",
+  )
+
+// ── The registry · GET /v1/nodes, POST /v1/nodes ───────────────────────────────────
+
+/**
+ * How a node is doing, as the **registry's own probe** last saw it.
+ *
+ * Health only. Whether a node is *full* is a separate question answered by `activeTunnels` against
+ * `maxActiveTunnels`, and conflating them would leave a client unable to tell "try later" from "try
+ * elsewhere" — the design draws that distinction too, disabling full and offline nodes for different
+ * reasons (`docs/FEATURES.md` §3).
+ */
+export const nodeStatusSchema = z
+  .enum(["up", "degraded", "down"])
+  .describe(
+    "up: the last probe answered. degraded: recent probes have been failing. down: the last probe did not answer.",
+  )
+
+/**
+ * One entry in the directory.
+ *
+ * Every field here is either declared by the operator at registration or **observed by the registry's
+ * probe** — never claimed by a node about its own capacity. That split is deliberate: a node that
+ * could assert `activeTunnels: 0` would be selected first by every client, which is a free denial of
+ * service against whoever runs it, and the registry has to fetch `/v1/meta` anyway to know the node
+ * is alive.
+ *
+ * **Latency is absent on purpose.** The design shows it (`docs/FEATURES.md` §3) and it has to be
+ * client-measured: the registry's distance to a node says nothing about the user's, and a number
+ * measured in one datacentre and shown to someone on another continent is worse than no number.
+ *
+ * **Plan tier is absent too**, which the design does show. It is an unverifiable claim about someone
+ * else's Cloudflare account, and the fact a client actually selects on is headroom — which the two
+ * capacity fields give directly. ADR-0046.
+ */
+export const nodeSchema = z
+  .object({
+    id: z
+      .string()
+      .describe("Stable, operator-chosen. Appears in `--node` and in `details.nodeId`."),
+    url: z
+      .string()
+      .url()
+      .describe("The node's control-plane base URL, e.g. `https://api.nport.link`."),
+    domain: z
+      .string()
+      .describe(
+        "The domain this node issues tunnels on. One domain per node — a zone cannot span accounts.",
+      ),
+    region: z
+      .string()
+      .optional()
+      .describe("Advertised hint only, e.g. `apac`. Never verified; never used for selection."),
+    version: z.string().describe("The node's build version, as it declared at registration."),
+    status: nodeStatusSchema,
+    activeTunnels: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe("From this node's `/v1/meta` at the last probe. Absent means unknown, not zero."),
+    maxActiveTunnels: z.number().int().positive().optional(),
+    lastProbedAt: timestampSchema.describe(
+      "When the registry last got an answer out of this node.",
+    ),
+  })
+  .describe("A node in the directory, as the registry last observed it.")
+
+export const nodeListResponseSchema = z
+  .object({
+    nodes: z.array(nodeSchema),
+    /**
+     * How long a client should reuse its cached copy.
+     *
+     * Published rather than hardcoded for the same reason `heartbeatIntervalMs` is (ADR-0037): the
+     * registry can then slow every client down without a release. **The client caches to
+     * `~/.nport/nodes.json` and the list is advisory** — a registry that is down costs nothing,
+     * which is what lets a single directory not be a single point of failure (ADR-0031).
+     */
+    refreshAfterMs: z.number().int().positive(),
+  })
+  .describe(
+    "The directory. Includes down and full nodes, so a client can show them as unavailable.",
+  )
+
+export const registerNodeRequestSchema = z
+  .object({
+    id: z.string().min(1).max(NODE_ID_MAX_LENGTH),
+    url: z.string().url().max(MAX_NODE_URL_LENGTH),
+    domain: z.string().min(1).max(MAX_NODE_DOMAIN_LENGTH),
+    region: z.string().max(MAX_NODE_REGION_LENGTH).optional(),
+    version: z.string().min(1).max(MAX_NODE_VERSION_LENGTH),
+    // Same gate as a tunnel create, reusing the same solver and the same ledger. Bounded here for
+    // ADR-0034's reason: both are hashed before anything about them is trusted.
+    challenge: z.string().max(MAX_CHALLENGE_LENGTH),
+    nonce: z.string().max(MAX_NONCE_LENGTH),
+  })
+  .describe(
+    "Register or refresh a node. Carries no capacity claim — the registry probes `/v1/meta` for that.",
+  )
+
+export const registerNodeResponseSchema = z
+  .object({
+    node: nodeSchema,
+  })
+  .describe(
+    "The entry as stored, including the capacity and status the registry observed rather than what was sent.",
   )
 
 // ── Errors ─────────────────────────────────────────────────────────────────────────
@@ -221,3 +356,8 @@ export type DeleteTunnelRequest = z.infer<typeof deleteTunnelRequestSchema>
 export type TunnelStatusResponse = z.infer<typeof tunnelStatusResponseSchema>
 export type MetaResponse = z.infer<typeof metaResponseSchema>
 export type ErrorResponse = z.infer<typeof errorResponseSchema>
+export type NodeStatus = z.infer<typeof nodeStatusSchema>
+export type Node = z.infer<typeof nodeSchema>
+export type NodeListResponse = z.infer<typeof nodeListResponseSchema>
+export type RegisterNodeRequest = z.infer<typeof registerNodeRequestSchema>
+export type RegisterNodeResponse = z.infer<typeof registerNodeResponseSchema>

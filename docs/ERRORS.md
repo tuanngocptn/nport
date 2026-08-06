@@ -33,7 +33,7 @@ Four consumers reference these codes, which is why they live in one registry rat
 
 ## Server errors
 
-19 codes. These cross the network and carry an HTTP status.
+20 codes. These cross the network and carry an HTTP status.
 
 | Code | Status | Retry | `details` | Cause | What the user should do |
 | --- | --- | --- | --- | --- | --- |
@@ -42,6 +42,7 @@ Four consumers reference these codes, which is why they live in one registry rat
 | `INVALID_SUBDOMAIN` | 400 | no | `reason` | Fails normalization or validation (`docs/ARCHITECTURE.md` §7) | Choose a name of 3–63 characters using `a-z`, `0-9`, and `-` |
 | `POW_INVALID` | 400 | no | — | Nonce does not satisfy the challenge, or the challenge HMAC does not verify | Re-fetch a challenge and re-solve; a client bug if repeated |
 | `INVALID_OWNER_TOKEN` | 403 | no | — | Missing or non-matching `ownerToken` | Only the creator can modify a lease. Wait for expiry |
+| `REGISTRATION_REFUSED` | 403 | no | `reason` | The domain proof is missing or does not match, or the node's own `GET /v1/meta` did not answer | Publish the TXT record `docs/ARCHITECTURE.md` §1 describes; `details.reason` says which check failed |
 | `SUBDOMAIN_RESERVED` | 403 | no | — | Name is on the reserved list | Choose another name |
 | `TUNNEL_NOT_FOUND` | 404 | no | — | No lease for that subdomain | Nothing to do; it may already have expired |
 | `DNS_CONFLICT` | 409 | no | — | A DNS record exists that NPort cannot prove it owns — wrong type, or content not `<tunnel_id>.cfargotunnel.com` | Choose another name. **Operator action required**; see `docs/OPERATIONS.md` |
@@ -67,7 +68,7 @@ Four consumers reference these codes, which is why they live in one registry rat
 
 ## Client errors
 
-11 codes. Raised locally by `crates/cli` and `crates/core`. They never cross the network, but they share the registry so every failure the user can see has a stable code, a translation key, and a docs anchor.
+13 codes. Raised locally by `crates/cli` and `crates/core`. They never cross the network, but they share the registry so every failure the user can see has a stable code, a translation key, and a docs anchor.
 
 | Code | Retry | `details` | Cause | What the user should do |
 | --- | --- | --- | --- | --- |
@@ -80,6 +81,8 @@ Four consumers reference these codes, which is why they live in one registry rat
 | `LOCAL_PORT_CLOSED` | no | `port` | Nothing is listening on the requested port | Start the local server first. Checked **before** provisioning, so no tunnel is wasted |
 | `LOCAL_PORT_INVALID` | no | — | Port is not in `1..=65535` | Fix the argument |
 | `LOCAL_REQUEST_FAILED` | no | — | The local server refused or reset a proxied request | The tunnel is fine; the local app is not |
+| `NO_NODE_AVAILABLE` | yes | — | Discovery found no listed node that answered and had capacity | Try again shortly, or pass `--backend <url>` to use a node directly |
+| `NODE_UNREACHABLE` | yes | `nodeId` | A node's `GET /v1/meta` probe failed or timed out | Usually transient, and nport moves on to the next node. Only fatal when `--node` pinned this one |
 | `SHUTDOWN_TIMEOUT` | no | — | Graceful shutdown exceeded its deadline | Informational; the lease still expires server-side |
 | `TUNNEL_LOST` | no | — | All edge connections dropped and reconnection was exhausted | Check the network; the CLI exits non-zero |
 

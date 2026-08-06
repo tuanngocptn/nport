@@ -51,6 +51,16 @@
       "message": "That owner token does not match this tunnel.",
       "details": []
     },
+    "REGISTRATION_REFUSED": {
+      "origin": "server",
+      "status": 403,
+      "retryable": false,
+      "slug": "registration-refused",
+      "message": "The registry refused this node registration.",
+      "details": [
+        "reason"
+      ]
+    },
     "TUNNEL_NOT_FOUND": {
       "origin": "server",
       "status": 404,
@@ -203,6 +213,24 @@
       "message": "Your configuration file could not be written.",
       "details": [
         "path"
+      ]
+    },
+    "NO_NODE_AVAILABLE": {
+      "origin": "client",
+      "status": null,
+      "retryable": true,
+      "slug": "no-node-available",
+      "message": "No NPort node is available right now.",
+      "details": []
+    },
+    "NODE_UNREACHABLE": {
+      "origin": "client",
+      "status": null,
+      "retryable": true,
+      "slug": "node-unreachable",
+      "message": "That NPort node did not answer.",
+      "details": [
+        "nodeId"
       ]
     },
     "EDGE_DISCOVERY_FAILED": {

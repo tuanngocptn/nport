@@ -1,0 +1,496 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NPort registry API",
+    "version": "1.0.0",
+    "description": "The node directory. Lists nodes, accepts anonymous registrations behind proof of work and a DNS TXT domain proof, and probes what it lists. Holds no Cloudflare credentials and provisions nothing — see ADR-0031. Advisory: clients cache the list, so a registry that is down does not stop a tunnel.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://registry.nport.link",
+      "description": "Production"
+    }
+  ],
+  "paths": {
+    "/v1/challenge": {
+      "get": {
+        "summary": "Issue a proof-of-work challenge for a node registration.",
+        "operationId": "getChallenge",
+        "responses": {
+          "200": {
+            "description": "Issue a proof-of-work challenge for a node registration.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChallengeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`INVALID_REQUEST`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`CLIENT_TOO_OLD`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`INTERNAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-idempotent": true,
+        "x-requires-owner-token": false
+      }
+    },
+    "/v1/nodes": {
+      "get": {
+        "summary": "The node directory. Advisory — clients cache it.",
+        "operationId": "getNodes",
+        "responses": {
+          "200": {
+            "description": "The node directory. Advisory — clients cache it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`INVALID_REQUEST`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`CLIENT_TOO_OLD`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`INTERNAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-idempotent": true,
+        "x-requires-owner-token": false
+      },
+      "post": {
+        "summary": "Register or refresh a node, behind proof of work and a DNS TXT domain proof.",
+        "operationId": "postNodes",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterNodeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Register or refresh a node, behind proof of work and a DNS TXT domain proof.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterNodeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`INVALID_REQUEST` · `POW_INVALID` · `CHALLENGE_EXPIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`REGISTRATION_REFUSED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`CLIENT_TOO_OLD`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "`POW_REQUIRED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`RATE_LIMITED`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`INTERNAL`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-idempotent": false,
+        "x-requires-owner-token": false
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChallengeResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/ChallengeResponse",
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string",
+            "description": "Opaque, HMAC-signed, self-validating. Nothing is stored server-side."
+          },
+          "difficulty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32,
+            "description": "Required leading zero bits. Raised under load."
+          },
+          "expiresAt": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "After this, solving it is pointless."
+          }
+        },
+        "required": [
+          "challenge",
+          "difficulty",
+          "expiresAt"
+        ],
+        "description": "A stateless proof-of-work challenge."
+      },
+      "Error": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/Error",
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "INVALID_REQUEST",
+                  "INVALID_SUBDOMAIN",
+                  "POW_INVALID",
+                  "CHALLENGE_EXPIRED",
+                  "SUBDOMAIN_RESERVED",
+                  "INVALID_OWNER_TOKEN",
+                  "REGISTRATION_REFUSED",
+                  "TUNNEL_NOT_FOUND",
+                  "SUBDOMAIN_IN_USE",
+                  "DNS_CONFLICT",
+                  "LEASE_EXPIRED",
+                  "CLIENT_TOO_OLD",
+                  "POW_REQUIRED",
+                  "RATE_LIMITED",
+                  "CONCURRENCY_LIMIT",
+                  "CREATE_QUOTA_EXCEEDED",
+                  "PROVISION_FAILED",
+                  "INTERNAL",
+                  "UPSTREAM_CLOUDFLARE_ERROR",
+                  "CAPACITY_EXHAUSTED",
+                  "LOCAL_PORT_CLOSED",
+                  "LOCAL_PORT_INVALID",
+                  "CONFIG_UNREADABLE",
+                  "CONFIG_UNWRITABLE",
+                  "NO_NODE_AVAILABLE",
+                  "NODE_UNREACHABLE",
+                  "EDGE_DISCOVERY_FAILED",
+                  "EDGE_CONNECT_FAILED",
+                  "EDGE_REGISTRATION_REFUSED",
+                  "EDGE_PROTOCOL_ERROR",
+                  "TUNNEL_LOST",
+                  "LOCAL_REQUEST_FAILED",
+                  "SHUTDOWN_TIMEOUT"
+                ],
+                "description": "Stable code. Branch on this, never on `message`."
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable. May change freely; do not match on it."
+              },
+              "details": {
+                "description": "Code-specific.",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "requestId": {
+                "type": "string",
+                "description": "Quote this in a bug report."
+              },
+              "docsUrl": {
+                "type": "string",
+                "format": "uri"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "requestId",
+              "docsUrl"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "description": "The single error envelope for every failure. ADR-0018."
+      },
+      "Node": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/Node",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable, operator-chosen. Appears in `--node` and in `details.nodeId`."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "The node's control-plane base URL, e.g. `https://api.nport.link`."
+          },
+          "domain": {
+            "type": "string",
+            "description": "The domain this node issues tunnels on. One domain per node — a zone cannot span accounts."
+          },
+          "region": {
+            "description": "Advertised hint only, e.g. `apac`. Never verified; never used for selection.",
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "description": "The node's build version, as it declared at registration."
+          },
+          "status": {
+            "$ref": "#/components/schemas/NodeStatus"
+          },
+          "activeTunnels": {
+            "description": "From this node's `/v1/meta` at the last probe. Absent means unknown, not zero.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "maxActiveTunnels": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "lastProbedAt": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "When the registry last got an answer out of this node."
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "domain",
+          "version",
+          "status",
+          "lastProbedAt"
+        ],
+        "description": "A node in the directory, as the registry last observed it."
+      },
+      "NodeListResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/NodeListResponse",
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Node"
+            }
+          },
+          "refreshAfterMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "nodes",
+          "refreshAfterMs"
+        ],
+        "description": "The directory. Includes down and full nodes, so a client can show them as unavailable."
+      },
+      "NodeStatus": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/NodeStatus",
+        "type": "string",
+        "enum": [
+          "up",
+          "degraded",
+          "down"
+        ],
+        "description": "up: the last probe answered. degraded: recent probes have been failing. down: the last probe did not answer."
+      },
+      "RegisterNodeRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/RegisterNodeRequest",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 512,
+            "format": "uri"
+          },
+          "domain": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253
+          },
+          "region": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "challenge": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "nonce": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "domain",
+          "version",
+          "challenge",
+          "nonce"
+        ],
+        "description": "Register or refresh a node. Carries no capacity claim — the registry probes `/v1/meta` for that."
+      },
+      "RegisterNodeResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/RegisterNodeResponse",
+        "type": "object",
+        "properties": {
+          "node": {
+            "$ref": "#/components/schemas/Node"
+          }
+        },
+        "required": [
+          "node"
+        ],
+        "description": "The entry as stored, including the capacity and status the registry observed rather than what was sent."
+      }
+    }
+  },
+  "x-generated-by": "@generated by `pnpm codegen` from packages/contract — do not edit"
+}

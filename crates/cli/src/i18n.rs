@@ -159,7 +159,7 @@ pub fn text(lang: Lang, message: Message) -> &'static str {
 /// Test-only, because production needs no list: the fallback triggers on `describe` returning
 /// `None`, and this exists to say *which* `None`s are intentional.
 #[cfg(test)]
-pub const UNTRANSLATED: [ErrorCode; 6] = [
+pub const UNTRANSLATED: [ErrorCode; 7] = [
     // Server-side, and nothing a user can act on. `docs/ERRORS.md` is the right place for these.
     ErrorCode::Internal,
     ErrorCode::UpstreamCloudflareError,
@@ -171,12 +171,18 @@ pub const UNTRANSLATED: [ErrorCode; 6] = [
     // so these mean a bug here or a proxy rewriting requests — not something to phrase for a user.
     ErrorCode::InvalidOwnerToken,
     ErrorCode::InvalidRequest,
+    // Raised by the **registry**, and only ever at a node operator registering a node with
+    // `POST /v1/nodes`. `nport` never calls that endpoint — it only ever *reads* `GET /v1/nodes` — so
+    // a translated sentence here would be prose no user of this binary can reach. The two sibling
+    // federation codes, `NO_NODE_AVAILABLE` and `NODE_UNREACHABLE`, are the opposite: a user hits both
+    // by running `nport` on a bad day, and both are translated.
+    ErrorCode::RegistrationRefused,
 ];
 
 /// What to tell the user about an error code.
 ///
 /// **Not every code is translated, and that is deliberate rather than unfinished** — see
-/// [`UNTRANSLATED`] for the six and why each is excluded. Everything else a person running `nport` can
+/// [`UNTRANSLATED`] for the seven and why each is excluded. Everything else a person running `nport` can
 /// cause is here in all three languages. An untranslated code falls back to the code itself plus its
 /// documentation URL, which is a worse experience than a sentence and a much better one than a guess —
 /// and `docs/ERRORS.md` is generated, so the page behind that URL is always current in a way a
@@ -213,6 +219,10 @@ pub fn describe(lang: Lang, code: ErrorCode) -> Option<&'static str> {
         (Lang::En, E::ShutdownTimeout) => "some requests were still in flight when time ran out",
         (Lang::En, E::ConfigUnreadable) => "~/.nport/config.toml could not be read",
         (Lang::En, E::ConfigUnwritable) => "~/.nport/config.toml could not be written",
+        (Lang::En, E::NoNodeAvailable) => {
+            "no NPort node is available right now — try again shortly, or use --backend"
+        }
+        (Lang::En, E::NodeUnreachable) => "that NPort node did not answer",
 
         (Lang::Vi, E::SubdomainInUse) => "tên đó đã có người dùng — hãy thử tên khác, hoặc bỏ -s",
         (Lang::Vi, E::SubdomainReserved) => "tên đó được giữ riêng",
@@ -242,6 +252,10 @@ pub fn describe(lang: Lang, code: ErrorCode) -> Option<&'static str> {
         (Lang::Vi, E::ShutdownTimeout) => "vẫn còn một số yêu cầu đang dở khi hết thời gian",
         (Lang::Vi, E::ConfigUnreadable) => "không đọc được ~/.nport/config.toml",
         (Lang::Vi, E::ConfigUnwritable) => "không ghi được ~/.nport/config.toml",
+        (Lang::Vi, E::NoNodeAvailable) => {
+            "hiện không có node NPort nào khả dụng — hãy thử lại sau, hoặc dùng --backend"
+        }
+        (Lang::Vi, E::NodeUnreachable) => "node NPort đó không trả lời",
 
         (Lang::Es, E::SubdomainInUse) => "ese nombre ya está en uso — prueba otro, u omite -s",
         (Lang::Es, E::SubdomainReserved) => "ese nombre está reservado",
@@ -273,6 +287,10 @@ pub fn describe(lang: Lang, code: ErrorCode) -> Option<&'static str> {
         }
         (Lang::Es, E::ConfigUnreadable) => "no se pudo leer ~/.nport/config.toml",
         (Lang::Es, E::ConfigUnwritable) => "no se pudo escribir ~/.nport/config.toml",
+        (Lang::Es, E::NoNodeAvailable) => {
+            "ningún nodo de NPort está disponible ahora — inténtalo pronto, o usa --backend"
+        }
+        (Lang::Es, E::NodeUnreachable) => "ese nodo de NPort no respondió",
 
         _ => return None,
     })

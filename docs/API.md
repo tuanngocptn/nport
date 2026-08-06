@@ -8,11 +8,15 @@ applies_to:
 
 `https://api.nport.link` — the Worker in `apps/api`. It provisions and reaps tunnels. **It is not on the tunnel data path** (`docs/ARCHITECTURE.md` §3b).
 
-**Status: design. Not implemented.**
+**Status: implemented and deployed to staging**, serving real tunnels since 2026-08-06 (`docs/ROADMAP.md`). This said "design, not implemented" for two phases after it stopped being true.
+
+Under ADR-0031 this Worker is **a node**: one deployment bound to one Cloudflare account and one domain. The directory that lists nodes is a second service with its own contract — see § The registry API below.
 
 ## Authority
 
-**This document does not define field types.** `packages/contract` is the authority; it generates `schema/nport-api.openapi.json`, which generates `crates/contract`. Field-level truth is the OpenAPI document, rendered on the website.
+**This document does not define field types.** `packages/contract` is the authority; it generates `schema/nport-api.openapi.json` and `schema/nport-registry.openapi.json`, which together generate `crates/contract`. Field-level truth is those documents, rendered on the website.
+
+**Two documents, because there are two services** (ADR-0046). A single `servers` entry cannot describe both hosts, and a client generated from a merged document would call `api.nport.link/v1/nodes` — a path that exists only on the registry.
 
 That is deliberate: v2's `docs/API.md` restated every field in prose tables and drifted immediately — it documented `subdomain` and `tunnelId` as required for DELETE when both were optional in the type. This file covers what OpenAPI cannot express: lifecycle, semantics, idempotency, and intent.
 
@@ -169,6 +173,44 @@ Two v2 behaviours are **deliberately not preserved**, because they were the bugs
 - v2's delete accepted any `{subdomain, tunnelId}` pair. The shim cannot verify ownership for clients that never received an `ownerToken`, so it deletes only leases created through the shim itself and matching the caller's source hash. That hash is keyed on an IPv6 **prefix** rather than a full address (ADR-0033), so for an IPv6 client the delete is authorized to its /64 rather than to one machine. It is the weakest authorization in the API, it is still strictly stronger than v2's, and it is one of the reasons `docs/RELEASE.md` sunsets the shim.
 
 Sunset schedule in `docs/RELEASE.md`.
+
+## The registry API
+
+`https://registry.nport.link` — the Worker in `apps/registry`. **It is a directory and nothing else**: it lists nodes, accepts registrations, and probes what it lists. It holds no Cloudflare credentials, provisions nothing, and never touches a tunnel (ADR-0031).
+
+| Method | Path | Purpose | Needs `ownerToken` |
+| --- | --- | --- | --- |
+| `GET` | `/v1/challenge` | Issue a proof-of-work challenge for a registration | no |
+| `GET` | `/v1/nodes` | The node directory | no |
+| `POST` | `/v1/nodes` | Register or refresh a node | no — see below |
+
+### It is advisory, and that is the design
+
+A client caches the list at `~/.nport/nodes.json` and refreshes no more often than `refreshAfterMs` says. **A registry that is down does not stop a tunnel being created**, which is what lets a single directory not be a single point of failure. Anything that makes the registry load-bearing at provision time breaks this property; selection is the client's, never the registry's.
+
+`--backend` skips discovery entirely, so a self-hoster and `pnpm dev:cli` never talk to a registry at all.
+
+### Enrolment is open, anonymous, and gated by DNS
+
+There is no account and no shared secret — invariant 1 applies here too. Three things gate `POST /v1/nodes`:
+
+1. **Proof of work**, the same challenge-and-solve as a tunnel create. The challenges are signed with a different secret and are not interchangeable between the two services.
+2. **A DNS TXT record proving control of the claimed domain.** The registry resolves `_nport-node.<domain>` and requires a record whose value is exactly `nport-node=<id>`. Both strings come from `nodeProofRecordName` and `nodeProofRecordValue` in `packages/contract` — do not retype them here or anywhere else. The label is underscore-prefixed so no tunnel claim can ever reach it.
+3. **A liveness probe** of the node's own `GET /v1/meta`. A node that does not answer is not listed.
+
+The proof is bound to **one node id**, so publishing the record authorises that listing rather than any listing on the domain. There is no `ownerToken`: authority is re-proved by DNS on every call, which cannot leak from a config file and is revoked by deleting a record.
+
+### Capacity is probed, never claimed
+
+A registration carries no capacity or status. The registry reads `activeTunnels` and `maxActiveTunnels` from the node's `/v1/meta` and stores what it observed. A node that could assert `activeTunnels: 0` would be picked first by every client — a free denial of service against its own operator, on an endpoint anyone may call.
+
+Both fields are **optional**, so a node on an older build still parses. **Absent means unknown, not zero**, and discovery treats unknown as usable: a node that does not say is not a node that says no.
+
+`status` is `up | degraded | down` and reports **health only**. Whether a node is *full* is a separate question, answered by comparing the two capacity numbers — so a client can tell "try later" from "try elsewhere".
+
+### What the registry never does
+
+No traffic. No credentials. No selection. It does not know a tunnel exists, and it cannot create, extend or delete one.
 
 ## Self-hosting
 

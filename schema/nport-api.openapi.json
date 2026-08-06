@@ -555,6 +555,7 @@
     "schemas": {
       "ChallengeResponse": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/ChallengeResponse",
         "type": "object",
         "properties": {
           "challenge": {
@@ -583,6 +584,7 @@
       },
       "ClientKind": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/ClientKind",
         "type": "string",
         "enum": [
           "cli",
@@ -592,6 +594,7 @@
       },
       "CreateTunnelRequest": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/CreateTunnelRequest",
         "type": "object",
         "properties": {
           "subdomain": {
@@ -611,12 +614,7 @@
             "description": "A solution satisfying the challenge's difficulty."
           },
           "client": {
-            "type": "string",
-            "enum": [
-              "cli",
-              "desktop"
-            ],
-            "description": "Which client is calling."
+            "$ref": "#/components/schemas/ClientKind"
           }
         },
         "required": [
@@ -628,6 +626,7 @@
       },
       "CreateTunnelResponse": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/CreateTunnelResponse",
         "type": "object",
         "properties": {
           "subdomain": {
@@ -672,40 +671,9 @@
         ],
         "description": "A provisioned tunnel. Both tokens are shown exactly once."
       },
-      "HeartbeatRequest": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "ownerToken": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128,
-            "description": "Proves this caller created the lease."
-          }
-        },
-        "required": [
-          "ownerToken"
-        ],
-        "description": "Renew a lease."
-      },
-      "HeartbeatResponse": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "expiresAt": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991,
-            "description": "Authoritative. Clients correct their countdown from this rather than counting locally."
-          }
-        },
-        "required": [
-          "expiresAt"
-        ],
-        "description": "The lease's current expiry."
-      },
       "DeleteTunnelRequest": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/DeleteTunnelRequest",
         "type": "object",
         "properties": {
           "ownerToken": {
@@ -720,78 +688,9 @@
         ],
         "description": "Release a lease and tear the tunnel down. Idempotent."
       },
-      "TunnelStatusResponse": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "subdomain": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 63,
-            "description": "The normalized subdomain that was claimed."
-          },
-          "active": {
-            "type": "boolean"
-          },
-          "expiresAt": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991,
-            "description": "Milliseconds since the Unix epoch, UTC."
-          }
-        },
-        "required": [
-          "subdomain",
-          "active"
-        ],
-        "description": "Public status. Deliberately carries nothing an attacker could use."
-      },
-      "MetaResponse": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "minClientVersion": {
-            "type": "string",
-            "description": "Below this, requests get 426 CLIENT_TOO_OLD."
-          },
-          "tunnelDurationMs": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "heartbeatIntervalMs": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "powDifficulty": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 32
-          },
-          "maxConcurrentPerSource": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "maxCreatesPerHourPerSource": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          }
-        },
-        "required": [
-          "minClientVersion",
-          "tunnelDurationMs",
-          "heartbeatIntervalMs",
-          "powDifficulty",
-          "maxConcurrentPerSource",
-          "maxCreatesPerHourPerSource"
-        ],
-        "description": "Limits, discovered rather than hardcoded, so they can be tuned without a client release."
-      },
       "Error": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/Error",
         "type": "object",
         "properties": {
           "error": {
@@ -806,6 +705,7 @@
                   "CHALLENGE_EXPIRED",
                   "SUBDOMAIN_RESERVED",
                   "INVALID_OWNER_TOKEN",
+                  "REGISTRATION_REFUSED",
                   "TUNNEL_NOT_FOUND",
                   "SUBDOMAIN_IN_USE",
                   "DNS_CONFLICT",
@@ -823,6 +723,8 @@
                   "LOCAL_PORT_INVALID",
                   "CONFIG_UNREADABLE",
                   "CONFIG_UNWRITABLE",
+                  "NO_NODE_AVAILABLE",
+                  "NODE_UNREACHABLE",
                   "EDGE_DISCOVERY_FAILED",
                   "EDGE_CONNECT_FAILED",
                   "EDGE_REGISTRATION_REFUSED",
@@ -866,6 +768,124 @@
           "error"
         ],
         "description": "The single error envelope for every failure. ADR-0018."
+      },
+      "HeartbeatRequest": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/HeartbeatRequest",
+        "type": "object",
+        "properties": {
+          "ownerToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Proves this caller created the lease."
+          }
+        },
+        "required": [
+          "ownerToken"
+        ],
+        "description": "Renew a lease."
+      },
+      "HeartbeatResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/HeartbeatResponse",
+        "type": "object",
+        "properties": {
+          "expiresAt": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Authoritative. Clients correct their countdown from this rather than counting locally."
+          }
+        },
+        "required": [
+          "expiresAt"
+        ],
+        "description": "The lease's current expiry."
+      },
+      "MetaResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/MetaResponse",
+        "type": "object",
+        "properties": {
+          "minClientVersion": {
+            "type": "string",
+            "description": "Below this, requests get 426 CLIENT_TOO_OLD."
+          },
+          "tunnelDurationMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "heartbeatIntervalMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "powDifficulty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "maxConcurrentPerSource": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "maxCreatesPerHourPerSource": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "activeTunnels": {
+            "description": "Live tunnels on this node right now.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "maxActiveTunnels": {
+            "description": "This node's global cap. With `activeTunnels`, the headroom a client selects on.",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "minClientVersion",
+          "tunnelDurationMs",
+          "heartbeatIntervalMs",
+          "powDifficulty",
+          "maxConcurrentPerSource",
+          "maxCreatesPerHourPerSource"
+        ],
+        "description": "Limits, discovered rather than hardcoded, so they can be tuned without a client release."
+      },
+      "TunnelStatusResponse": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "#/components/schemas/TunnelStatusResponse",
+        "type": "object",
+        "properties": {
+          "subdomain": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "description": "The normalized subdomain that was claimed."
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Milliseconds since the Unix epoch, UTC."
+          }
+        },
+        "required": [
+          "subdomain",
+          "active"
+        ],
+        "description": "Public status. Deliberately carries nothing an attacker could use."
       }
     }
   },

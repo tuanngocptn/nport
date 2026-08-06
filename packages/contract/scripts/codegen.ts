@@ -35,7 +35,7 @@ import { z } from "zod"
 
 import { ERRORS, type ErrorCode, type ErrorDefinition, errorSlug } from "../src/errors"
 import type { RouteDefinition } from "../src/routes"
-import { ROUTES } from "../src/routes"
+import { REGISTRY_ROUTES, ROUTES } from "../src/routes"
 import {
   challengeResponseSchema,
   clientKindSchema,
@@ -46,6 +46,11 @@ import {
   heartbeatRequestSchema,
   heartbeatResponseSchema,
   metaResponseSchema,
+  nodeListResponseSchema,
+  nodeSchema,
+  nodeStatusSchema,
+  registerNodeRequestSchema,
+  registerNodeResponseSchema,
   tunnelStatusResponseSchema,
 } from "../src/schemas"
 import {
@@ -82,8 +87,40 @@ const COMPONENTS: Record<string, z.ZodType> = {
   DeleteTunnelRequest: deleteTunnelRequestSchema,
   TunnelStatusResponse: tunnelStatusResponseSchema,
   MetaResponse: metaResponseSchema,
+  Node: nodeSchema,
+  NodeStatus: nodeStatusSchema,
+  NodeListResponse: nodeListResponseSchema,
+  RegisterNodeRequest: registerNodeRequestSchema,
+  RegisterNodeResponse: registerNodeResponseSchema,
   Error: errorResponseSchema,
 }
+
+/**
+ * Every component converted at once, through a zod **registry**, so that a component referencing
+ * another emits a `$ref` instead of a copy.
+ *
+ * Converting one schema at a time inlines everything nested, which was invisible while no component
+ * held another: `NodeListResponse.nodes` would have carried an anonymous copy of the node object, and
+ * `cargo xtask codegen` would have had to invent a Rust type name for it — or, worse, silently emit
+ * something structural. A `$ref` is what makes "naming a component" mean anything.
+ *
+ * Two consequences worth knowing. Each component gains an `$id`, which is how the refs resolve and is
+ * otherwise inert. And `ClientKind` is now referenced rather than inlined at its use site, which
+ * removed the need for the Rust emitter's enum-by-value-set lookup — the trick that existed purely
+ * because zod used to inline a reused enum with no hint that a named type existed.
+ */
+const CONVERTED: Record<string, Record<string, unknown>> = (() => {
+  const registry = z.registry<{ id: string }>()
+  for (const [name, schema] of Object.entries(COMPONENTS)) {
+    registry.add(schema, { id: name })
+  }
+  const { schemas } = z.toJSONSchema(registry, {
+    target: "draft-2020-12",
+    io: "input",
+    uri: (id) => `#/components/schemas/${id}`,
+  })
+  return schemas as Record<string, Record<string, unknown>>
+})()
 
 /** The component name for a schema, by identity. */
 function componentNameOf(schema: z.ZodType): string | undefined {
@@ -94,6 +131,56 @@ function componentNameOf(schema: z.ZodType): string | undefined {
 function schemaRef(schema: z.ZodType): Record<string, unknown> {
   const name = componentNameOf(schema)
   return name ? { $ref: `#/components/schemas/${name}` } : jsonSchema(schema)
+}
+
+/** The components a document actually reaches, so neither document carries the other's types. */
+function componentsFor(routes: readonly RouteDefinition[]): Record<string, unknown> {
+  const wanted = new Set<string>(["Error"])
+  const queue: string[] = []
+
+  for (const route of routes) {
+    for (const schema of [route.request, route.response]) {
+      const name = schema && componentNameOf(schema)
+      if (name) queue.push(name)
+    }
+  }
+
+  // Transitive, because a reachable component's own `$ref`s are reachable too — `NodeListResponse`
+  // pulls `Node`, which pulls `NodeStatus`. Walking rather than listing, so adding a nested schema
+  // does not mean remembering to add it here as well.
+  while (queue.length > 0) {
+    const name = queue.pop()
+    if (!name || wanted.has(name)) continue
+    wanted.add(name)
+    for (const ref of refsWithin(CONVERTED[name])) {
+      queue.push(ref)
+    }
+  }
+
+  return Object.fromEntries(
+    Object.entries(CONVERTED)
+      .filter(([name]) => wanted.has(name))
+      // Sorted, so the output does not reorder when `COMPONENTS` is reordered. A generator whose
+      // output moves between runs makes the drift gate useless.
+      .sort(([a], [b]) => a.localeCompare(b)),
+  )
+}
+
+/** Component names referenced anywhere inside one converted schema, at any depth. */
+function refsWithin(schema: unknown): string[] {
+  if (Array.isArray(schema)) return schema.flatMap(refsWithin)
+  if (schema === null || typeof schema !== "object") return []
+
+  const out: string[] = []
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === "$ref" && typeof value === "string") {
+      const name = value.split("/").pop()
+      if (name) out.push(name)
+    } else {
+      out.push(...refsWithin(value))
+    }
+  }
+  return out
 }
 
 function entries(): Array<[ErrorCode, ErrorDefinition]> {
@@ -222,12 +309,20 @@ function jsonSchema(schema: z.ZodType): Record<string, unknown> {
   return z.toJSONSchema(schema, { target: "draft-2020-12", io: "input" }) as Record<string, unknown>
 }
 
-function openApiDocument(): Record<string, unknown> {
+/** What distinguishes the two documents: everything except the routes themselves. */
+interface ServiceDocument {
+  readonly title: string
+  readonly description: string
+  readonly server: { readonly url: string; readonly description: string }
+  readonly routes: readonly RouteDefinition[]
+}
+
+function openApiDocument(service: ServiceDocument): Record<string, unknown> {
   const paths: Record<string, Record<string, unknown>> = {}
 
   // Widened from the `as const satisfies` literal union: narrowed, `route.request` does not exist
   // on the members that have no body.
-  const routes: readonly RouteDefinition[] = ROUTES
+  const routes: readonly RouteDefinition[] = service.routes
 
   for (const route of routes) {
     const parameters = route.path.includes("{subdomain}")
@@ -291,19 +386,14 @@ function openApiDocument(): Record<string, unknown> {
   return {
     openapi: "3.1.0",
     info: {
-      title: "NPort control-plane API",
+      title: service.title,
       version: "1.0.0",
-      description:
-        "Provisions and reaps tunnels. Not on the tunnel data path. No accounts, no API keys, and no CORS headers — see docs/API.md.",
+      description: service.description,
       license: { name: "MIT", identifier: "MIT" },
     },
-    servers: [{ url: "https://api.nport.link", description: "Production" }],
+    servers: [service.server],
     paths,
-    components: {
-      schemas: Object.fromEntries(
-        Object.entries(COMPONENTS).map(([name, schema]) => [name, jsonSchema(schema)]),
-      ),
-    },
+    components: { schemas: componentsFor(routes) },
     "x-generated-by": BANNER,
   }
 }
@@ -377,18 +467,41 @@ function subdomainJson(): Record<string, unknown> {
   }
 }
 
+const API_SERVICE: ServiceDocument = {
+  title: "NPort control-plane API",
+  description:
+    "Provisions and reaps tunnels. Not on the tunnel data path. No accounts, no API keys, and no CORS headers — see docs/API.md.",
+  server: { url: "https://api.nport.link", description: "Production" },
+  routes: ROUTES,
+}
+
+const REGISTRY_SERVICE: ServiceDocument = {
+  title: "NPort registry API",
+  description:
+    "The node directory. Lists nodes, accepts anonymous registrations behind proof of work and a DNS TXT domain proof, and probes what it lists. Holds no Cloudflare credentials and provisions nothing — see ADR-0031. Advisory: clients cache the list, so a registry that is down does not stop a tunnel.",
+  server: { url: "https://registry.nport.link", description: "Production" },
+  routes: REGISTRY_ROUTES,
+}
+
 const errorsPath = join(REPO, "docs", "ERRORS.md")
 const schemaPath = join(REPO, "schema", "nport-api.openapi.json")
+const registrySchemaPath = join(REPO, "schema", "nport-registry.openapi.json")
 const registryPath = join(REPO, "schema", "errors.json")
 const subdomainPath = join(REPO, "schema", "subdomain.json")
 
 await writeFile(errorsPath, errorsMarkdown(), "utf8")
-await writeFile(schemaPath, `${JSON.stringify(openApiDocument(), null, 2)}\n`, "utf8")
+await writeFile(schemaPath, `${JSON.stringify(openApiDocument(API_SERVICE), null, 2)}\n`, "utf8")
+await writeFile(
+  registrySchemaPath,
+  `${JSON.stringify(openApiDocument(REGISTRY_SERVICE), null, 2)}\n`,
+  "utf8",
+)
 await writeFile(registryPath, `${JSON.stringify(errorsJson(), null, 2)}\n`, "utf8")
 await writeFile(subdomainPath, `${JSON.stringify(subdomainJson(), null, 2)}\n`, "utf8")
 
 console.log(`wrote ${errorsPath}`)
 console.log(`wrote ${schemaPath}`)
+console.log(`wrote ${registrySchemaPath}`)
 console.log(`wrote ${registryPath}`)
 console.log(`wrote ${subdomainPath}`)
 console.log(

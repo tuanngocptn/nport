@@ -53,6 +53,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0043 | Terraform generates secrets, but never a Cloudflare credential | Accepted |
 | 0044 | Federation comes next, ahead of the website and the desktop app | Accepted |
 | 0045 | The subdomain mirror is hand-written logic over generated constants | Accepted |
+| 0046 | The registry gets its own OpenAPI document, and capacity is probed rather than claimed | Accepted |
 
 ---
 
@@ -915,3 +916,38 @@ Length is counted in **UTF-16 code units**, matching JavaScript's `String.length
 - A per-node zone suffix is now one parameter rather than a rewrite, which matters because ADR-0031 gives every node its own domain and `ZONE_SUFFIX` is currently the single constant `.nport.link`.
 
 **Rejected.** *`unicode-normalization`* — the reflexive choice, and it adds a second copy of the normalization tables to a binary that ships eight platform packages, to compute an answer the tree can already compute. *Generating the rules too* — a code generator that emits NFKC and a suffix loop into another language is a thing nobody should have to debug, and the fixtures already give agreement without it. *Keeping the lists by hand on both sides with a test asserting they match* — workable, but it needs the lists in three places and makes adding a reserved name a two-language edit. *Skipping the mirror and correcting the two docblocks instead* — cheaper, and it leaves the round trip in place along with a fixture file whose whole purpose is cross-language agreement it was not providing.
+
+## ADR-0046 — The registry gets its own OpenAPI document, and capacity is probed rather than claimed
+
+**Date** 2026-08-06 · **Status** Accepted
+
+**Context.** ADR-0031 splits the control plane into many **nodes** and one **registry**, and ADR-0044 made that the next phase, contract first. Writing the contract raised three questions ADR-0031 did not have to answer, because they are about the shape of the description rather than about the architecture.
+
+**One document or two?** `packages/contract` generates one OpenAPI document with one `servers` entry, and `ROUTES` was a single table. The registry is a separate deployable on `registry.nport.link` that holds no Cloudflare credentials.
+
+**What is in a node entry?** `docs/FEATURES.md` §1 asks the registry to "collect per-node quota (plan tier, capacity, current usage)" and §3 draws a Nodes screen showing region, latency, plan tier, usage and health.
+
+**How does a nested schema reach Rust?** `GET /v1/nodes` returns an array of objects — the first nesting in this contract. `z.toJSONSchema` inlines nested schemas by default, and `cargo xtask codegen` had no array support at all.
+
+**Decision.**
+
+**Two documents.** `schema/nport-registry.openapi.json` alongside `schema/nport-api.openapi.json`, from a second route table `REGISTRY_ROUTES`. One `servers` entry cannot describe two hosts, and a client generated from a merged document would call `api.nport.link/v1/nodes` — a path that does not exist there. Each document carries only the components it reaches, computed by walking `$ref`s rather than by a hand-kept list. `cargo xtask codegen` reads both and emits one Rust crate, because `crates/core` is a client of both; a name in both documents must mean one shape, and the emitter **checks** that rather than letting one definition win.
+
+**Capacity is observed, never claimed.** A registration carries no `activeTunnels`, `maxActiveTunnels` or `status`. The registry probes the node's `GET /v1/meta` — which it must fetch anyway to know the node is alive — and stores what it saw. A node that could assert `activeTunnels: 0` would be selected first by every client, which is a free denial of service against whoever runs it, on an endpoint that is anonymous by design.
+
+The two capacity fields on `GET /v1/meta` are **optional**, and that is a compatibility decision rather than laziness: discovery reads `/v1/meta` across third-party nodes that may be running older builds, and `contract-v1` is frozen. A required field would make an older node's meta fail to parse and get it delisted for being out of date rather than for being full. **Absent means unknown, and discovery treats unknown as usable** — a node that does not say is not a node that says no.
+
+**Plan tier and latency are not in the contract.** Plan tier is an unverifiable claim about someone else's Cloudflare account, and the fact a client actually selects on is headroom, which the two capacity numbers give directly. Latency has to be client-measured: the registry's distance to a node says nothing about the user's, and a number measured in one datacentre and shown to someone on another continent is worse than none. Both stay in `docs/FEATURES.md` as UI work over data the client gathers.
+
+**Components are converted through a zod registry**, so a component referencing another emits a `$ref` instead of a copy, and the Rust emitter gained `Vec<T>` by recursing through the same type mapping.
+
+**Consequences.**
+
+- Everything is additive to `contract-v1`. No existing route, schema or code changes shape; the control-plane document gains no node types.
+- **Health and fullness stay separate.** `status` is `up | degraded | down` and says nothing about capacity, so a client can tell "try later" from "try elsewhere" — which is the distinction the design already draws by disabling full and offline nodes for different reasons.
+- **`POST /v1/nodes` needs no `ownerToken`.** Authority to change an entry is re-proved on every call by the DNS TXT record, which beats a bearer token an operator would have to store: it cannot leak from a config file, and it is revoked by deleting a DNS record. The proof is bound to one node id, so publishing a record does not authorise every listing on that domain.
+- It is marked non-idempotent for `POST /v1/tunnels`'s reason. The *effect* is an upsert, but a replay cannot succeed because the challenge is single-use, so a caller re-registers with a fresh challenge rather than retrying.
+- The zod registry made the Rust emitter's inline-enum lookup unreachable. It was **replaced with a hard error rather than deleted**: without that branch an inline enum falls through to `String` and silently accepts every value the contract forbids.
+- `nodeProofRecordName` puts the proof at `_nport-node.<domain>`, under a label no claim can reach — an underscore never passes `SUBDOMAIN_PATTERN` and `_` is a reserved prefix. The same reasoning `_acme-challenge` rests on, and there is a test asserting it rather than a comment.
+
+**Rejected.** *One document with per-operation `servers`* — legal OpenAPI, and it still titles one document "control-plane API" while describing a service that provisions nothing; a generated client would offer node registration against the node's own host. *A `service` discriminator on `RouteDefinition`* — same problem, plus every consumer then has to filter. *Trusting a node's declared capacity* — cheaper, and it rewards lying with traffic. *A registration bearer token* — one more secret for an operator to store and for us to rotate, replacing a proof that is already re-checked on every call. *Emitting a Rust type per document* — `nport_contract::registry::Node` and `nport_contract::api::MetaResponse` split one contract across two module paths for no gain, since `crates/core` uses both.

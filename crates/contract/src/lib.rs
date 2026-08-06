@@ -1,10 +1,14 @@
-//! Rust mirror of the NPort control-plane API: request and response types, and the
-//! error-code enum.
+//! Rust mirror of the NPort API contract: request and response types, and the error-code enum.
 //!
-//! Generated from `packages/contract` via `schema/nport-api.openapi.json` and
-//! `schema/errors.json` (ADR-0009, ADR-0025). **`src/generated.rs` is off-limits to hand
-//! edits** — it carries a `@generated` banner and CI fails on drift (invariant 6). Change
-//! `packages/contract`, then run `pnpm codegen && cargo xtask codegen`.
+//! **Both services**, not just the control plane — the node API and the registry (ADR-0046) — because
+//! `crates/core` is a client of both: it provisions against a node and discovers through the
+//! registry. `Node` and `NodeListResponse` come from the registry's document, everything else from
+//! the node's.
+//!
+//! Generated from `packages/contract` via the two service documents in `schema/`, plus
+//! `schema/errors.json` and `schema/subdomain.json` (ADR-0009, ADR-0025). **`src/generated.rs` is
+//! off-limits to hand edits** — it carries a `@generated` banner and CI fails on drift (invariant 6).
+//! Change `packages/contract`, then run `pnpm codegen && cargo xtask codegen`.
 //!
 //! This file is the hand-written shell. It holds only what codegen cannot express: the error
 //! envelope, which needs a typed [`ErrorCode`] where JSON Schema can only say "string".
@@ -142,12 +146,98 @@ mod tests {
     fn the_registry_has_the_expected_size() {
         // A bare count, so adding a code without regenerating the Rust side fails here rather
         // than at whatever call site happens to need the new variant first.
-        assert_eq!(ErrorCode::ALL.len(), 30);
+        assert_eq!(ErrorCode::ALL.len(), 33);
     }
 
     #[test]
     fn display_prints_the_wire_code() {
         assert_eq!(ErrorCode::DnsConflict.to_string(), "DNS_CONFLICT");
+    }
+
+    /// The registry's document reaches Rust, and its array of objects became a `Vec`.
+    ///
+    /// The emitter had no array support at all before federation, and the failure mode without it is
+    /// not a compile error in this crate — it is `cargo xtask codegen` refusing, or worse, emitting
+    /// something structural. This is the assertion that the whole `GET /v1/nodes` shape survives the
+    /// trip, since `crates/core::discovery` will parse exactly this body.
+    #[test]
+    fn the_node_directory_parses_from_the_registrys_shape() {
+        let json = r#"{
+            "nodes": [
+                {
+                    "id": "hk1",
+                    "url": "https://api.nport.link",
+                    "domain": "nport.link",
+                    "region": "apac",
+                    "version": "3.0.0",
+                    "status": "up",
+                    "activeTunnels": 12,
+                    "maxActiveTunnels": 100,
+                    "lastProbedAt": 1767225600000
+                },
+                {
+                    "id": "eu1",
+                    "url": "https://api.nport.dev",
+                    "domain": "nport.dev",
+                    "version": "3.0.0",
+                    "status": "down",
+                    "lastProbedAt": 1767225600000
+                }
+            ],
+            "refreshAfterMs": 300000
+        }"#;
+
+        let list: NodeListResponse = serde_json::from_str(json).expect("the registry's shape");
+
+        assert_eq!(list.nodes.len(), 2);
+        assert_eq!(list.refresh_after_ms, 300_000);
+
+        let hk = &list.nodes[0];
+        assert_eq!(hk.status, NodeStatus::Up);
+        assert_eq!(hk.active_tunnels, Some(12));
+        assert_eq!(hk.region.as_deref(), Some("apac"));
+        // `lastProbedAt` → `last_probed_at` is where a rename_all mistake shows up, and it would show
+        // up at runtime as a missing field rather than at compile time.
+        assert_eq!(hk.last_probed_at, 1_767_225_600_000);
+
+        // **Absent capacity is `None`, not zero.** A node that does not say is not a node that says
+        // no — discovery treats unknown as usable, and a `0` default would make an older node look
+        // empty and get picked first by everyone.
+        let eu = &list.nodes[1];
+        assert_eq!(eu.active_tunnels, None);
+        assert_eq!(eu.max_active_tunnels, None);
+        assert_eq!(eu.status, NodeStatus::Down);
+    }
+
+    /// The node status is a closed set, not a string.
+    ///
+    /// The same argument as `ErrorCode`: a `String` here would hand every caller stringly-typed
+    /// matching, and `crates/core::discovery` branches on this to decide what to offer.
+    #[test]
+    fn an_unknown_node_status_is_a_parse_error() {
+        let json = r#"{"id":"x","url":"https://x.test","domain":"x.test","version":"3.0.0",
+                        "status":"healthy","lastProbedAt":1}"#;
+        assert!(serde_json::from_str::<Node>(json).is_err());
+    }
+
+    /// `activeTunnels` on `/v1/meta` is optional in both directions.
+    ///
+    /// Additive to `contract-v1`: a node running an older build publishes neither field, and its
+    /// `/v1/meta` still has to parse or discovery would delist it for the wrong reason.
+    #[test]
+    fn meta_parses_with_and_without_the_capacity_fields() {
+        let without = r#"{"minClientVersion":"3.0.0","tunnelDurationMs":1,"heartbeatIntervalMs":1,
+                          "powDifficulty":20,"maxConcurrentPerSource":3,
+                          "maxCreatesPerHourPerSource":10}"#;
+        let parsed: MetaResponse = serde_json::from_str(without).expect("an older node's meta");
+        assert_eq!(parsed.active_tunnels, None);
+
+        let with = r#"{"minClientVersion":"3.0.0","tunnelDurationMs":1,"heartbeatIntervalMs":1,
+                       "powDifficulty":20,"maxConcurrentPerSource":3,
+                       "maxCreatesPerHourPerSource":10,"activeTunnels":7,"maxActiveTunnels":100}"#;
+        let parsed: MetaResponse = serde_json::from_str(with).expect("a current node's meta");
+        assert_eq!(parsed.active_tunnels, Some(7));
+        assert_eq!(parsed.max_active_tunnels, Some(100));
     }
 
     #[test]
