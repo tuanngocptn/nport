@@ -43,63 +43,48 @@ Actions a deploy credential at all.
 
 ## 2. The CI API token
 
-Dashboard → **My Profile → API Tokens → Create Token → Create Custom Token**. One token, six
-permissions, grouped below the way the form groups them.
+Dashboard → **My Profile → API Tokens → Create Token → Create Custom Token**.
+
+Six rows. The columns are the form's first two dropdowns; **the third is `Edit` on every row.**
+
+| Scope | Permission | Why |
+| --- | --- | --- |
+| Account | Workers Scripts | `wrangler deploy` uploads both Workers |
+| Account | Cloudflare Tunnel | granted onward to the Worker's own token — see below |
+| Zone | Zone Settings | the TLS floor and always-HTTPS |
+| Zone | DNS | `custom_domain: true` writes the hostname record — and granted onward |
+| Zone | Zone WAF | the edge rate-limit ruleset |
+| **User** | API Tokens | Terraform mints the Worker's own credential — **not `Account`; see below** |
+
+Set the **Zone Resources** to the zone from step 1, and **Account Resources** to that account. Copy
+the token when it is shown; Cloudflare will not show it again.
 
 Every row is here because something failed without it, or because Cloudflare requires it to grant
-something else. If a deploy later fails with a 403 naming a permission not on this list, add it here
-rather than guessing wider — nothing in this project uses KV, R2 or Workers AI.
-
-### Account permissions
-*(select the staging account)*
-
-| Permission | | Why |
-| --- | --- | --- |
-| Workers Scripts | **Edit** | `wrangler deploy` uploads both Workers |
-| Cloudflare Tunnel | **Edit** | not used by the deploy — it is *granted onward* to the Worker's token, and Cloudflare will not let a token grant what it does not hold |
-
-### Zone permissions
-*(select the staging zone, e.g. `nport.online`)*
-
-| Permission | | Why |
-| --- | --- | --- |
-| Zone Settings | **Edit** | the TLS floor and always-HTTPS |
-| DNS | **Edit** | `custom_domain: true` creates the hostname record — and granted onward, as above |
-| Zone WAF | **Edit** | the edge rate-limit ruleset |
-
-### User permissions
-*(set the row's **left-hand dropdown** to `User` — it defaults to `Account`, and the two are
-different permissions with the same name)*
-
-| Permission | | Why |
-| --- | --- | --- |
-| API Tokens | **Edit** | Terraform mints the Worker's own credential |
+something else. Nothing in this project uses KV, R2 or Workers AI. If a deploy fails with a 403
+naming a permission not in this table, add it here rather than widening the token on a guess.
 
 ---
 
-**Three things about this list that each cost an apply to learn.**
+**Three things this table cannot show you.**
 
-**Tunnel and DNS are there to be given away, not used.** Cloudflare refuses to create a token
-carrying permissions the creating token does not itself hold, so the CI token needs both even though
-nothing in the deploy calls them. Without them the apply fails at `cloudflare_api_token.worker`,
+**The first dropdown on the API Tokens row must say `User`.** It defaults to `Account`, and both
+scopes offer a permission called "API Tokens", so the wrong one is what you get by not noticing.
+`Account → API Tokens` manages tokens the account owns; the provider calls `POST /user/tokens`,
+which only the User-scoped permission reaches. The failure is `403 … code 9109 Unauthorized to
+access requested resource`, naming neither the scope nor the fix. **A token showing an `API Tokens`
+row can still fail this way** — check the scope column, not the permission name.
+
+**Tunnel and DNS are held in order to be given away.** Nothing in the deploy calls either. Cloudflare
+refuses to create a token carrying permissions the creating token does not itself hold, so the CI
+token needs both to mint the Worker's. Without them the apply fails at `cloudflare_api_token.worker`,
 after other resources already exist.
 
-**API Tokens must be User-scoped, not Account-scoped.** Both exist, both are called "API Tokens",
-and the form offers Account first — so the wrong one is the one you get by not noticing the left
-dropdown. `Account → API Tokens` manages tokens the *account* owns; the provider calls
-`POST /user/tokens`, which only the User-scoped permission reaches. The failure is
-`403 … code 9109 Unauthorized to access requested resource`, which names neither the scope nor the
-fix and looks identical to a missing permission of any other kind. A token showing an `API Tokens →
-Edit` row can still fail this way; check the scope column, not the permission name.
-
-**Know what the User row grants.** A token that can write user API tokens can mint *any* token this
-Cloudflare user could, including a full-access one. Compromising the runner therefore compromises the
+**Know what the `User` row costs.** A token that can write user API tokens can mint *any* token this
+Cloudflare user could, including a full-access one — so compromising the runner compromises the
 account, not merely the deployment. That is acceptable here only because staging is a separate
 account with nothing in it (ADR-0038), and it is a decision to re-make before production rather than
-copy across — the alternative is creating the Worker's token by hand and passing it as a fourth
-GitHub secret, which costs one manual step and removes this entirely.
-
-Set the zone resources to the zone from step 1. Copy the token now; Cloudflare shows it once.
+copy across. The alternative is creating the Worker's token by hand and passing it as a fourth
+GitHub secret: one manual step, and this row disappears.
 
 ## 3. HCP Terraform
 
