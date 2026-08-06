@@ -168,8 +168,15 @@ git push
 
 1. **gate** — lint, typecheck, tests, `pnpm deploy:check`, and a wrangler dry run. Nothing here
    touches an account, so a failure has changed nothing.
-2. **terraform** — fmt, init, validate, plan, apply. The apply consumes the plan file the previous
-   step wrote, so what lands is what was planned.
+2. **terraform** — claims the account's workers.dev subdomain if it has none, then fmt, init,
+   validate, plan, apply. The apply consumes the plan file the previous step wrote, so what lands
+   is what was planned.
+
+   The subdomain is a Workers *account* prerequisite, not infrastructure: Cloudflare refuses to
+   upload any script to an account that has never had one, and the dashboard normally creates it as
+   a side effect of being visited. Provider v5 has no resource for it, so the job calls the API
+   directly — read first, PUT only if absent. Both Workers set `workers_dev: false`, so nothing is
+   ever served there; this only satisfies the upload check.
 3. **api** and **web** in parallel — `wrangler deploy`, then the six secrets are pushed with
    `wrangler secret bulk` in one call.
 4. **verify** — `scripts/verify-deployment.mjs` compares the live `/v1/meta` against the committed
@@ -235,5 +242,7 @@ Then a deploy, which syncs the new value. There is no runbook to follow and no v
 | Any `403 … 9109` on a `/user/tokens…` URL | The API Tokens row is scoped **Account**, not **User** — check the left dropdown, not the permission name |
 | "not entitled to use the period N" / "…mitigation timeout different from N" | The zone's plan pins both. Free allows 10 for each; set `api_rate_limit_period` and `api_rate_limit_timeout` |
 | Plan runs on HCP instead of in CI, and cannot find credentials | The workspace is in remote execution mode; set it to Local (step 3) |
+| `wrangler deploy` fails with `code: 10063` | The account has no workers.dev subdomain and the step that claims one did not run or could not — see its output |
+| "workers.dev subdomain already taken" | The namespace is global. Set any free name once in the dashboard; nothing is served there, so the name does not matter |
 | Deploy green, every request 500s | The secret sync did not run or did not carry all six; `wrangler secret list --env staging` |
 | `verify-deployment` reports a mismatch | The `env` block's `vars` are incomplete — wrangler does not inherit them |

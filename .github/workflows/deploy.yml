@@ -100,6 +100,56 @@ jobs:
           # credential the state backend needs — there is no bucket and no derived key pair.
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
+      # **A Workers account prerequisite, not a Terraform one.** Cloudflare refuses to upload any
+      # script to an account that has never been given a workers.dev subdomain — `wrangler deploy`
+      # fails with `code: 10063` telling you to open the dashboard, which is the one thing this
+      # pipeline exists to avoid. The dashboard creates it as a side effect of being visited; the
+      # API creates it directly, and there is no Terraform resource for it in provider v5 (only
+      # `cloudflare_workers_script_subdomain`, which is per-script and needs the script to exist).
+      #
+      # Both Workers set `workers_dev: false`, so nothing is ever served there. This exists purely
+      # to satisfy the upload check.
+      #
+      # Idempotent by reading first: the name is account-global and cannot be changed once set, so
+      # a blind PUT on an already-configured account would be an error rather than a no-op.
+      - name: The account has a workers.dev subdomain
+        working-directory: .
+        run: |
+          set -euo pipefail
+          base="https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/workers/subdomain"
+          auth="Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}"
+
+          existing=$(curl -sS -H "$auth" "$base" |
+            python3 -c "import json,sys; print((json.load(sys.stdin).get('result') or {}).get('subdomain') or '')")
+
+          if [ -n "$existing" ]; then
+            echo "workers.dev subdomain already set: ${existing}.workers.dev"
+            exit 0
+          fi
+
+          # Derived from the zone so staging and production cannot collide with each other. The
+          # namespace is global across all of Cloudflare, so this can still be taken by a stranger.
+          want=$(echo "${{ inputs.zone }}" | tr '.' '-')
+          echo "no subdomain on this account — claiming ${want}.workers.dev"
+
+          response=$(curl -sS -X PUT -H "$auth" -H "Content-Type: application/json" \
+            --data "{\"subdomain\":\"${want}\"}" "$base")
+
+          python3 - "$response" <<'PY'
+          import json, sys
+          body = json.loads(sys.argv[1])
+          if body.get("success"):
+              print("claimed:", body["result"]["subdomain"] + ".workers.dev")
+              sys.exit(0)
+          print("could not claim the subdomain:", json.dumps(body.get("errors"), indent=2))
+          print(
+              "\nThe workers.dev namespace is global, so this name may belong to another account."
+              "\nPick another by hand once (dashboard -> Workers & Pages -> Subdomain); any name"
+              "\nworks, since workers_dev is false on every Worker here and nothing is served there."
+          )
+          sys.exit(1)
+          PY
+
       # Terraform's own message names the environment variable, not where it comes from. This names
       # the setting to go and fix.
       - name: The organization is configured

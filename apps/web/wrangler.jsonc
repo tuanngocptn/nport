@@ -16,6 +16,9 @@
 
   // Both hostnames, so the apex cutover from the Pages project is a repo change with a
   // rollback path (docs/OPERATIONS.md § Pages → Workers cutover).
+  // Off for the same reason as the API, plus one of its own: a second hostname serving the
+  // same marketing pages is duplicate content the site's canonical tags do not cover.
+  "workers_dev": false,
   "routes": [
     { "pattern": "nport.link", "custom_domain": true },
     { "pattern": "www.nport.link", "custom_domain": true }
@@ -26,6 +29,7 @@
   "env": {
     "staging": {
       "name": "nport-web-staging",
+      "workers_dev": false,
       "routes": [
         { "pattern": "nport.online", "custom_domain": true },
         { "pattern": "www.nport.online", "custom_domain": true }

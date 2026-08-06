@@ -24,6 +24,7 @@ starts fighting an apply.
 | **Wrangler** (`apps/*/wrangler.jsonc`) | Worker scripts, routes, custom domains, DO migrations, `vars` | `custom_domain: true` creates the DNS record; a Terraform record for the same name would fight every deploy. The repo is the source of truth for both hostnames (`docs/OPERATIONS.md` § Inventory) |
 | **The control plane, at runtime** | one CNAME per live tunnel | There are as many as there are tunnels and none are known at plan time |
 | **Terraform** (`secrets.tf`) | the Worker's six runtime secrets | Generated, not typed — and the deploy syncs them with `wrangler secret bulk` (ADR-0040) |
+| **The deploy workflow**, by raw API call | the account's workers.dev subdomain | A Workers account prerequisite with no provider v5 resource; `cloudflare_workers_script_subdomain` is per-script and needs the script to exist, which is the thing being blocked |
 
 Terraform only ever destroys what its own state created, so the runtime tunnel records are safe by
 construction. That is not a reason to relax: **never add a broad `cloudflare_dns_record` import or a
