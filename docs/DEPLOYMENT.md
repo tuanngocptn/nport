@@ -74,6 +74,11 @@ which only the User-scoped permission reaches. The failure is `403 … code 9109
 access requested resource`, naming neither the scope nor the fix. **A token showing an `API Tokens`
 row can still fail this way** — check the scope column, not the permission name.
 
+There is deliberately no `Account → API Tokens` row to go with it. Looking a permission group up by
+name can be done through either scope — the ids are global — and `secrets.tf` uses the user-scoped
+catalogue precisely so this table needs one API-Tokens row instead of two. Switching that data source
+back to the `account_` variant silently adds a permission to every token built from this page.
+
 **Tunnel and DNS are held in order to be given away.** Nothing in the deploy calls either. Cloudflare
 refuses to create a token carrying permissions the creating token does not itself hold, so the CI
 token needs both to mint the Worker's. Without them the apply fails at `cloudflare_api_token.worker`,
@@ -227,7 +232,7 @@ Then a deploy, which syncs the new value. There is no runbook to follow and no v
 | Apply fails at a permission-group lookup | Cloudflare renamed the group; the error carries the API call that lists the real names, then set `tunnel_permission_group` or `dns_permission_group` |
 | `terraform init` cannot reach the backend | `TF_API_TOKEN` missing or expired, or `TF_CLOUD_ORGANIZATION` naming an organization the token cannot see |
 | "organization must be set … TF_CLOUD_ORGANIZATION" | The caller passed no `tf_organization`. The job prints what it resolved before Terraform runs |
-| `POST /user/tokens: 403 … 9109` | The API Tokens row is scoped **Account**, not **User** — check the left dropdown, not the permission name |
+| Any `403 … 9109` on a `/user/tokens…` URL | The API Tokens row is scoped **Account**, not **User** — check the left dropdown, not the permission name |
 | "not entitled to use the period N" / "…mitigation timeout different from N" | The zone's plan pins both. Free allows 10 for each; set `api_rate_limit_period` and `api_rate_limit_timeout` |
 | Plan runs on HCP instead of in CI, and cannot find credentials | The workspace is in remote execution mode; set it to Local (step 3) |
 | Deploy green, every request 500s | The secret sync did not run or did not carry all six; `wrangler secret list --env staging` |
