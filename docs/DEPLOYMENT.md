@@ -45,8 +45,19 @@ Actions a deploy credential at all.
 
 ## 2. Two Cloudflare API tokens
 
-Both are made the same way — Dashboard → **My Profile → API Tokens → Create Token → Create Custom
-Token** — and both use `Edit` in the third dropdown on every row.
+Both are made the same way — Dashboard → **Manage Account → Account API Tokens → Create Token →
+Create Custom Token** — and both use `Edit` in the third dropdown on every row.
+
+**Account-owned, not user-owned.** Cloudflare offers both; these belong under the account. An
+account token survives the person who made it being removed from the account, and it *cannot* carry
+a user-scoped permission at all — which forecloses the mistake of granting `User → API Tokens` to
+something that only ever needed to deploy. Nothing in this pipeline calls a `/user/…` endpoint, by
+design (ADR-0043), so nothing here needs a user token.
+
+One consequence worth knowing: an account token cannot enumerate which accounts it belongs to, so
+`wrangler` must be told. `CLOUDFLARE_ACCOUNT_ID` is already passed on every job that runs it, which
+is why this costs nothing here — but it is why an account token appears "broken" in a local shell
+where that variable is unset.
 
 They are separate because they live in different places and are worth different amounts. The CI
 token sits in GitHub and runs for a few minutes per push. The Worker's token sits *inside the running
@@ -67,10 +78,11 @@ Used by Terraform and by `wrangler deploy`. Store as `CLOUDFLARE_API_TOKEN`.
 | Zone | Workers Routes | `wrangler deploy` reconciles the zone's routes even when every route is a custom domain |
 | Zone | Zone WAF | the edge rate-limit ruleset |
 
-**Note what is not here.** No `User → API Tokens`, and no `Cloudflare Tunnel`. Nothing this pipeline
-runs can create a Cloudflare credential or a tunnel, which is the point of making the second token by
-hand (ADR-0043). If you find yourself adding either row to make something pass, that is the change
-worth stopping to think about.
+**Note what is not here: `Cloudflare Tunnel`.** Nothing this pipeline runs creates a tunnel — only
+the Worker does, with its own token. The credential-minting permission is not here either, and being
+account-owned it could not be. If you find yourself adding the Tunnel row to make something pass,
+that is the change worth stopping to think about: it means something in CI is reaching for authority
+the deploy is not supposed to have (ADR-0043).
 
 ### 2b. The Worker's token
 
