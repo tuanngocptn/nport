@@ -17,7 +17,7 @@ its own, and a row that disagrees with its section is a bug in this table.
 | ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
 | ✅ | 2a · `apps/api` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
 | ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
-| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Started.** `/errors/[code]` is live — 33 pages generated from the contract, closing 33 URLs the product printed and nothing served. Marketing sections, MDX docs, JSON-LD and the Playwright tier remain |
+| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **In progress.** `/errors/[code]` live (33 generated pages) and the marketing page renders all seven sections plus `#compare`. JSON-LD, sitemap, MDX docs and the Playwright tier remain |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
 | ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` — and now also waits on discovery, which its Nodes screen renders |
@@ -617,7 +617,15 @@ Next.js + OpenNext; v2 marketing parity (section order and copy per `apps/web/CL
 
 Two things it settled. The **mockup does not design these pages** (it specifies the five marketing sections), so they follow `packages/design-tokens` and that is now written down rather than inferred. And `apps/web` has its **first test tier**: Vitest unit tests asserting one page per code and that every `docsUrl` round-trips. Playwright and its visual baselines (ADR-0023) are still ahead and are their own task — standing up browsers in CI is not something to bolt onto a page.
 
-The approved design is `docs/mockup/NPort Site.dc.html` — read `docs/mockup/README.md` first. It adds a `#compare` section the fixed v2 order has no slot for; placing it is a 2c decision.
+The approved design is `docs/mockup/NPort Site.dc.html` — read `docs/mockup/README.md` first.
+
+**`#compare`'s placement is settled**: between `powered-by` and the CTA. That is where the mockup puts it relative to features and download, it leaves the v2 sequence intact, and it is the strongest position — a reader who has just seen what the product does is the one asking how it differs.
+
+**The design's copy is not shippable as written, which is the more interesting finding.** It was drawn for the finished product, so its hero and four of its eight features advertise a desktop app (Phase 4), a live request inspector (Phase 4), and request **replay** — which is on the Deferred list at the bottom of this file. Two comparison-table rows have the same problem, and one of them claims an inspector *against a named competitor*.
+
+Transcribing it would have put false claims on a public page. Rewriting it would have lost the design. So `apps/web/src/content/site.ts` keeps every claim with a `ships` tag and a reason, renders only what is true at 3.0, and `site.test.ts` fails if that ever stops being true — Phase 4 becomes a status flip rather than an archaeology exercise. The mockup's own README rule 4 is what licenses this: "the design is not the authority on behaviour... those win and the design is wrong."
+
+The general lesson is worth more than the fix. **A design mockup is a claim about a finished product, and a site ships before the product is finished.** Anything transcribed from one needs a date attached, and the check has to be mechanical, because the copy reads as true right up until someone tries the feature.
 
 **Gate G2c.** The site builds, deploys, and passes its own checks. It gates the 3.0 announcement, not the tunnel.
 

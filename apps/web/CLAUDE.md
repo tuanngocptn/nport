@@ -10,12 +10,16 @@ The public site at `nport.link`: marketing page, user documentation, and generat
 
 **The approved design is `docs/mockup/NPort Site.dc.html`.** Read `docs/mockup/README.md` before building or changing anything visual — that file is what UI, UX, and behaviour are checked against. It is reference only: never imported, never hand-edited, excluded from every check.
 
-**Status: 2c started — `/errors/[code]` is live.** Thirty-three error pages, generated from `@nport/contract` and prerendered at build time. That went first because it was not new work so much as an unkept promise: every error envelope `apps/api` returns carries a `docsUrl`, and for the seven codes `crates/cli` does not translate that URL is the *entire* remedy the user gets — and none of them resolved. The marketing sections, the MDX docs, the JSON-LD and the Playwright tier are still ahead.
+**Status: 2c in progress.** `/errors/[code]` is live (33 pages generated from `@nport/contract`) and the marketing page renders all seven sections plus `#compare`. Still ahead: the four JSON-LD blocks, `sitemap.ts`/`robots.ts`, the OpenGraph image, the MDX user docs, and the Playwright tier.
+
+**The design's copy is not shippable as written, and that is recorded rather than worked around.** `docs/mockup` was drawn for the finished product, so its hero and four of its eight features advertise a desktop app (Phase 4), a request inspector (Phase 4), and request replay (**Deferred**). `src/content/site.ts` keeps every one of those claims with a `ships` tag and the reason it is held back; the page renders only what is true, and `site.test.ts` fails if it ever renders more. Phase 4 is a status flip. The mockup's own README rule 4 is what licenses this — the design is not the authority on behaviour.
 
 ## Layout
 
 ```
 src/app/layout.tsx page.tsx globals.css
+src/components/sections/              navbar, hero, how-it-works, features, powered-by, compare, download, footer
+src/content/site.ts                   the copy as data + which claims are true yet
 src/app/errors/page.tsx               the index: every code, grouped by origin
 src/app/errors/[code]/page.tsx        one page per code; the CLI and API deep-link here
 src/lib/error-codes.ts                slug ↔ code, in a lib so it is testable without a route
@@ -26,7 +30,6 @@ open-next.config.ts next.config.ts postcss.config.mjs wrangler.jsonc
 # a description of the tree as it stands:
 (src/app/docs/[[...slug]]/page.tsx    MDX from src/content/docs)
 (src/app/sitemap.ts robots.ts opengraph-image.tsx)
-(src/components/sections/             navbar, hero, how-it-works, features, powered-by, cta, footer)
 (src/content/docs/*.mdx               USER docs — the only home for them)
 (src/lib/seo.ts                       JSON-LD builders)
 (e2e/                                 Playwright: behaviour + visual baselines, ADR-0023)
@@ -47,15 +50,16 @@ pnpm --filter @nport/web deploy       # normally CI does this
 
 ## Rules
 
-1. **Section order is fixed**, carried from v2 because it converts: navbar → hero → how-it-works → features → powered-by → CTA → footer. Reordering needs a reason beyond taste. The mockup adds a sixth section the v2 order has no slot for — `#compare`, an ngrok comparison table, sitting between features and download. Placing it is an open decision for whoever builds 2c, not a licence to reshuffle the rest.
-2. **All four JSON-LD blocks are required** and built in `src/lib/seo.ts`: `WebSite`, `SoftwareApplication`, `HowTo`, `FAQPage`. This was v2's most deliberate SEO investment and the site's discovery depends on it.
-3. **No raw hex colours in components.** Everything comes from `packages/design-tokens` via Tailwind utilities (ADR-0014).
-4. **Server-first.** `"use client"` needs a justification in review — the page's job is fast delivery, and v2 shipped its entire interaction budget in ~40 lines of vanilla JS.
-5. **Exactly one GA4 property** (ADR-0015). v2 double-tracked with two.
-6. **No secret, key, or token in client code.** v2 committed a Firebase web API key into its HTML.
-7. **No version numbers or dates hardcoded anywhere.** Derive them from the workspace or a build-time constant.
-8. **User docs are MDX in `src/content/docs`** — never in `README.md`, never in `docs/`.
-9. Every external link gets `target="_blank" rel="noopener noreferrer"`; every icon-only control gets an `aria-label`; every image gets explicit `width`/`height`.
+1. **Section order is fixed**, carried from v2 because it converts: navbar → hero → how-it-works → features → powered-by → CTA → footer. Reordering needs a reason beyond taste. **`#compare` is settled**: it sits between `powered-by` and the CTA, which is where the mockup puts it relative to features and download, keeps the v2 sequence intact, and is the strongest position for it — a reader who has just seen what NPort does and where it runs is the one asking how it differs. A build-order assertion is not automated; `sections/compare.tsx` carries the reasoning.
+2. **Never claim something NPort does not do yet.** Marketing copy lives in `src/content/site.ts` with a `ships` tag per claim, and only `"3.0"` renders. Anything else needs a `because` saying where the deferral is decided. `site.test.ts` enforces both, because the design over-promises by construction and a reviewer's memory is not a check.
+3. **All four JSON-LD blocks are required** and built in `src/lib/seo.ts`: `WebSite`, `SoftwareApplication`, `HowTo`, `FAQPage`. This was v2's most deliberate SEO investment and the site's discovery depends on it.
+4. **No raw hex colours in components.** Everything comes from `packages/design-tokens` via Tailwind utilities (ADR-0014).
+5. **Server-first.** `"use client"` needs a justification in review — the page's job is fast delivery, and v2 shipped its entire interaction budget in ~40 lines of vanilla JS.
+6. **Exactly one GA4 property** (ADR-0015). v2 double-tracked with two.
+7. **No secret, key, or token in client code.** v2 committed a Firebase web API key into its HTML.
+8. **No version numbers or dates hardcoded anywhere.** Derive them from the workspace or a build-time constant.
+9. **User docs are MDX in `src/content/docs`** — never in `README.md`, never in `docs/`.
+10. Every external link gets `target="_blank" rel="noopener noreferrer"`; every icon-only control gets an `aria-label`; every image gets explicit `width`/`height`.
 
 ## Common tasks
 
