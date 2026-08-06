@@ -132,7 +132,17 @@
         "LEASE_TTL_SECONDS": 3600,
         "HEARTBEAT_GRACE_SECONDS": 120,
         "MAX_ACTIVE_TUNNELS": 100,
-        "MIN_CLIENT_VERSION": "3.0.0",
+        // **Staging accepts any version, and production must not.**
+        //
+        // The gate sorts a pre-release *below* its release, so the in-development client
+        // — `3.0.0-dev` — is refused by a `3.0.0` floor. That is right for production and
+        // fatal for staging, whose entire purpose is exercising the build that is not
+        // released yet. A floor of `3.0.0-dev` would not do either: pre-release tags are
+        // compared as strings, so `3.0.0-beta.1` sorts below `3.0.0-dev` and every beta
+        // would be refused the moment Phase 3 starts shipping them.
+        //
+        // The gate's own logic is covered by unit tests; staging is here to test tunnels.
+        "MIN_CLIENT_VERSION": "0.0.0",
         "POW_DIFFICULTY_BITS": 16,
         "POW_MAX_DIFFICULTY_BITS": 22,
         "MAX_CONCURRENT_PER_SOURCE": 3,
