@@ -22,15 +22,17 @@ You become responsible for: your Cloudflare bill, your own abuse controls and ca
 
 ### 1. API token
 
-Create a scoped token with exactly:
+Create a scoped token with exactly two permissions, both set to **Edit**:
 
-| Permission group | Covers |
+| Permission group | Policy resource |
 | --- | --- |
-| `Cloudflare Tunnel Write` | your account |
-| `DNS Write` | your zone |
+| Cloudflare Tunnel | Entire Account |
+| DNS | your zone |
 
-The account-token form lists single named groups rather than a permission plus a level — `Write`
-is the edit level and implies read. Search for the name rather than browsing the categories.
+They sit in **different policies**, because a policy's resource selector decides which groups it
+offers: an Entire Account policy lists no zone permissions at all. Add the account one, then
+**+ Add policy** for the zone. (In the API these are the groups `Cloudflare Tunnel Write` and
+`DNS Write` — `Write` is what the `Edit` toggle sets.)
 
 Make it under **Manage Account → Account API Tokens**, not My Profile. An account-owned token
 outlives the person who created it and cannot hold a user-scoped permission, and the control plane
