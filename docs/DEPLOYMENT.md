@@ -45,65 +45,80 @@ Actions a deploy credential at all.
 
 ## 2. Two Cloudflare API tokens
 
-Both are made the same way — Dashboard → **Manage Account → Account API Tokens → Create Token →
-Create Custom Token** — and both use `Edit` in the third dropdown on every row.
+The CI token sits in GitHub and runs for a few minutes per push. The Worker's token sits *inside the
+running control plane*, which is account-free by design and therefore answers unauthenticated
+requests from anyone on the internet. That is why they are not the same token: any leak from the
+control plane should cost one tunnel, not the authority to deploy code and rewrite the zone.
 
-They are separate because they live in different places and are worth different amounts. The CI
-token sits in GitHub and runs for a few minutes per push. The Worker's token sits *inside the running
-control plane*, which is account-free by design and therefore answers unauthenticated requests from
-anyone on the internet. Handing that process the deploy credential would mean any leak from it —
-a bad log line, an unlucky error path, a dependency — yields the authority to deploy code and rewrite
-the zone, instead of the authority to make one tunnel.
+**Both are account-owned.** Dashboard → **Manage Account → Account API Tokens**, not My Profile. An
+account token outlives the person who created it and cannot carry a user-scoped permission at all,
+which forecloses the wrong-scope mistake entirely. Nothing in this pipeline calls a `/user/…`
+endpoint (ADR-0043), so nothing here needs a user token.
 
-**Account-owned, not user-owned.** Cloudflare offers both; these belong under the account. An
-account token survives the person who made it being removed from the account, and it *cannot* carry
-a user-scoped permission at all — which forecloses the mistake of granting `User → API Tokens` to
-something that only ever needed to deploy. Nothing in this pipeline calls a `/user/…` endpoint, by
-design (ADR-0043), so nothing here needs a user token.
+**Names carry no environment.** `nport-ci` and `nport-worker` in *both* accounts, exactly as the
+Workers are `nport-api` and `nport-web` in both (ADR-0038). The account is the isolation; a suffix
+would only make one environment read differently from the other.
 
-One consequence worth knowing: an account token cannot enumerate which accounts it belongs to, so
-`wrangler` must be told. `CLOUDFLARE_ACCOUNT_ID` is already passed on every job that runs it, which
-is why this costs nothing here — but it is why an account token appears "broken" in a local shell
-where that variable is unset.
+### 2a. `nport-ci`
 
-### 2a. The CI token
+The token Terraform and `wrangler deploy` act with.
 
-Used by Terraform and by `wrangler deploy`. Store as `CLOUDFLARE_API_TOKEN`.
+1. **Manage Account → Account API Tokens → Create Token → Create Custom Token.**
+2. **Token name:** `nport-ci`
+3. **Permissions** — five rows, `Edit` on every one:
 
-| Scope | Permission | Why |
-| --- | --- | --- |
-| Account | Workers Scripts | `wrangler deploy` uploads both Workers |
-| Zone | Zone Settings | the TLS floor and always-HTTPS |
-| Zone | DNS | `custom_domain: true` writes the hostname record |
-| Zone | Workers Routes | `wrangler deploy` reconciles the zone's routes even when every route is a custom domain |
-| Zone | Zone WAF | the edge rate-limit ruleset |
+   | Scope | Permission | Why |
+   | --- | --- | --- |
+   | Account | Workers Scripts | `wrangler deploy` uploads both Workers |
+   | Zone | Zone Settings | the TLS floor and always-HTTPS |
+   | Zone | DNS | `custom_domain: true` writes the hostname record |
+   | Zone | Workers Routes | `wrangler deploy` reconciles the zone's routes even when every route is a custom domain |
+   | Zone | Zone WAF | the edge rate-limit ruleset |
+
+4. **Account Resources:** Include → this environment's account.
+5. **Zone Resources:** Include → Specific zone → `nport.online`.
+6. **Client IP Address Filtering** and **TTL:** leave both empty. GitHub's runner addresses are not
+   fixed, and an expiring deploy credential fails at the least convenient moment.
+7. Continue to summary → **Create Token** → copy it. Cloudflare shows it once.
+8. Save as the GitHub secret **`CLOUDFLARE_API_TOKEN`** (step 4).
 
 **Note what is not here: `Cloudflare Tunnel`.** Nothing this pipeline runs creates a tunnel — only
-the Worker does, with its own token. The credential-minting permission is not here either, and being
-account-owned it could not be. If you find yourself adding the Tunnel row to make something pass,
-that is the change worth stopping to think about: it means something in CI is reaching for authority
-the deploy is not supposed to have (ADR-0043).
+the Worker does, with its own token. If you find yourself adding that row to make something pass,
+stop: it means something in CI is reaching for authority the deploy is not meant to have (ADR-0043).
 
-### 2b. The Worker's token
+### 2b. `nport-worker`
 
-Used by the control plane at runtime, and by nothing else. Store as `WORKER_CF_API_TOKEN`.
+The token the control plane uses at runtime, and nothing else uses at all.
 
-| Scope | Permission | Why |
-| --- | --- | --- |
-| Account | Cloudflare Tunnel | create and delete the tunnel behind each subdomain |
-| Zone | DNS | write and remove the `<tunnel>.cfargotunnel.com` CNAME |
+1. Same page: **Create Token → Create Custom Token.**
+2. **Token name:** `nport-worker`
+3. **Permissions** — two rows, both `Edit`:
 
-Those two are the entire Cloudflare surface `apps/api` touches — three calls to provision, four to
-tear down (`apps/api/CLAUDE.md`). It never deploys anything and never reads a token.
+   | Scope | Permission | Why |
+   | --- | --- | --- |
+   | Account | Cloudflare Tunnel | create and delete the tunnel behind each subdomain |
+   | Zone | DNS | write and remove the `<tunnel>.cfargotunnel.com` CNAME |
+
+4. **Account Resources:** Include → the same account.
+5. **Zone Resources:** Include → Specific zone → `nport.online`.
+6. **TTL:** leave empty. It expiring means every new tunnel fails while existing ones keep working —
+   a failure that looks like a Cloudflare outage rather than an expired credential.
+7. Create, copy, and save as the GitHub secret **`WORKER_CF_API_TOKEN`** (step 4).
+
+Those two permissions are the entire Cloudflare surface `apps/api` touches — three calls to
+provision a tunnel, four to tear one down (`apps/api/CLAUDE.md`). It never deploys anything and never
+reads a token.
 
 ---
-
-Set **Zone Resources** to the zone from step 1 and **Account Resources** to that account, on both.
-Copy each token when it is shown; Cloudflare shows it once.
 
 Every row above is here because something failed without it. Nothing in this project uses KV, R2 or
 Workers AI. If a deploy fails with a 403 naming a permission not in these tables, add it here rather
 than widening a token on a guess.
+
+One consequence of account-owned tokens: they cannot enumerate which accounts they belong to, so
+`wrangler` has to be told. Every job that runs it already passes `CLOUDFLARE_ACCOUNT_ID`, which is
+why this costs nothing in CI — but it is why an account token looks broken in a local shell where
+that variable is unset.
 
 ## 3. HCP Terraform
 
@@ -131,8 +146,8 @@ set. One name, three uses, so they cannot disagree.
 
 | Kind | Name | Value |
 | --- | --- | --- |
-| secret | `CLOUDFLARE_API_TOKEN` | step 2a |
-| secret | `WORKER_CF_API_TOKEN` | step 2b |
+| secret | `CLOUDFLARE_API_TOKEN` | step 2a — `nport-ci` |
+| secret | `WORKER_CF_API_TOKEN` | step 2b — `nport-worker` |
 | secret | `CLOUDFLARE_ACCOUNT_ID` | this account's id |
 | secret | `TF_API_TOKEN` | step 3 |
 
