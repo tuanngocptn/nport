@@ -40,7 +40,7 @@
 
 import { spawn } from "node:child_process"
 import { createHash, randomBytes } from "node:crypto"
-import { promises as dns } from "node:dns"
+import { Resolver } from "node:dns/promises"
 import { createServer } from "node:http"
 import { platform } from "node:os"
 
@@ -256,11 +256,19 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
  * Resolving first means the first `getaddrinfo` happens only once the record demonstrably exists.
  */
 async function waitForDns(host, deadlineMs = 120_000) {
+  // **Cloudflare's own resolver, not the machine's.** `resolve4` skips the OS cache but still asks
+  // whatever nameserver the host is configured with, and that resolver caches negatively too — which
+  // is how this passed on a laptop and failed on a macOS runner for the full two minutes. The zone is
+  // on Cloudflare, so 1.1.1.1 is as close to authoritative as a public resolver gets; 8.8.8.8 is
+  // there so a runner that blocks 1.1.1.1 degrades instead of hanging.
+  const resolver = new Resolver()
+  resolver.setServers(["1.1.1.1", "8.8.8.8"])
+
   const until = Date.now() + deadlineMs
   let last = "no attempt"
   while (Date.now() < until) {
     try {
-      const addresses = await dns.resolve4(host)
+      const addresses = await resolver.resolve4(host)
       if (addresses.length > 0) return addresses
       last = "empty answer"
     } catch (error) {
@@ -333,7 +341,15 @@ async function echoOverWebSocket(url, messages = 20) {
   return received
 }
 
-function cleanup() {
+/**
+ * Stops the children and the origin, and **waits for them**.
+ *
+ * The wait is the point. Killing a child and then calling `process.exit()` in the same tick crashes
+ * Node on Windows — `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\\win\\async.c` —
+ * and the runner reports exit code 127, which reads as "command not found" and sends you looking at
+ * the shell. Every check had already passed when that fired.
+ */
+async function shutdown() {
   for (const child of children) {
     if (child.exitCode === null) {
       try {
@@ -343,6 +359,14 @@ function cleanup() {
       }
     }
   }
+  await Promise.all(
+    children.map((child) =>
+      child.exitCode !== null
+        ? Promise.resolve()
+        : Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(5_000)]),
+    ),
+  )
+  await new Promise((resolve) => origin.server.close(resolve))
 }
 
 // ── the run ───────────────────────────────────────────────────────────────────────────
@@ -414,8 +438,7 @@ try {
   fail("the run completed", String(error))
   console.error(`\n--- CLI output ---\n${tunnel.transcript()}`)
 } finally {
-  cleanup()
-  origin.server.close()
+  await shutdown()
 }
 
 console.log(
@@ -423,4 +446,7 @@ console.log(
     ? "\nsmoke:live: a real tunnel carried real traffic\n"
     : `\nsmoke:live: ${failures} check(s) failed\n`,
 )
-process.exit(failures === 0 ? 0 : 1)
+
+// `exitCode`, not `exit()`: everything is already closed by `shutdown()`, so the process ends when
+// the loop drains. Forcing it is what crashed Windows.
+process.exitCode = failures === 0 ? 0 : 1
