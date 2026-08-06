@@ -22,6 +22,14 @@ on:
         description: "Apex domain for this environment, e.g. nport.online."
         required: true
         type: string
+      tf_organization:
+        description: >-
+          HCP Terraform organization holding the workspaces. Passed rather than stored: it is not a
+          secret — it is in the workspace URL — and a GitHub *variable* that must be a variable and
+          not a secret, on the Environment and not the repository, is three ways to get wrong
+          something that has one correct value.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -80,7 +88,7 @@ jobs:
     # `versions.tf` names neither the organization nor the workspace, so one configuration serves
     # every environment; these two are what select the state HCP hands back.
     env:
-      TF_CLOUD_ORGANIZATION: ${{ vars.TF_CLOUD_ORGANIZATION }}
+      TF_CLOUD_ORGANIZATION: ${{ inputs.tf_organization }}
       TF_WORKSPACE: nport-${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v7
@@ -97,9 +105,7 @@ jobs:
       - name: The organization is configured
         run: |
           if [ -z "${TF_CLOUD_ORGANIZATION}" ]; then
-            echo "TF_CLOUD_ORGANIZATION is empty."
-            echo "Set it as a *variable* on the '${{ inputs.environment }}' GitHub Environment"
-            echo "(Settings → Environments → ${{ inputs.environment }} → Variables), not as a secret."
+            echo "TF_CLOUD_ORGANIZATION is empty — the caller passed no tf_organization."
             exit 1
           fi
           echo "organization: ${TF_CLOUD_ORGANIZATION}, workspace: ${TF_WORKSPACE}"

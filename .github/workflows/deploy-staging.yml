@@ -24,4 +24,5 @@ jobs:
     with:
       environment: staging
       zone: nport.online
+      tf_organization: NportLink
     secrets: inherit
