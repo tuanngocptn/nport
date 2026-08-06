@@ -33,19 +33,21 @@ terraform {
   # a script deriving S3 credentials before the run. HCP has nothing to create first: a token is the
   # whole configuration, and state locking and run history come with it (ADR-0042).
   #
-  # **Nothing is named here.** The organization comes from `TF_CLOUD_ORGANIZATION` and the workspace
-  # from `TF_WORKSPACE`, both set per environment by the deploy. That keeps this file identical for
-  # staging and production, which is the same reason `key` was never defaulted when state lived in a
-  # bucket: a default is the wrong value for whichever environment forgot to override it.
+  # **Nothing is named here, and there is no `workspaces` stanza either.** The organization comes
+  # from `TF_CLOUD_ORGANIZATION` and the workspace from `TF_WORKSPACE`, both set per environment by
+  # the deploy. That keeps this file identical for staging and production, the same reason `key` was
+  # never defaulted when state lived in a bucket: a default is the wrong value for whichever
+  # environment forgot to override it.
+  #
+  # A `workspaces { tags = [...] }` stanza would work too and is the more common form, but it only
+  # matches workspaces carrying the tag — so one created in the UI without it is invisible, and the
+  # failure reads as "no workspaces found" rather than "add a tag". Selecting purely by name has no
+  # such trap.
   #
   # Workspaces must run in **local execution mode** — HCP stores the state, CI runs the plan. In
   # remote mode HCP would execute the run on its own infrastructure and the Cloudflare credentials
   # would have to be duplicated there as workspace variables.
-  cloud {
-    workspaces {
-      tags = ["nport"]
-    }
-  }
+  cloud {}
 }
 
 # The token comes from `CLOUDFLARE_API_TOKEN` in the environment, never from a variable.
