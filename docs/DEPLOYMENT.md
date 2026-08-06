@@ -43,34 +43,57 @@ Actions a deploy credential at all.
 
 ## 2. The CI API token
 
-Dashboard → **My Profile → API Tokens → Create Token → Create Custom Token**.
+Dashboard → **My Profile → API Tokens → Create Token → Create Custom Token**. One token, six
+permissions, grouped below the way the form groups them.
 
-| Scope | Needed for |
-| --- | --- |
-| Account → Workers Scripts → **Edit** | `wrangler deploy` |
-| **User** → API Tokens → **Edit** | Terraform mints the Worker's own token — see below |
-| Account → Cloudflare Tunnel → **Edit** | see below |
-| Zone → Zone Settings → **Edit** | the TLS floor and always-HTTPS |
-| Zone → DNS → **Edit** | `custom_domain: true` writes a record; and see below |
-| Zone → Zone WAF → **Edit** | the edge rate-limit ruleset |
+Every row is here because something failed without it, or because Cloudflare requires it to grant
+something else. If a deploy later fails with a 403 naming a permission not on this list, add it here
+rather than guessing wider — nothing in this project uses KV, R2 or Workers AI.
 
-**Two traps here, both of which cost an apply to discover.**
+### Account permissions
+*(select the staging account)*
 
-Cloudflare refuses to create a token carrying permissions the creating token does not itself hold,
-so the Tunnel and DNS rows are needed even though the *deploy* never uses them — they are what gets
-granted to the Worker's token. Without them the apply fails at `cloudflare_api_token.worker`, after
-other resources exist.
+| Permission | | Why |
+| --- | --- | --- |
+| Workers Scripts | **Edit** | `wrangler deploy` uploads both Workers |
+| Cloudflare Tunnel | **Edit** | not used by the deploy — it is *granted onward* to the Worker's token, and Cloudflare will not let a token grant what it does not hold |
 
-And the API-tokens permission must be **User**-scoped, not Account-scoped. The provider creates the
-Worker's token through `POST /user/tokens`, which an account-scoped credential cannot reach: the
-failure is `403 … code 9109 Unauthorized to access requested resource`, which names neither the
-scope nor the fix.
+### Zone permissions
+*(select the staging zone, e.g. `nport.online`)*
 
-**Know what that second row grants.** A token that can write user API tokens can mint *any* token
-this Cloudflare user could — including a full-access one. Compromising the runner therefore
-compromises the account, not merely the deployment. That is contained here only because staging is a
-separate account with nothing of value in it (ADR-0038), and it is worth re-deciding before
-production rather than copying across.
+| Permission | | Why |
+| --- | --- | --- |
+| Zone Settings | **Edit** | the TLS floor and always-HTTPS |
+| DNS | **Edit** | `custom_domain: true` creates the hostname record — and granted onward, as above |
+| Zone WAF | **Edit** | the edge rate-limit ruleset |
+
+### User permissions
+*(this section is separate from Account — scroll past the zone rows)*
+
+| Permission | | Why |
+| --- | --- | --- |
+| API Tokens | **Edit** | Terraform mints the Worker's own credential |
+
+---
+
+**Three things about this list that each cost an apply to learn.**
+
+**Tunnel and DNS are there to be given away, not used.** Cloudflare refuses to create a token
+carrying permissions the creating token does not itself hold, so the CI token needs both even though
+nothing in the deploy calls them. Without them the apply fails at `cloudflare_api_token.worker`,
+after other resources already exist.
+
+**API Tokens must be User-scoped, not Account-scoped.** The provider creates the Worker's token
+through `POST /user/tokens`, which an account-scoped credential cannot reach at all. The failure is
+`403 … code 9109 Unauthorized to access requested resource` — which names neither the scope nor the
+fix, and looks identical to a missing permission of any other kind.
+
+**Know what the User row grants.** A token that can write user API tokens can mint *any* token this
+Cloudflare user could, including a full-access one. Compromising the runner therefore compromises the
+account, not merely the deployment. That is acceptable here only because staging is a separate
+account with nothing in it (ADR-0038), and it is a decision to re-make before production rather than
+copy across — the alternative is creating the Worker's token by hand and passing it as a fourth
+GitHub secret, which costs one manual step and removes this entirely.
 
 Set the zone resources to the zone from step 1. Copy the token now; Cloudflare shows it once.
 
