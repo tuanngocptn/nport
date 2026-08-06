@@ -56,15 +56,49 @@ const EXPECTATIONS = [
   ["maxCreatesPerHourPerSource", (v) => Number(v.MAX_CREATES_PER_HOUR_PER_SOURCE)],
 ]
 
-/** A custom domain can take a moment to route after a first deploy; a 502 then is not a failure. */
+/**
+ * Every route but `/v1/health` is behind the client gate, which requires a `nport/<version>`
+ * User-Agent (`src/middleware/client-gate.ts`). Without one the API answers `INVALID_REQUEST`,
+ * correctly — so this identifies itself like a real client or it cannot read `/v1/meta` at all.
+ *
+ * The version sent is the **committed** minimum, not something arbitrarily high. If the deployed
+ * Worker's floor is above it the gate answers `CLIENT_TOO_OLD`, and that is a genuine mismatch
+ * between deployed and committed — exactly what this script exists to catch. A hardcoded
+ * `999.0.0` would sail past it.
+ */
+const USER_AGENT = `nport/${vars.MIN_CLIENT_VERSION} (verify-deployment)`
+
+/**
+ * Retries only what waiting can fix.
+ *
+ * A custom domain takes a moment to route after a first deploy, so a 5xx or a connection failure is
+ * worth another go. A 4xx is the Worker answering — it has an opinion, and it will have the same one
+ * in ten seconds. Retrying those wasted a minute per deploy and reported `never answered: HTTP 400`,
+ * which describes neither the refusal nor its cause.
+ */
 async function getJson(path, { attempts = 6, waitMs = 10_000 } = {}) {
   let last
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const response = await fetch(`${base}${path}`)
+      const response = await fetch(`${base}${path}`, { headers: { "user-agent": USER_AGENT } })
       if (response.ok) return await response.json()
+
+      if (response.status >= 400 && response.status < 500 && response.status !== 404) {
+        const body = await response.text()
+        let detail = body.slice(0, 300)
+        try {
+          const { error } = JSON.parse(body)
+          if (error?.code) detail = `${error.code} — ${JSON.stringify(error.details ?? {})}`
+        } catch {
+          // Not the error envelope; the raw body above is the best available detail.
+        }
+        throw new Error(`${path} refused with HTTP ${response.status}: ${detail}`)
+      }
+
       last = `HTTP ${response.status}`
     } catch (error) {
+      // A refusal is a verdict, not a hiccup — do not spend the retry budget on it.
+      if (error instanceof Error && error.message.includes("refused with HTTP")) throw error
       last = String(error)
     }
     if (attempt < attempts) {
