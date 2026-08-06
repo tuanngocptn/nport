@@ -68,7 +68,8 @@ rather than guessing wider — nothing in this project uses KV, R2 or Workers AI
 | Zone WAF | **Edit** | the edge rate-limit ruleset |
 
 ### User permissions
-*(this section is separate from Account — scroll past the zone rows)*
+*(set the row's **left-hand dropdown** to `User` — it defaults to `Account`, and the two are
+different permissions with the same name)*
 
 | Permission | | Why |
 | --- | --- | --- |
@@ -83,10 +84,13 @@ carrying permissions the creating token does not itself hold, so the CI token ne
 nothing in the deploy calls them. Without them the apply fails at `cloudflare_api_token.worker`,
 after other resources already exist.
 
-**API Tokens must be User-scoped, not Account-scoped.** The provider creates the Worker's token
-through `POST /user/tokens`, which an account-scoped credential cannot reach at all. The failure is
-`403 … code 9109 Unauthorized to access requested resource` — which names neither the scope nor the
-fix, and looks identical to a missing permission of any other kind.
+**API Tokens must be User-scoped, not Account-scoped.** Both exist, both are called "API Tokens",
+and the form offers Account first — so the wrong one is the one you get by not noticing the left
+dropdown. `Account → API Tokens` manages tokens the *account* owns; the provider calls
+`POST /user/tokens`, which only the User-scoped permission reaches. The failure is
+`403 … code 9109 Unauthorized to access requested resource`, which names neither the scope nor the
+fix and looks identical to a missing permission of any other kind. A token showing an `API Tokens →
+Edit` row can still fail this way; check the scope column, not the permission name.
 
 **Know what the User row grants.** A token that can write user API tokens can mint *any* token this
 Cloudflare user could, including a full-access one. Compromising the runner therefore compromises the
@@ -238,7 +242,7 @@ Then a deploy, which syncs the new value. There is no runbook to follow and no v
 | Apply fails at a permission-group lookup | Cloudflare renamed the group; the error carries the API call that lists the real names, then set `tunnel_permission_group` or `dns_permission_group` |
 | `terraform init` cannot reach the backend | `TF_API_TOKEN` missing or expired, or `TF_CLOUD_ORGANIZATION` naming an organization the token cannot see |
 | "organization must be set … TF_CLOUD_ORGANIZATION" | The caller passed no `tf_organization`. The job prints what it resolved before Terraform runs |
-| `POST /user/tokens: 403 … 9109` | The CI token lacks **User** → API Tokens → Edit. Account-scoped is not enough |
+| `POST /user/tokens: 403 … 9109` | The API Tokens row is scoped **Account**, not **User** — check the left dropdown, not the permission name |
 | "not entitled to use the period N" / "…mitigation timeout different from N" | The zone's plan pins both. Free allows 10 for each; set `api_rate_limit_period` and `api_rate_limit_timeout` |
 | Plan runs on HCP instead of in CI, and cannot find credentials | The workspace is in remote execution mode; set it to Local (step 3) |
 | Deploy green, every request 500s | The secret sync did not run or did not carry all six; `wrangler secret list --env staging` |
