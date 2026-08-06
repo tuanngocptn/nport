@@ -1,13 +1,13 @@
-# Consumed by the deploy workflow and by `wrangler secret put` during bootstrap, so nobody has to
-# copy an identifier out of a dashboard and get one character wrong.
+# Consumed by the deploy workflow, so nobody has to copy an identifier out of a dashboard and get
+# one character wrong. The Worker's own copies of these arrive through `worker_secrets` below.
 
 output "zone_id" {
-  description = "Set as the Worker's CF_ZONE_ID secret during bootstrap."
+  description = "The zone every tunnel is provisioned under. Also reaches the Worker as CF_ZONE_ID."
   value       = data.cloudflare_zone.this.zone_id
 }
 
 output "zone_name" {
-  description = "Set as the Worker's CF_DOMAIN secret. Tunnels are provisioned under this apex."
+  description = "The apex domain. Also reaches the Worker as CF_DOMAIN."
   value       = var.zone_name
 }
 

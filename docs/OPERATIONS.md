@@ -32,7 +32,7 @@ A **separate Cloudflare account** on a separate domain (ADR-0038), so nothing in
 | Worker (API) | `nport-api-staging` → `api.nport.online` | `apps/api/wrangler.jsonc` § `env.staging` |
 | Worker (site) | `nport-web-staging` → `nport.online`, `www.nport.online` | `apps/web/wrangler.jsonc` § `env.staging` |
 | Edge rate limit | ruleset on `api.nport.online` | `infra/terraform` (same config as production) |
-| Terraform state | R2 bucket `nport-tfstate` | `infra/terraform/bootstrap`, run once per account (ADR-0041) |
+| Terraform state | HCP Terraform workspace `nport-staging` | app.terraform.io, local execution mode (ADR-0042) |
 | Deploy | `.github/workflows/deploy-staging.yml` | gate → terraform → workers → verify |
 
 Staging runs a **1-hour lease** and a **16-bit proof-of-work floor** against production's 4 hours and 20 bits: it exists to be exercised, so a forgotten test tunnel expires within the hour and an end-to-end run does not spend seconds per create. `infra/terraform/README.md` § Bootstrap is the one-time setup. The Terraform is one configuration for both environments; only the account, the zone and the state key differ.
@@ -54,13 +54,13 @@ Staging runs a **1-hour lease** and a **16-bit proof-of-work floor** against pro
 
 None of these is typed by a person. `infra/terraform/secrets.tf` generates the two HMAC keys and mints the API token with exactly two permission groups; the other three are identifiers Terraform already has. The deploy pipes a single sensitive output into `wrangler secret bulk`, so the whole set lands in one call and a partial application is not a state the Worker can be left in.
 
-**The Terraform state is therefore the most sensitive object in the deployment.** `random_password` and `cloudflare_api_token` both keep their values in state — Terraform must know a value to detect drift — so whoever can read the R2 bucket can read every secret. That bucket and its two keys are the boundary to protect. This is a deliberate trade recorded in ADR-0040: one credential to guard and rotate, instead of six values invented by hand and never rotated.
+**The Terraform state is therefore the most sensitive object in the deployment.** `random_password` and `cloudflare_api_token` both keep their values in state — Terraform must know a value to detect drift — so whoever can read the workspace's state can read every secret. The HCP workspace and its token are the boundary to protect. This is a deliberate trade recorded in ADR-0040: one credential to guard and rotate, instead of six values invented by hand and never rotated.
 
 ### CI (GitHub Actions secrets)
 
 `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `NPM_TOKEN`, `CARGO_REGISTRY_TOKEN`, `HOMEBREW_TAP_TOKEN`, `APPLE_ID` + `APPLE_TEAM_ID` + `APPLE_APP_PASSWORD` + `APPLE_CERTIFICATE` (+ password), `WINDOWS_CERTIFICATE` (+ password), `TAURI_SIGNING_PRIVATE_KEY` (+ password).
 
-**Actions holds four values and none of them is a Worker secret** (ADR-0040): `CLOUDFLARE_API_TOKEN` for Terraform to authenticate with, `CLOUDFLARE_ACCOUNT_ID`, and `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` for the state backend. Everything the Worker runs on is derived from those by `terraform apply`.
+**Actions holds three values and none of them is a Worker secret** (ADR-0040, ADR-0042): `CLOUDFLARE_API_TOKEN` for Terraform to act with, `CLOUDFLARE_ACCOUNT_ID`, and `TF_API_TOKEN` for the state backend. Everything the Worker runs on is derived from those by `terraform apply`.
 
 The consequence, stated rather than buried: CI *can* mint a Tunnel-Edit token, because it runs the apply. ADR-0039 refused that and paid for it in manual steps; ADR-0040 accepts it and relies on staging and production being separate accounts (ADR-0038), so a compromised staging pipeline reaches only staging.
 

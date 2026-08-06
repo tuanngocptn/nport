@@ -799,7 +799,7 @@ GitHub Actions holds four values, none of which is a Worker secret: the Cloudfla
 
 ## ADR-0041 — A bootstrap root creates the state bucket, so only one credential is human-made
 
-**Status.** Accepted, 2026-08-06.
+**Status.** Superseded by ADR-0042, 2026-08-06, before it was ever run. Kept because the constraint it wrestles with is real and the next person to consider an object store will meet it again.
 
 **Context.** ADR-0040 moved every runtime secret into Terraform, leaving four manual steps: the Cloudflare account and zone, the CI API token, the R2 state bucket with its S3 keys, and the GitHub Environment. The bucket was the odd one out. It is not something a person needs to decide — it is a container with a name — and creating it by hand meant a dashboard visit, a second token creation flow, and two credentials copied out of a UI that shows them once.
 
@@ -816,3 +816,23 @@ The main root is unchanged. It still expects a bucket and credentials to exist; 
 - Its state is local and disposable. Losing it does not break anything: the bucket and token still exist and nothing depends on the state, so Terraform merely stops tracking them. Re-running against a lost state tries to create an existing bucket and fails, which is recoverable with `terraform import` or by skipping the root entirely.
 - `prevent_destroy` on the bucket, because a `terraform destroy` that took it would leave the real infrastructure standing with nothing tracking it — unrecoverable without importing every resource by hand.
 - The R2 key derivation is the one part not verified against a live account. If the backend fails to authenticate, that is the first thing to doubt; the fallback is the dashboard's R2 token flow, which shows a pair directly. `docs/DEPLOYMENT.md` says so at the point of use.
+
+## ADR-0042 — State lives in HCP Terraform, not in an object store
+
+**Status.** Accepted, 2026-08-06. Supersedes ADR-0041.
+
+**Context.** State had to go somewhere remote, because CI applies and a runner keeps nothing between runs. R2 was the obvious choice — same vendor, one credential already present — and it worked, but every version of it carried a bootstrap: the bucket has to exist before `terraform init` can run, and Terraform cannot create the store its own state lives in.
+
+Three attempts at that bootstrap, each less bad and none good. A manual `wrangler r2 bucket create` plus a dashboard token: two credentials to copy and a step to forget. A separate Terraform root with local state (ADR-0041): a second state that is empty on every CI run, so it tries to recreate an existing bucket. A shell script deriving the S3 key pair from the Cloudflare token before Terraform starts: clever, and it made the pipeline self-sufficient, but it depended on an undocumented-in-our-tree derivation and put a bash prologue in front of every apply.
+
+The common factor is that an object store is a *thing that must already exist*. A managed state backend is not.
+
+**Decision.** HCP Terraform (`app.terraform.io`). The `cloud` block names neither the organization nor the workspace — `TF_CLOUD_ORGANIZATION` and `TF_WORKSPACE` supply both — so one configuration still serves every environment, the same property the backend `key` was carrying before. Workspaces are created on first `init`.
+
+**Consequences.**
+
+- Nothing has to exist before `terraform init`. The bootstrap problem is not solved, it is deleted.
+- State locking, run history and a diff view come with it, none of which the bucket had. Concurrent applies were previously prevented only by the workflow's `concurrency` group.
+- **One more vendor and one more credential.** GitHub holds three secrets instead of two, and the state — which since ADR-0040 holds every runtime secret — now sits with HashiCorp rather than in the same Cloudflare account as everything else. That is the real cost, and it is the argument someone may want to reverse later; ADR-0041 is kept for them.
+- Workspaces must be in **local execution mode**. HCP defaults to remote, where it runs the plan on its own infrastructure — which would mean duplicating the Cloudflare credentials there as workspace variables, exactly the spreading of secrets ADR-0040 removed. This is a per-workspace setting and the one manual step the change adds.
+- The CI Cloudflare token no longer needs R2 permissions.

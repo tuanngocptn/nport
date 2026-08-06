@@ -26,31 +26,25 @@ terraform {
     }
   }
 
-  # State in R2, through the S3-compatible API.
+  # State in HCP Terraform (app.terraform.io).
   #
-  # The bucket itself is **not** managed here — it holds this state, and a resource cannot create the
-  # store its own state lives in. `infra/terraform/README.md` § Bootstrap creates it once by hand.
+  # Chosen over an R2 bucket because the bucket had to exist before Terraform could initialise, and
+  # every way of resolving that put a bootstrap step somewhere — a second root with its own state, or
+  # a script deriving S3 credentials before the run. HCP has nothing to create first: a token is the
+  # whole configuration, and state locking and run history come with it (ADR-0042).
   #
-  # `bucket`, `endpoints` and **`key`** are all supplied by `-backend-config=backend.hcl`, because a
-  # backend block cannot take variables. `key` is what separates one environment's state from the
-  # other's, and it is deliberately not defaulted here: a default would be the wrong one for whichever
-  # environment forgot to override it, and the failure would be two environments sharing one state.
+  # **Nothing is named here.** The organization comes from `TF_CLOUD_ORGANIZATION` and the workspace
+  # from `TF_WORKSPACE`, both set per environment by the deploy. That keeps this file identical for
+  # staging and production, which is the same reason `key` was never defaulted when state lived in a
+  # bucket: a default is the wrong value for whichever environment forgot to override it.
   #
-  # The `skip_*` flags and `use_path_style` are what make the AWS backend talk to R2 rather than to
-  # S3; without them the SDK tries to resolve a region and validate credentials against endpoints
-  # that do not exist here.
-  #
-  # `use_lockfile` is S3-native locking (conditional writes), which R2 supports — so there is no
-  # DynamoDB table to run and no way for two runs to apply at once.
-  backend "s3" {
-    region                      = "auto"
-    use_path_style              = true
-    use_lockfile                = true
-    skip_credentials_validation = true
-    skip_metadata_api_check     = true
-    skip_region_validation      = true
-    skip_requesting_account_id  = true
-    skip_s3_checksum            = true
+  # Workspaces must run in **local execution mode** — HCP stores the state, CI runs the plan. In
+  # remote mode HCP would execute the run on its own infrastructure and the Cloudflare credentials
+  # would have to be duplicated there as workspace variables.
+  cloud {
+    workspaces {
+      tags = ["nport"]
+    }
   }
 }
 

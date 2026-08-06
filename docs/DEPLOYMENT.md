@@ -16,18 +16,18 @@ different account and zone (ADR-0038); nothing here is staging-specific except t
 
 ## What is automated and what is not
 
-**You create one Cloudflare API token. Terraform makes everything else**, including the state
-bucket, the credentials that open it, and all six Worker runtime secrets (ADR-0040, ADR-0041).
-
-Two things still need a person, and both are things a deploy pipeline structurally cannot do:
+**You create two API tokens and paste them into GitHub. The pipeline does everything else**,
+including all six Worker runtime secrets (ADR-0040).
 
 | Manual | Why it cannot be automated |
 | --- | --- |
 | Cloudflare account, zone, nameserver delegation | Terraform *reads* the zone; delegation happens at your registrar |
-| One API token, and pasting four values into GitHub | It is the credential Terraform authenticates with — it cannot mint its own, and the workflow reads its secrets before any of this runs |
+| A Cloudflare API token | The credential Terraform acts with — nothing can mint its own |
+| An HCP Terraform token and organization | Where the state lives; the workflow authenticates with it before anything runs |
 
-The state bucket used to be on that list. It no longer is: `infra/terraform/bootstrap` creates it,
-along with a narrow R2 token scoped to it, and prints the values to paste.
+State is in **HCP Terraform** (`app.terraform.io`), not an object store (ADR-0042). There is no
+bucket to create before Terraform can initialise and no second key pair to derive — a token is the
+whole configuration, and state locking and run history come with it.
 
 ---
 
@@ -48,7 +48,6 @@ Dashboard → **My Profile → API Tokens → Create Token → Create Custom Tok
 | Scope | Needed for |
 | --- | --- |
 | Account → Workers Scripts → **Edit** | `wrangler deploy` |
-| Account → Workers R2 Storage → **Edit** | reading and writing Terraform state |
 | Account → API Tokens → **Edit** | Terraform mints the Worker's own token |
 | Account → Cloudflare Tunnel → **Edit** | see below |
 | Zone → Zone Settings → **Edit** | the TLS floor and always-HTTPS |
@@ -62,32 +61,20 @@ time. Granting them costs nothing: this token already reaches the whole account.
 
 Set the zone resources to the zone from step 1. Copy the token now; Cloudflare shows it once.
 
-## 3. Bootstrap the state bucket
+## 3. HCP Terraform
 
-Terraform's state cannot live in a bucket Terraform has not created yet, so this is a separate root
-with **local state**, run once per Cloudflare account. It creates the bucket and an R2 token scoped
-to it, and prints what the main root needs.
+Sign in at [app.terraform.io](https://app.terraform.io) and create an organization if you have none.
+Then **Account settings → Tokens → Create an API token**.
 
-```bash
-cd infra/terraform/bootstrap
-export CLOUDFLARE_API_TOKEN=<step 2>
+Workspaces are created on first `init`, named `nport-staging` and later `nport-production`, so there
+is nothing to set up ahead of time. One thing does need changing after the first run, once per
+workspace:
 
-terraform init
-terraform apply -var account_id=<this account's id>
+**Settings → General → Execution Mode → Local.**
 
-terraform output backend_hcl              # paste into ../backend.hcl, set `key`
-terraform output -raw r2_access_key_id
-terraform output -raw r2_secret_access_key
-```
-
-R2's S3 API does not take a Cloudflare token directly — it takes a key pair *derived* from one, the
-token's id and the SHA-256 of its value. That derivation is why these can be produced here instead
-of copied out of a dashboard. **If the main root later fails to authenticate to the backend, doubt
-this first** and fall back to R2 → Manage API tokens, which shows a pair directly.
-
-Losing this root's `terraform.tfstate` is not an incident. The bucket and token still exist and
-nothing depends on this state; Terraform just stops tracking them. That is why it is local, and why
-it is one directory for every environment rather than one per environment.
+HCP defaults to *remote* execution, where it runs the plan on its own infrastructure — which would
+mean duplicating the Cloudflare credentials there as workspace variables. Local mode keeps HCP as
+state storage only: CI runs the plan, HCP holds the result and the lock.
 
 ## 4. The GitHub Environment
 
@@ -100,43 +87,47 @@ set. One name, three uses, so they cannot disagree.
 | --- | --- | --- |
 | secret | `CLOUDFLARE_API_TOKEN` | step 2 |
 | secret | `CLOUDFLARE_ACCOUNT_ID` | this account's id |
-| secret | `R2_ACCESS_KEY_ID` | step 3's output |
-| secret | `R2_SECRET_ACCESS_KEY` | step 3's output |
-| variable | `TF_STATE_BUCKET` | only if your bucket is not `nport-tfstate` |
+| secret | `TF_API_TOKEN` | step 3 |
+| variable | `TF_CLOUD_ORGANIZATION` | your HCP organization name |
 
-Four values, and none of them is a Worker secret. Add **required reviewers** here if a deploy should
+**Three secrets, and none of them is a Worker secret.** Add **required reviewers** here if a deploy should
 pause for a human — that is the mechanism for production, rather than a separate workflow.
 
-## 5. First apply
+## 5. Deploy
 
-You can let CI do this, but running it once locally is worth the five minutes: the plan is where a
-wrong token scope or a pending zone shows up, and reading it beats reading a failed job.
+```bash
+git push
+```
+
+That is the whole step. The pipeline applies the infrastructure, deploys both Workers, syncs the
+secrets and verifies the result.
+
+### Running the plan locally first, if you want to read it
+
+Optional, and worth it the first time — the plan is where a wrong token scope or a pending zone
+shows up, and reading it beats reading a failed job.
 
 ```bash
 cd infra/terraform
-
-cp backend.hcl.example backend.hcl          # account id in the endpoint; key = staging/terraform.tfstate
-cp terraform.tfvars.example terraform.tfvars # account_id and zone_name
+cp terraform.tfvars.example terraform.tfvars    # account_id and zone_name
 
 export CLOUDFLARE_API_TOKEN=<step 2>
-export AWS_ACCESS_KEY_ID=<step 3>
-export AWS_SECRET_ACCESS_KEY=<step 3>
+export TF_CLOUD_ORGANIZATION=<your organization>
+export TF_WORKSPACE=nport-staging
 
-terraform init -backend-config=backend.hcl
+terraform login          # once per machine; stores the HCP token
+terraform init
 terraform plan
 ```
 
-Expect a handful of resources: three zone settings, one rate-limit ruleset, two generated passwords,
-one API token. If the plan is empty, `backend.hcl` is pointing at state that already exists.
+Expect seven resources: three zone settings, one rate-limit ruleset, two generated passwords, one
+API token. If the plan is empty, `TF_WORKSPACE` points at state that already exists.
 
-`terraform apply` when the plan reads correctly. Nothing is deployed yet — this creates the
-infrastructure and the secrets, not the Workers.
+**Switching environments locally is `export TF_WORKSPACE=nport-production`**, then `terraform init`
+again. Nothing is copied and nothing migrates — the workspace name is the only thing that selects
+which state you are holding.
 
-**Switching environments locally later needs `terraform init -reconfigure`.** Without it Terraform
-sees a different backend and offers to *migrate* the state it already knows, which would copy one
-environment's state over the other's.
-
-## 6. Deploy
+## 6. What the pipeline does
 
 ```bash
 git push
@@ -208,8 +199,7 @@ Then a deploy, which syncs the new value. There is no runbook to follow and no v
 | Plan: no zone matches the filter | Zone still pending, or the account id belongs to a different account |
 | Apply fails at `cloudflare_api_token.worker` | The CI token lacks Tunnel Edit or DNS Edit — step 2's trap |
 | Apply fails at a permission-group lookup | Cloudflare renamed the group; the error carries the API call that lists the real names, then set `tunnel_permission_group` or `dns_permission_group` |
-| Backend init asks to migrate state | Missing `-reconfigure` when switching environments |
-| Backend init fails to authenticate | The derived R2 key pair — create one in R2 → Manage API tokens instead (step 3) |
-| Bootstrap apply wants to create an existing bucket | Its local state was lost; the bucket is fine, either `terraform import` it or skip this root |
+| `terraform init` cannot reach the backend | `TF_API_TOKEN` missing or expired, or `TF_CLOUD_ORGANIZATION` naming an organization the token cannot see |
+| Plan runs on HCP instead of in CI, and cannot find credentials | The workspace is in remote execution mode; set it to Local (step 3) |
 | Deploy green, every request 500s | The secret sync did not run or did not carry all six; `wrangler secret list --env staging` |
 | `verify-deployment` reports a mismatch | The `env` block's `vars` are incomplete — wrangler does not inherit them |

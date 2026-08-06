@@ -28,6 +28,10 @@ permissions:
 
 env:
   COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+  # `versions.tf` names neither, so one configuration serves both environments. `TF_WORKSPACE`
+  # selects which state HCP hands back; the workspace is created on first init if it is missing.
+  TF_CLOUD_ORGANIZATION: ${{ vars.TF_CLOUD_ORGANIZATION }}
+  TF_WORKSPACE: nport-${{ inputs.environment }}
   # Derived rather than passed, so the workflow cannot disagree with itself about where to look.
   # `api` matches `api_subdomain`'s default in infra/terraform/variables.tf; change one and the
   # verify job fails, which is the intended way to find out.
@@ -78,20 +82,12 @@ jobs:
         with:
           terraform_version: 1.14.9
           terraform_wrapper: false
-
-      # A backend block cannot take variables. `key` is what separates one environment's state from
-      # the other's — both environments sharing a state file would have each apply try to "correct"
-      # the other's account into this one's.
-      - name: Write the backend config
-        run: |
-          cat > backend.hcl <<EOF
-          bucket    = "${{ vars.TF_STATE_BUCKET || 'nport-tfstate' }}"
-          endpoints = { s3 = "https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com" }
-          key       = "${{ inputs.environment }}/terraform.tfstate"
-          EOF
+          # Writes ~/.terraformrc so `terraform init` can reach app.terraform.io. This is the only
+          # credential the state backend needs — there is no bucket and no derived key pair.
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
       - run: terraform fmt -check -diff
-      - run: terraform init -input=false -backend-config=backend.hcl
+      - run: terraform init -input=false
       - run: terraform validate
 
       - name: Plan
@@ -101,8 +97,6 @@ jobs:
             -var "zone_name=${{ inputs.zone }}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
       # Applies the plan file, not a fresh evaluation — so what lands is exactly what was planned,
       # even if something changed underneath in between.
@@ -110,8 +104,6 @@ jobs:
         run: terraform apply -input=false -auto-approve tfplan
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
       # The Worker's six runtime secrets, generated and owned by Terraform (ADR-0040), handed to the
       # next job as an artifact rather than a job output: **job outputs are not encrypted and appear
@@ -130,8 +122,6 @@ jobs:
           "
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
       - uses: actions/upload-artifact@v4
         with:

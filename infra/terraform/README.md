@@ -30,23 +30,21 @@ construction. That is not a reason to relax: **never add a broad `cloudflare_dns
 `for_each` over existing records to this stack.** The zone is deliberately a `data` source rather
 than a resource, so `terraform destroy` cannot take the zone with it.
 
-## Two roots
+## State
 
-| Root | State | Runs | Creates |
-| --- | --- | --- | --- |
-| `bootstrap/` | local, disposable | once per Cloudflare account | the R2 state bucket and a token scoped to it (ADR-0041) |
-| `.` | in that bucket | every deploy | zone settings, the rate-limit ruleset, and the Worker's six secrets (ADR-0040) |
+In HCP Terraform (`app.terraform.io`), not an object store (ADR-0042). Nothing has to exist before
+`terraform init` — a token is the whole configuration — and locking and run history come with it.
 
-`bootstrap/` exists because Terraform's state cannot live in a bucket Terraform has not created. It
-is not the per-environment split this file argues against — it is one directory shared by every
-environment, run once per account.
+`versions.tf` names neither the organization nor the workspace: `TF_CLOUD_ORGANIZATION` and
+`TF_WORKSPACE` supply both, so one configuration serves every environment. Workspaces must be in
+**local execution mode**, or HCP runs the plan on its own infrastructure and the Cloudflare
+credentials would have to be duplicated there.
 
 ## Setting one up
 
-`docs/DEPLOYMENT.md` is the step-by-step, from an empty Cloudflare account to a verified deploy.
-**One credential is human-made** — the Cloudflare API token Terraform authenticates with. The account
-and zone need a person because delegation happens at your registrar; everything else, including the
-state bucket and all six Worker runtime secrets, Terraform generates.
+`docs/DEPLOYMENT.md` is the step-by-step. **One credential is human-made** — the Cloudflare API
+token. The account and zone need a person because delegation happens at your registrar; everything
+else, including the state bucket and all six Worker runtime secrets, the pipeline handles.
 
 ## What CI does with this
 
