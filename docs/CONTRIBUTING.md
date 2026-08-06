@@ -70,7 +70,7 @@ The fake's token is shaped to be *parseable* on purpose: `t` is a UUID and `s` d
 
 **`MIN_CLIENT_VERSION="3.0.0-dev"`** lowers the client-version floor to what the workspace builds. `wrangler.jsonc` sets `3.0.0` for production and `crates/cli` is `3.0.0-dev`, which semver orders *below* it — so without this the local CLI is refused by the local control plane with `CLIENT_TOO_OLD`. **Do not "fix" that in `src/middleware/client-gate.ts`.** The ordering is deliberate: it is what stops every `3.0.0-beta.N` client sailing through once the floor moves to `3.0.0`. `3.0.0-dev` rather than `0.0.0`, so the gate still runs and a real 2.x client is still refused.
 
-For an **actual** tunnel, put a real scoped token in `.dev.vars` — Account → Cloudflare Tunnel → Edit, Zone → DNS → Edit, against a zone you own, and never a production one. The fake stands down on its own when `CF_API_TOKEN` looks real, so there is nothing else to switch off.
+For an **actual** tunnel, put a real scoped token in `.dev.vars` — Account → Cloudflare Tunnel → Edit, Zone → DNS → Edit, against a zone you own, and never a production one. Account-owned, like every other token here (ADR-0043). The fake stands down on its own when `CF_API_TOKEN` looks real, so there is nothing else to switch off.
 
 If gated routes start answering `INTERNAL` while `/v1/health` stays green, your `.dev.vars` is **stale** rather than missing — it predates a key the example has since gained, so nothing recreated it. The preflight diffs the two and names what is absent. It reports rather than merges, because appending to a file that might hold your real token is not a thing a script should do unasked.
 

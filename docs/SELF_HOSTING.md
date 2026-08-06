@@ -29,7 +29,16 @@ Create a scoped token with exactly:
 | Cloudflare Tunnel → Edit | your account |
 | DNS → Edit | your zone |
 
+Make it under **Manage Account → Account API Tokens**, not My Profile. An account-owned token
+outlives the person who created it and cannot hold a user-scoped permission, and the control plane
+never calls a `/user/…` endpoint. The one thing it costs: an account token cannot discover which
+account it belongs to, so `CF_ACCOUNT_ID` below is not optional.
+
 **Do not use the Global API Key.** It grants full account control, and unlike v2, v3 does not accept it.
+
+These are the same two permissions this project's own deployment gives the Worker
+(`docs/DEPLOYMENT.md` § 2b) — they are the entire Cloudflare surface `apps/api` touches. If one list
+changes, the other is wrong.
 
 ### 2. Configure and deploy
 

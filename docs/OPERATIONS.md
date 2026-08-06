@@ -50,7 +50,7 @@ Staging runs a **1-hour lease** and a **16-bit proof-of-work floor** against pro
 | `POW_SECRET` | HMAC key for challenges | yes, with overlap |
 | `IP_HASH_SECRET` | HMAC key for source hashing | yes, rotating by design |
 
-`CF_API_TOKEN` must be a **scoped** token. v2 supported the legacy Global API Key as a fallback, which grants full account control — v3 does not.
+`CF_API_TOKEN` must be a **scoped, account-owned** token — Manage Account → Account API Tokens, not My Profile (ADR-0043). v2 supported the legacy Global API Key as a fallback, which grants full account control; v3 does not.
 
 Only `CF_API_TOKEN` is typed by a person. `infra/terraform/secrets.tf` generates the two HMAC keys and the other three are identifiers Terraform already has; the deploy merges the hand-made token in and pipes the whole set into `wrangler secret bulk`, so it lands in one call and a partial application is not a state the Worker can be left in. That one exception is deliberate: a Terraform configuration that can create a Cloudflare token requires a CI credential that can create *any* Cloudflare token (ADR-0043).
 

@@ -15,9 +15,10 @@
 # only destroys what its own state created, so this is safe by construction rather than by care — but
 # it is the reason this stack must never grow a broad `cloudflare_dns_records` import.
 #
-# **No API tokens and no Worker secrets** (ADR-0039). Everything in this file is applied by CI, and
-# `docs/OPERATIONS.md` § Secrets says the Worker's runtime credentials never pass through Actions. A
-# stack that could mint a Tunnel-Edit token would hand CI the authority that rule exists to withhold.
+# **No Cloudflare credential, here or anywhere in this configuration** (ADR-0043). The generated
+# secrets live in `secrets.tf` and grant no authority; the Worker's Cloudflare token is made by hand
+# and reaches it as a GitHub secret. A stack that could mint a token would need a CI credential that
+# could mint *any* token, which is a far larger thing to hold than the one it would automate.
 
 # Scoped to the account on purpose, and it matters more now that one configuration serves both
 # environments. A token with access to more than one account would otherwise match a zone of the same
