@@ -468,6 +468,10 @@ The spike's copies are gone rather than left to drift, which needed `nport-core`
 
 `nport 3000 -s test` works end-to-end against the deployed API on macOS, Linux, and Windows, including WebSocket, graceful Ctrl+C, and server-enforced expiry. It needs 2a and 2b only; **2c is not part of it**, which is the whole reason the gate sits here rather than after the website.
 
+**Partly met, 2026-08-06.** The first tunnel served real traffic: `nport 8099 -s demo-g2 --backend https://api.nport.online` provisioned a lease, opened four HA connections to Cloudflare's Hong Kong edge (`hkg09`, `hkg10`, `hkg01`, `hkg08`), and returned the origin's body **byte-identical** over HTTP/2 with a `cf-ray` header, 10/10 requests, and a 404 passed through as a 404. Ctrl+C drained and exited; teardown left the hostname at `NXDOMAIN`, so both the tunnel and the DNS record were removed. The per-source hourly cap then refused a reclaim with `CREATE_QUOTA_EXCEEDED`, which is `docs/ARCHITECTURE.md` §7 working rather than a fault.
+
+What that leaves for the gate: **Linux and Windows**, **WebSocket**, and **server-enforced expiry**. All of it was macOS and plain HTTP. The connector, the saga, the compensations and the abuse controls are no longer theoretical, but three of the five G2 criteria are still unproven and the gate stays open until they are.
+
 ### 2c · `apps/web`
 
 **Starts after G2 closes**, not alongside 2a and 2b. The tracks are still technically parallel — 2c consumes the contract and touches nothing the tunnel needs — but a site that markets a tunnel nobody has yet opened is the wrong thing to be building, and reviewing the design surfaced enough open questions in it to make the sequencing worth stating rather than assuming.

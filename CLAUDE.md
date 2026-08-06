@@ -6,7 +6,7 @@ Guidance for Claude Code working in this repository. Read this file first; it te
 
 NPort tunnels HTTP/HTTPS from localhost to a public `*.nport.link` URL over Cloudflare's edge. It is free, MIT-licensed, and **account-free** — no signup, no API keys, `nport 3000 -s myapp` and you have a URL. v3 is a from-scratch rewrite that replaces the bundled `cloudflared` binary with a native Rust implementation of Cloudflare's tunnel connector protocol.
 
-**Status: 2a and 2b complete, nothing deployed.** `apps/api` provisions, leases, and reaps, tested in real `workerd`; `crates/protocol`, `crates/core` and the `nport` CLI connect, proxy, inspect and tear down. `apps/web` and `apps/desktop` are booting scaffolds, not implementations. **No port has been opened to the internet by this code** — the Cloudflare API paths have never met the live API, and closing that gap (Gate G2) is the only work that matters. `docs/ROADMAP.md` § The critical path.
+**Status: staging is live and the first tunnel has served traffic** (2026-08-06). `nport 8099 -s demo-g2 --backend https://api.nport.online` provisioned, brought up four HA connections to Cloudflare's edge, returned a byte-identical body over HTTP/2, and tore down leaving NXDOMAIN. That was **macOS and HTTP only** — Gate G2 also wants Linux, Windows, WebSocket and server-enforced expiry, so it is not closed. `apps/web` and `apps/desktop` are still booting scaffolds. `docs/ROADMAP.md` § The critical path.
 
 ## The four apps
 
