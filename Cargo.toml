@@ -48,6 +48,19 @@ h2 = "0.4"
 # **at runtime** rather than at compile time — the same trap `tokio-rustls` and `tokio-tungstenite`
 # are argued down for below.
 hickory-resolver = { version = "0.26", features = ["tls-aws-lc-rs"] }
+# NFKC for the subdomain mirror in `crates/contract`, and **already in this binary's graph** —
+# `hickory-resolver` → `idna` → `idna_adapter` → `icu_normalizer`. So this declares something the
+# CLI already links: `Cargo.lock` gains one line and no new package. `unicode-normalization` would
+# have been the reflexive choice and it is the worse one — a second copy of the normalization tables
+# in a binary that ships eight platform packages, to compute the same answer. Licence is Unicode-3.0,
+# already on `deny.toml`'s allowlist for the same transitive reason. ADR-0045.
+#
+# **`default-features = false` is load-bearing, not tidiness.** The defaults add `utf16_iter` and
+# `write16` for normalizing UTF-16 in place, which nothing here does — checked by reading the lockfile
+# diff rather than assumed, because the first version of this line claimed "no new crate" while adding
+# two. `compiled_data` is the one feature needed, and it is what makes `new_nfkc()` a `const fn` with
+# no initialisation to pay for.
+icu_normalizer = { version = "2.1", default-features = false, features = ["compiled_data"] }
 insta = "1.48"
 proptest = "1.11"
 # aws-lc-rs, not quinn's default ring: offering X25519MLKEM768 requires it, and rustls

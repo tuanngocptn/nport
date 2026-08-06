@@ -8,8 +8,12 @@
 //!
 //! 1. **Parse first.** `--help` and `--version` answer before a config file is read, a locale is
 //!    resolved, or a socket is opened. v2's `nport -v` hung on a fresh install behind a prompt.
-//! 2. **Probe the local port before provisioning.** Failing with `LOCAL_PORT_CLOSED` beats creating
-//!    a tunnel to nothing and printing a URL that answers 502.
+//! 2. **Check the requested name, then probe the local port, and only then provision.** Both fail
+//!    before anything is claimed. The name goes first because it is pure — refusing `-s my_app`
+//!    should not depend on whether a socket answers — and because the alternative is a proof-of-work
+//!    solve and a round trip spent to be told what `nport_contract::subdomain` already knows.
+//!    Failing with `LOCAL_PORT_CLOSED` beats creating a tunnel to nothing and printing a URL that
+//!    answers 502.
 //! 3. **Never prompt** (ADR-0019). There is no TTY detection anywhere in this crate.
 //! 4. **Shutdown is structured and re-entrant.** A second Ctrl+C exits immediately rather than
 //!    firing a second delete — v2's signal handler called an async cleanup it never awaited.
@@ -25,6 +29,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::Parser as _;
+use nport_contract::subdomain::check_subdomain;
 use nport_contract::{ClientKind, ErrorCode};
 use nport_core::event::{ShutdownReason, TunnelEvent};
 use nport_core::manager::TunnelConfig;
@@ -123,6 +128,25 @@ async fn run(args: Args) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    let subdomain = args.subdomain.or(configured.subdomain);
+    // The server would refuse this too, and it is authoritative (invariant 3) — but it would refuse
+    // it *after* a challenge, a solve, and a round trip, and the answer cannot differ: the rules are
+    // the contract's, mirrored in `nport_contract::subdomain` and pinned to the same fixtures.
+    // Ahead of the port probe because this opens no socket, so `-s my_app` reports the name rather
+    // than whichever of the two problems happened to be checked first.
+    if let Some(requested) = subdomain.as_deref() {
+        if let Err(reason) = check_subdomain(requested) {
+            // Sentence, code, then the specific reason in parentheses — the shape the config and port
+            // failures already use. The reason is the contract's own spelling, so this line reads the
+            // same whether the refusal came from here or from the server's `details.reason`.
+            eprintln!(
+                "nport: {} ({reason})",
+                renderer.error(ErrorCode::InvalidSubdomain)
+            );
+            return ExitCode::FAILURE;
+        }
+    }
+
     // Before provisioning, not after. A tunnel to a port nothing is listening on is a URL that
     // answers 502, and the user is left to work out why.
     if let Err(error) = probe(port).await {
@@ -135,7 +159,9 @@ async fn run(args: Args) -> ExitCode {
 
     let config = TunnelConfig {
         local_port: port,
-        subdomain: args.subdomain.or(configured.subdomain),
+        // The **raw** request, not the normalized one. The server normalizes again and owns the value
+        // that becomes a lease key; sending our version would put a second authority on the path.
+        subdomain,
         backend: args
             .backend
             .or(configured.backend)

@@ -13,7 +13,7 @@ Style rules are in `docs/conventions/rust.md`. This file covers layering and the
 | `protocol` | `nport_protocol` | Cloudflare connector wire protocol. See `crates/protocol/CLAUDE.md` |
 | `core` | `nport_core` | `TunnelManager`: provision → connect → proxy → teardown. Connection pool, reconnect, local proxy, event stream, optional inspector. **Headless.** |
 | `cli` | bin `nport` | Argument parsing, terminal rendering, config file, i18n, signals |
-| `contract` | `nport_contract` | **GENERATED** from `packages/contract`. Never hand-edit |
+| `contract` | `nport_contract` | API types and `ErrorCode`, **generated** from `packages/contract` into `src/generated.rs` — never hand-edit that file. `src/lib.rs` and `src/subdomain.rs` are hand-written; see the crate README |
 | `xtask` | — | `cargo xtask codegen \| fixtures \| npm-packages \| verify-docs` |
 
 ## Layering
@@ -85,7 +85,7 @@ The v2 CLI got several basics wrong; these are the corrections, and they are all
 ## Gotchas
 
 - **`apps/desktop/src-tauri` is also a workspace member**, so `cargo clippy` from the root includes it.
-- **`crates/contract` is generated.** Edits are overwritten and CI fails on drift.
+- **`crates/contract/src/generated.rs` is generated.** Edits are overwritten and CI fails on drift. The crate is *not* wholly generated, which the table above used to imply: `lib.rs` holds the error envelope and `subdomain.rs` holds normalization, because a typed `ErrorCode` and NFKC are not things JSON Schema can say. `subdomain.rs` takes its **constants** from codegen and reimplements only the rules — so a reserved name is added in `packages/contract` and nowhere else, while a rule change means editing both sides and adding a case to `packages/contract/fixtures/subdomains.json`, which both test suites read.
 - **`crates/protocol` has `nport-core` as a dev-dependency**, so its examples can call the real proxy instead of keeping a second copy that drifts. Cargo permits the cycle and it stays out of `nport-protocol`'s library graph. If it ever appears outside `[dev-dependencies]`, that is the regression.
 - **An internal path dependency needs `version` as well as `path`.** Path-only is a wildcard requirement and `deny.toml` denies wildcards — but the failure is invisible until something actually *depends* on the crate, because cargo-deny only inspects the resolved graph. Three of these sat declared-but-unused for weeks and only broke CI the day one was used. `cargo-deny` is CI-only, so check `cargo metadata` shows a real `req` before pushing a Cargo.toml change.
 - **`crates/core` is linked in-process by the desktop app**, so a panic there kills the GUI. Return errors; do not panic. **A length the origin sent is arithmetic that can overflow and a buffer that can grow forever** — `size + 2` on a `usize::MAX` chunk header panicked, and the size line itself had no ceiling. Every bound the response decoder relies on is a named constant in `proxy.rs` (`MAX_RESPONSE_HEAD`, `MAX_CHUNK_SIZE_LINE`); a new one belongs there, checked before the allocation rather than after.

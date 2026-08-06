@@ -45,6 +45,11 @@
       "input": "myapp.nport.link.nport.link",
       "output": "myapp",
       "why": "repeated suffix, from pasting twice"
+    },
+    {
+      "input": "myapp.nport.link..nport.link..",
+      "output": "myapp",
+      "why": "stripping one suffix exposes a dot that the next strip needs gone, so the dot trim has to run INSIDE the suffix loop rather than once before it. Moved here from subdomain.test.ts, where only one of the two languages could see it: the Rust mirror passed every shared case with the trim hoisted out of the loop, and this is the input that fails"
     }
   ],
   "valid": [
@@ -197,6 +202,11 @@
       "input": "nport-abc12345",
       "reason": "reserved-prefix",
       "why": "the generated-name space; a user claim could collide with one we hand out"
+    },
+    {
+      "input": "абв",
+      "reason": "invalid-characters",
+      "why": "non-ASCII that NFKC does not fold to anything legal. Here to pin the two languages to the same REASON and not merely to the same refusal: every length check runs before the charset check, so whichever unit a language counts in decides what the user is told"
     }
   ]
 }

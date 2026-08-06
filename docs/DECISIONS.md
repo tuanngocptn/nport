@@ -45,6 +45,14 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0035 | DNS-over-TLS discovery fallback, on the workspace's single crypto provider | Accepted |
 | 0036 | The deny list answers two questions; cleanup gets the narrower one | Accepted |
 | 0037 | The heartbeat interval is discovered from `/v1/meta`, not hardcoded | Accepted |
+| 0038 | Staging is a separate Cloudflare account, not a separate zone | Accepted |
+| 0039 | Terraform manages infrastructure; it never mints a credential CI could use | Accepted |
+| 0040 | Terraform owns every runtime secret; CI holds only the keys to the state | Accepted |
+| 0041 | A bootstrap root creates the state bucket, so only one credential is human-made | Accepted |
+| 0042 | State lives in HCP Terraform, not in an object store | Accepted |
+| 0043 | Terraform generates secrets, but never a Cloudflare credential | Accepted |
+| 0044 | Federation comes next, ahead of the website and the desktop app | Accepted |
+| 0045 | The subdomain mirror is hand-written logic over generated constants | Accepted |
 
 ---
 
@@ -879,3 +887,31 @@ Building the site and the desktop app first would mean building both against a c
 - The v2 shim keeps serving `nport.link` throughout, so this reordering costs no user anything. It does mean v2 stays in production longer, which is the cost being accepted — Phase 6 moves further out.
 - The registry holds no Cloudflare credentials and provisions nothing (ADR-0031), so this adds a deployable without adding a credential to protect. The staging pattern from ADR-0038 and ADR-0043 extends to it unchanged.
 
+
+## ADR-0045 — The subdomain mirror is hand-written logic over generated constants
+
+**Date** 2026-08-06 · **Status** Accepted
+
+**Context.** `packages/contract/src/subdomain.ts` has said since Phase 1.5 that it is "**Mirrored in Rust** so the CLI can reject a bad name instantly instead of spending a round trip on it", and `packages/contract/fixtures/subdomains.json` has said its cases are exercised "by `subdomain.test.ts` AND by `crates/contract`'s Rust mirror, so the two implementations cannot disagree". Neither was true: `crates/contract` held `generated.rs` and `lib.rs`, nothing in `crates/` normalized or validated a subdomain, and the CLI sent whatever `-s` it was handed and waited for the server's `INVALID_SUBDOMAIN`. `docs/ROADMAP.md` records it as defect 34.
+
+Writing the mirror forces two questions the original claim skipped over. **Where does the duplication go?** `RESERVED_SUBDOMAINS` is 53 names, and a second copy kept by hand is the exact shape of defects 22, 25 and 29 — a list standing behind a guarantee, correct until somebody forgets to add `paypal` twice. And **which unicode library?** NFKC is not in the standard library, and the fixtures require it: `ｍｙａｐｐ` must fold to `myapp`, or a full-width name is a visually identical second claim on one lease.
+
+**Decision.** Split the mirror by kind: **constants are generated, rules are reimplemented.**
+
+`pnpm codegen` emits `schema/subdomain.json` — the bounds, the zone suffix, and the three lists — and `cargo xtask codegen` turns it into consts in `crates/contract/src/generated.rs`. Adding a reserved name in `packages/contract` is therefore sufficient, and the drift gate makes it so. The rules — NFKC, the suffix strip, label validation — are written out in `crates/contract/src/subdomain.rs` and pinned against `fixtures/subdomains.json`, which **both** test suites now read.
+
+NFKC comes from **`icu_normalizer`**, which is already in the `nport` binary's dependency graph: `hickory-resolver` → `idna` → `idna_adapter` → `icu_normalizer`. So this declares something the CLI already links — `Cargo.lock` gains one line and no new package — and its Unicode-3.0 licence is already on `deny.toml`'s allowlist for the same transitive reason.
+
+It is declared `default-features = false, features = ["compiled_data"]`, and that is worth recording because the first attempt got it wrong in the direction this ADR is about. Written as a plain `"2.1"`, the defaults pulled `utf16_iter` and `write16` — support for normalizing UTF-16 in place, which nothing here does — while the comment beside it claimed no crate had been added. **The lockfile diff is the check**, not the reasoning that a crate is already present: "already in the graph" is a statement about the package, and features decide what that package drags in.
+
+Length is counted in **UTF-16 code units**, matching JavaScript's `String.length`, because every length check runs before the charset check and therefore decides the *reason* a name is refused. A mirror that refuses the same input for a different reason is a mirror that misleads whoever reads the two messages side by side.
+
+**Consequences.**
+
+- `nport -s my_app` fails in about a millisecond with `invalid-characters`, instead of after a proof-of-work solve and a round trip.
+- **The server stays authoritative** (invariant 3). The client refuses early; it never decides. A name the mirror accepts still has to survive `POST /v1/tunnels`, which normalizes again and owns the reserved list at the moment of the claim — and the CLI sends the user's **raw** input, so there is exactly one authority for the value that becomes a lease key.
+- `crates/contract` is no longer wholly generated, and three places said it was. The rule is now per-file: `generated.rs` is off-limits, `lib.rs` and `subdomain.rs` are not.
+- Three functions are deliberately **not** mirrored — `checkSubdomainShape`, `isReserved` and `isProtectedFromCleanup` — because their callers are the path parameter and the reconciliation sweeper, both server-side. Mirroring them would be untested surface.
+- A per-node zone suffix is now one parameter rather than a rewrite, which matters because ADR-0031 gives every node its own domain and `ZONE_SUFFIX` is currently the single constant `.nport.link`.
+
+**Rejected.** *`unicode-normalization`* — the reflexive choice, and it adds a second copy of the normalization tables to a binary that ships eight platform packages, to compute an answer the tree can already compute. *Generating the rules too* — a code generator that emits NFKC and a suffix loop into another language is a thing nobody should have to debug, and the fixtures already give agreement without it. *Keeping the lists by hand on both sides with a test asserting they match* — workable, but it needs the lists in three places and makes adding a reserved name a two-language edit. *Skipping the mirror and correcting the two docblocks instead* — cheaper, and it leaves the round trip in place along with a fixture file whose whole purpose is cross-language agreement it was not providing.

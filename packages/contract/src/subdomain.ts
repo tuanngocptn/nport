@@ -1,9 +1,15 @@
 /**
  * Subdomain normalization and validation.
  *
- * `docs/ARCHITECTURE.md` §7. **Mirrored in Rust** so the CLI can reject a bad name instantly
- * instead of spending a round trip on it, and both implementations run against
- * `fixtures/subdomains.json` so they cannot drift.
+ * `docs/ARCHITECTURE.md` §7. **Mirrored in Rust** — `crates/contract/src/subdomain.rs` — so the CLI
+ * can reject a bad name instantly instead of spending a round trip on it. Two mechanisms keep the
+ * halves honest, and the split between them is deliberate: every **constant** below is generated
+ * into Rust through `schema/subdomain.json`, so a reserved name added here cannot be missing there;
+ * every **rule** is reimplemented, and both implementations run against `fixtures/subdomains.json`.
+ *
+ * That claim was false for the whole of Phase 2: the mirror did not exist, and this file said it did
+ * (`docs/ROADMAP.md`, defect 34). Adding a case to the fixtures is still the way to change either
+ * side — but it is now a case two test suites read rather than one.
  *
  * v2 had no validation at all and interpolated the raw value into hostnames and into Cloudflare
  * API query strings unencoded, so `a.b.c`, `*`, and values containing `&` or `#` all passed.
@@ -152,16 +158,25 @@ export const RESERVED_PREFIXES: readonly string[] = ["smoke-", "nport-", "_"]
  */
 export const NPORT_OWNED_PREFIXES: readonly string[] = ["smoke-", "nport-"]
 
-/** Why a name was rejected. Travels in `details.reason` so a client can say something useful. */
-export type RejectionReason =
-  | "empty"
-  | "too-short"
-  | "too-long"
-  | "invalid-characters"
-  | "leading-or-trailing-hyphen"
-  | "double-hyphen-prefix"
-  | "reserved"
-  | "reserved-prefix"
+/**
+ * Why a name was rejected. Travels in `details.reason` so a client can say something useful.
+ *
+ * A value rather than a bare type union, because `pnpm codegen` has to enumerate these: the Rust
+ * mirror's `RejectionReason` must spell them identically, and a TypeScript *type* cannot be read at
+ * runtime. The type is derived from the array, so the two cannot drift.
+ */
+export const REJECTION_REASONS = [
+  "empty",
+  "too-short",
+  "too-long",
+  "invalid-characters",
+  "leading-or-trailing-hyphen",
+  "double-hyphen-prefix",
+  "reserved",
+  "reserved-prefix",
+] as const
+
+export type RejectionReason = (typeof REJECTION_REASONS)[number]
 
 export type SubdomainCheck =
   | { readonly ok: true; readonly subdomain: string }

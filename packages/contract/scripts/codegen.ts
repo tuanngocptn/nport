@@ -5,10 +5,16 @@
  * pnpm --filter @nport/contract codegen     # or: pnpm codegen, from the root
  * ```
  *
- * Outputs, each with a `@generated` banner and each drift-gated in CI:
+ * Outputs, each with a `@generated` banner and each drift-gated in CI. The list had two of the four
+ * for as long as there have been four, which is the stale-list shape `docs/ROADMAP.md` keeps
+ * recording — so: **all of them, and what each is for.**
  *
- * - `docs/ERRORS.md`               — the registry as a human-readable table
- * - `schema/nport-api.openapi.json` — the API contract, which in turn generates `crates/contract`
+ * - `docs/ERRORS.md`                — the registry as a human-readable table
+ * - `schema/nport-api.openapi.json` — the API contract: request and response shapes
+ * - `schema/errors.json`            — each code's status and retryability, which JSON Schema cannot say
+ * - `schema/subdomain.json`         — the subdomain bounds and reserved lists, for the Rust mirror
+ *
+ * The last three are read by `cargo xtask codegen`, which emits `crates/contract/src/generated.rs`.
  *
  * Run under `tsx`. Node 22 strips types on its own, but its ESM resolver still requires explicit
  * extensions on relative imports, and `docs/conventions/typescript.md` forbids those — a runner
@@ -42,6 +48,16 @@ import {
   metaResponseSchema,
   tunnelStatusResponseSchema,
 } from "../src/schemas"
+import {
+  MAX_INPUT_LENGTH,
+  MAX_LENGTH,
+  MIN_LENGTH,
+  NPORT_OWNED_PREFIXES,
+  REJECTION_REASONS,
+  RESERVED_PREFIXES,
+  RESERVED_SUBDOMAINS,
+  ZONE_SUFFIX,
+} from "../src/subdomain"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = join(HERE, "..", "..", "..")
@@ -333,17 +349,48 @@ function errorsJson(): Record<string, unknown> {
   }
 }
 
+/**
+ * The subdomain rules as data, for the Rust mirror in `crates/contract/src/subdomain.rs`.
+ *
+ * **Only the constants, never the logic.** The rules themselves — NFKC, the suffix strip, the
+ * hyphen placement — are reimplemented in Rust and pinned by `fixtures/subdomains.json`, because
+ * emitting an imperative function into another language is a code generator nobody should write.
+ * What is emitted is everything a reader would otherwise retype: the bounds, the zone suffix, and
+ * the three lists.
+ *
+ * The lists are why this file exists. `RESERVED_SUBDOMAINS` has 53 entries, and a second hand-kept
+ * copy of it in Rust is the failure mode `docs/ROADMAP.md`'s defects 22, 25 and 29 are all about —
+ * a list behind a guarantee, as trustworthy as the last person who remembered to add a name. Adding
+ * `paypal` here has to be enough; generating is what makes it enough.
+ */
+function subdomainJson(): Record<string, unknown> {
+  return {
+    $comment: BANNER,
+    minLength: MIN_LENGTH,
+    maxLength: MAX_LENGTH,
+    maxInputLength: MAX_INPUT_LENGTH,
+    zoneSuffix: ZONE_SUFFIX,
+    reservedSubdomains: RESERVED_SUBDOMAINS,
+    reservedPrefixes: RESERVED_PREFIXES,
+    nportOwnedPrefixes: NPORT_OWNED_PREFIXES,
+    rejectionReasons: REJECTION_REASONS,
+  }
+}
+
 const errorsPath = join(REPO, "docs", "ERRORS.md")
 const schemaPath = join(REPO, "schema", "nport-api.openapi.json")
 const registryPath = join(REPO, "schema", "errors.json")
+const subdomainPath = join(REPO, "schema", "subdomain.json")
 
 await writeFile(errorsPath, errorsMarkdown(), "utf8")
 await writeFile(schemaPath, `${JSON.stringify(openApiDocument(), null, 2)}\n`, "utf8")
 await writeFile(registryPath, `${JSON.stringify(errorsJson(), null, 2)}\n`, "utf8")
+await writeFile(subdomainPath, `${JSON.stringify(subdomainJson(), null, 2)}\n`, "utf8")
 
 console.log(`wrote ${errorsPath}`)
 console.log(`wrote ${schemaPath}`)
 console.log(`wrote ${registryPath}`)
+console.log(`wrote ${subdomainPath}`)
 console.log(
   `  ${Object.keys(ERRORS).length} error codes, ${ROUTES.length} routes, slugs like ${errorSlug("SUBDOMAIN_IN_USE")}`,
 )

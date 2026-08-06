@@ -2566,6 +2566,7 @@ dependencies = [
 name = "nport-contract"
 version = "3.0.0-dev"
 dependencies = [
+ "icu_normalizer",
  "serde",
  "serde_json",
 ]

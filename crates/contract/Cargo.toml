@@ -1,7 +1,10 @@
 [package]
 name = "nport-contract"
 version = "3.0.0-dev"
-description = "GENERATED Rust mirror of the NPort control-plane API contract."
+# "Mostly generated": `src/generated.rs` is emitted by `cargo xtask codegen` and off-limits to hand
+# edits, while `src/lib.rs` and `src/subdomain.rs` are hand-written because neither the error
+# envelope's typed code nor NFKC normalization is expressible in JSON Schema.
+description = "Rust mirror of the NPort control-plane API contract, mostly generated."
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -14,5 +17,8 @@ publish = false
 workspace = true
 
 [dependencies]
+# NFKC, and nothing else. See the note in the workspace manifest for why this crate rather than
+# `unicode-normalization`.
+icu_normalizer = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

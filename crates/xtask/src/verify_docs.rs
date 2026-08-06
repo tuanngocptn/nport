@@ -4,13 +4,16 @@
 //! passing check that checked nothing. It missed `crates/protocol/src/h2.rs` being documented in
 //! two places and existing in none.
 //!
-//! Three checks, each catching a class of rot that reviewers reliably miss:
+//! Four checks, each catching a class of rot that reviewers reliably miss:
 //!
 //! 1. **Paths in fenced layout blocks exist.** A `CLAUDE.md` that names a file which was renamed
 //!    or never written sends the next reader — human or agent — looking for something imaginary.
 //! 2. **Error codes round-trip.** Every code in `docs/ERRORS.md` is in the registry and vice
 //!    versa, so the generated table and the authority cannot disagree.
 //! 3. **Relative markdown links resolve.** A dead link in contributor docs is a dead end.
+//! 4. **Every ADR is in the decision index, and every index row is an ADR.** `docs/DECISIONS.md`
+//!    asks for the row itself and seven had gone missing, which makes settled decisions look
+//!    unmade — the one thing that file exists to prevent.
 //!
 //! Deliberately not checked: prose accuracy, external URLs (a network call would make CI flaky
 //! and fail on someone else's outage), and line-count limits on `CLAUDE.md` files.
@@ -53,6 +56,7 @@ pub fn run() -> Result<(), String> {
     problems.extend(check_layout_paths(&repo)?);
     problems.extend(check_error_codes(&repo)?);
     problems.extend(check_relative_links(&repo)?);
+    problems.extend(check_decision_index(&repo)?);
 
     if problems.is_empty() {
         println!("verify-docs: documentation matches the repository");
@@ -262,6 +266,61 @@ fn check_error_codes(repo: &Path) -> Result<Vec<String>, String> {
 /// to translate. The first version let `to_string_lossy` through raw and the Windows job failed on
 /// `docs\\ROADMAP.md` while macOS and Linux passed — a test-only break, since the checker itself was
 /// correct, but a real one and only the matrix could see it.
+/// Every ADR in `docs/DECISIONS.md` has a row in that file's own index, and every row has an ADR.
+///
+/// The file states the rule itself — "New entries: next number, status `Accepted`, and a one-line
+/// entry in the index" — and **seven entries had accumulated without one**, 0038 through 0044, before
+/// this check existed. The index is what a reader scans to find whether a decision has been made, so
+/// a decision missing from it is a decision that gets re-litigated.
+///
+/// Same family as the `LAYOUT_DOCS` and `LINKED_DOCS` gaps (`docs/ROADMAP.md`, defects 22 and 25),
+/// and the same cure: a rule stated in prose is worth what its checker is worth. Both directions are
+/// checked, because either alone rots — an index row with no ADR behind it is a promise of a decision
+/// nobody wrote.
+fn check_decision_index(repo: &Path) -> Result<Vec<String>, String> {
+    let path = repo.join("docs/DECISIONS.md");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("reading {}: {error}", repo_relative(repo, &path)))?;
+
+    let mut headings: Vec<String> = Vec::new();
+    let mut rows: Vec<String> = Vec::new();
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("## ADR-") {
+            headings.push(number(rest));
+        } else if let Some(rest) = line.strip_prefix("| 0") {
+            // The index's own rows. `| 0` rather than `|` so the header separator and any other
+            // table in the file are not mistaken for one.
+            rows.push(number(&format!("0{rest}")));
+        }
+    }
+
+    let mut problems = Vec::new();
+    for adr in &headings {
+        if !rows.contains(adr) {
+            problems.push(format!(
+                "docs/DECISIONS.md: ADR-{adr} has no row in the index — the file's own rule asks for one"
+            ));
+        }
+    }
+    for row in &rows {
+        if !headings.contains(row) {
+            problems.push(format!(
+                "docs/DECISIONS.md: the index lists {row} but no `## ADR-{row}` entry exists"
+            ));
+        }
+    }
+    if headings.is_empty() {
+        problems
+            .push("docs/DECISIONS.md: no ADR headings found — has the format changed?".to_owned());
+    }
+    Ok(problems)
+}
+
+/// The leading digits of `0045 — Title` or `0045 | Title |`, which is all either form shares.
+fn number(rest: &str) -> String {
+    rest.chars().take_while(char::is_ascii_digit).collect()
+}
+
 fn repo_relative(repo: &Path, path: &Path) -> String {
     path.strip_prefix(repo)
         .unwrap_or(path)
@@ -592,6 +651,59 @@ mod tests {
                 .iter()
                 .any(|p| p == ".github/pull_request_template.md"),
             "the walk should still reach .github, which merely starts with `.git`"
+        );
+    }
+
+    /// Both directions of the decision-index check, against a tree built for it.
+    ///
+    /// Driving the real function rather than `number`, for the reason the link-coverage test above
+    /// gives: a helper that parses correctly proves nothing about whether anything calls it.
+    #[test]
+    fn the_decision_index_check_catches_a_gap_in_either_direction() {
+        let root = std::env::temp_dir().join("nport-verify-docs-decision-index");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("docs")).expect("mkdir");
+        std::fs::write(
+            root.join("docs/DECISIONS.md"),
+            "| # | Decision | Status |\n\
+             | --- | --- | --- |\n\
+             | 0001 | Listed and written | Accepted |\n\
+             | 0003 | Listed but never written | Accepted |\n\
+             \n\
+             ## ADR-0001 — Listed and written\n\
+             \n\
+             ## ADR-0002 — Written but never listed\n",
+        )
+        .expect("write");
+
+        let problems = check_decision_index(&root).expect("check");
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(
+            problems.iter().any(|p| p.contains("ADR-0002")),
+            "an unlisted ADR should be reported: {problems:?}"
+        );
+        assert!(
+            problems.iter().any(|p| p.contains("0003")),
+            "an index row with no ADR should be reported: {problems:?}"
+        );
+        assert!(
+            !problems.iter().any(|p| p.contains("0001")),
+            "the one correct entry should be silent: {problems:?}"
+        );
+    }
+
+    /// The real `docs/DECISIONS.md` agrees with its own index.
+    ///
+    /// The check above proves the function works; this proves the repository passes it, which is the
+    /// assertion that would have failed for ADRs 0038–0044.
+    #[test]
+    fn the_repositorys_own_decision_index_is_complete() {
+        let repo = crate::codegen::repo_root().expect("repo root");
+        assert_eq!(
+            check_decision_index(&repo).expect("check"),
+            Vec::<String>::new()
         );
     }
 }

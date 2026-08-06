@@ -2,14 +2,19 @@
 //!
 //! ```text
 //! packages/contract  →  schema/nport-api.openapi.json  ┐
-//!                    →  schema/errors.json             ┴→  crates/contract/src/generated.rs
+//!                    →  schema/errors.json             ├→  crates/contract/src/generated.rs
+//!                    →  schema/subdomain.json          ┘
 //! ```
 //!
 //! **Why a purpose-built emitter rather than `typify`** (which ADR-0009 originally named): an
 //! error's HTTP status and retryability are not expressible in JSON Schema, so `typify` could
 //! only ever produce half of what the Rust client needs and a second generator would have to
-//! produce the rest. One emitter reading two files is simpler than two pipelines, and the schemas
-//! here are flat objects of strings, numbers, booleans, and string enums. See ADR-0025.
+//! produce the rest. One emitter reading three files is simpler than three pipelines, and the
+//! schemas here are flat objects of strings, numbers, booleans, and string enums. See ADR-0025.
+//!
+//! The third file, `schema/subdomain.json`, carries the subdomain rules' **constants** — the bounds,
+//! the zone suffix, and the reserved lists — for the hand-written mirror in
+//! `crates/contract/src/subdomain.rs`. Its rules are not generated; see [`emit_subdomain_rules`].
 //!
 //! The emitter **fails on any construct it does not recognise** rather than guessing. A generator
 //! that silently emits the wrong type is worse than one that stops: the wrong type compiles, ships,
@@ -27,25 +32,31 @@ pub fn run() -> Result<(), String> {
     let repo = repo_root()?;
     let openapi = read_json(&repo.join("schema/nport-api.openapi.json"))?;
     let registry = read_json(&repo.join("schema/errors.json"))?;
+    let subdomain = read_json(&repo.join("schema/subdomain.json"))?;
 
     let mut out = String::new();
     writeln!(out, "//! {BANNER}").unwrap();
     writeln!(out, "//!").unwrap();
     writeln!(
         out,
-        "//! Source: `schema/nport-api.openapi.json` and `schema/errors.json`, themselves"
+        "//! Source: `schema/nport-api.openapi.json`, `schema/errors.json` and"
     )
     .unwrap();
     writeln!(
         out,
-        "//! generated from `packages/contract`. Edit there and run `pnpm codegen && cargo xtask"
+        "//! `schema/subdomain.json`, themselves generated from `packages/contract`. Edit there"
     )
     .unwrap();
-    writeln!(out, "//! codegen`; CI fails on drift.\n").unwrap();
+    writeln!(
+        out,
+        "//! and run `pnpm codegen && cargo xtask codegen`; CI fails on drift.\n"
+    )
+    .unwrap();
     writeln!(out, "use serde::{{Deserialize, Serialize}};\n").unwrap();
 
     emit_error_code(&mut out, &registry)?;
     emit_schemas(&mut out, &openapi)?;
+    emit_subdomain_rules(&mut out, &subdomain)?;
 
     let target = repo.join("crates/contract/src/generated.rs");
     std::fs::write(&target, out).map_err(|e| format!("writing {}: {e}", target.display()))?;
@@ -155,7 +166,12 @@ fn emit_error_code(out: &mut String, registry: &Value) -> Result<(), String> {
 
     // ALL, so a caller can iterate without the enum being exhaustively matchable.
     writeln!(out, "impl ErrorCode {{").unwrap();
-    writeln!(out, "    /// Every code, in registry order.").unwrap();
+    // Alphabetical, not the registry's own order: `serde_json`'s `Value` is a `BTreeMap` here, so it
+    // sorts the keys on the way in. Said accurately because this comment claimed "registry order" for
+    // as long as the emitter has existed. Nothing depends on either order — every caller iterates —
+    // and alphabetical is the more stable of the two, since it does not move when a code is inserted
+    // into the middle of the registry.
+    writeln!(out, "    /// Every code, alphabetically.").unwrap();
     writeln!(out, "    pub const ALL: [Self; {}] = [", errors.len()).unwrap();
     for code in errors.keys() {
         writeln!(out, "        Self::{},", variant_name(code)).unwrap();
@@ -503,6 +519,123 @@ fn rust_type_for(
              Extend crates/xtask/src/codegen.rs rather than letting it guess."
         )),
     }
+}
+
+/// The subdomain rules' **constants**, for the hand-written mirror in `crates/contract`.
+///
+/// Emitted rather than retyped because of what is in them: `RESERVED_SUBDOMAINS` is 53 names, and a
+/// second copy maintained by hand is the shape of `docs/ROADMAP.md`'s defects 22, 25 and 29 — a list
+/// standing behind a guarantee, correct only until somebody forgets. Adding a name in
+/// `packages/contract` has to be sufficient, and this is what makes it sufficient.
+///
+/// **Only the constants.** The rules that use them are reimplemented in Rust and pinned by
+/// `packages/contract/fixtures/subdomains.json`, which both test suites read. Emitting NFKC and a
+/// suffix strip into another language would be a generator nobody should have to debug.
+fn emit_subdomain_rules(out: &mut String, rules: &Value) -> Result<(), String> {
+    fn number(rules: &Value, key: &str) -> Result<u64, String> {
+        rules
+            .get(key)
+            .and_then(Value::as_u64)
+            .ok_or_else(|| format!("schema/subdomain.json has no numeric `{key}`"))
+    }
+
+    fn strings(rules: &Value, key: &str) -> Result<Vec<String>, String> {
+        let array = rules
+            .get(key)
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("schema/subdomain.json has no array `{key}`"))?;
+        array
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    // Not a `filter_map`: silently dropping a non-string would silently drop a
+                    // reserved name, which is the one failure this whole file exists to prevent.
+                    .ok_or_else(|| format!("schema/subdomain.json: `{key}` holds a non-string"))
+            })
+            .collect()
+    }
+
+    let zone_suffix = rules
+        .get("zoneSuffix")
+        .and_then(Value::as_str)
+        .ok_or("schema/subdomain.json has no `zoneSuffix`")?;
+
+    writeln!(
+        out,
+        "// ── Subdomain rules, from `schema/subdomain.json` ─────────────────────────────────\n"
+    )
+    .unwrap();
+
+    writeln!(
+        out,
+        "/// The shortest claimable name. Ours, not DNS's — it keeps the namespace sane."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "pub const MIN_SUBDOMAIN_LENGTH: usize = {};",
+        number(rules, "minLength")?
+    )
+    .unwrap();
+    writeln!(out, "/// The DNS label limit.").unwrap();
+    writeln!(
+        out,
+        "pub const MAX_SUBDOMAIN_LENGTH: usize = {};",
+        number(rules, "maxLength")?
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "/// The longest **raw input** normalization will look at, before the zone suffix is stripped."
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "pub const MAX_SUBDOMAIN_INPUT_LENGTH: usize = {};",
+        number(rules, "maxInputLength")?
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "/// Stripped during normalization, so pasting a whole hostname works."
+    )
+    .unwrap();
+    writeln!(out, "pub const ZONE_SUFFIX: &str = {zone_suffix:?};\n").unwrap();
+
+    for (key, name, doc) in [
+        (
+            "reservedSubdomains",
+            "RESERVED_SUBDOMAINS",
+            "Names nobody may claim.",
+        ),
+        (
+            "reservedPrefixes",
+            "RESERVED_PREFIXES",
+            "Prefixes nobody may claim.",
+        ),
+        (
+            "nportOwnedPrefixes",
+            "NPORT_OWNED_PREFIXES",
+            "The reserved prefixes that are NPort's own, and therefore ours to reap (ADR-0036).",
+        ),
+        (
+            "rejectionReasons",
+            "REJECTION_REASONS",
+            "Every `details.reason` a refusal can carry, in the contract's own spelling.",
+        ),
+    ] {
+        let values = strings(rules, key)?;
+        writeln!(out, "/// {doc}").unwrap();
+        writeln!(out, "pub const {name}: [&str; {}] = [", values.len()).unwrap();
+        for value in &values {
+            writeln!(out, "    {value:?},").unwrap();
+        }
+        writeln!(out, "];\n").unwrap();
+    }
+
+    Ok(())
 }
 
 fn snake_case(name: &str) -> String {

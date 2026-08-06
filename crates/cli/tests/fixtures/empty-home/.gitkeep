@@ -1,0 +1,3 @@
+An NPORT_HOME with no `.nport/config.toml` in it, so `crates/cli/tests/refuses_early.rs` reads no
+configuration at all. A developer's real config supplying `subdomain` or `port` would otherwise
+change what those tests assert.

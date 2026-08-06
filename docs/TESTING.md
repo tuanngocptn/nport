@@ -142,7 +142,14 @@ It checks that a test artifact changed, which is a proxy for coverage rather tha
 - a validated subdomain always produces a hostname that parses as a DNS name
 - PoW verification accepts exactly the nonces the solver produces
 
-The subdomain normalizer is the highest-value target: it runs in **both** TypeScript and Rust, and the two must never disagree. Drive both from one shared fixture file (`packages/contract/fixtures/subdomains.json`) with a test on each side, so a divergence fails a build rather than producing a hostname the server accepts and the client rejects.
+The subdomain normalizer is the highest-value target: it runs in **both** TypeScript and Rust, and the two must never disagree. Both are driven from one shared fixture file, `packages/contract/fixtures/subdomains.json` — `packages/contract/src/subdomain.test.ts` and `crates/contract/src/subdomain.rs`'s test module — so a divergence fails a build rather than producing a hostname the server accepts and the client rejects.
+
+**That was aspirational for the whole of Phase 2 and read as done.** This paragraph, `subdomain.ts`'s docblock, and the fixture file's own `$comment` all described two consumers; there was one, because the Rust mirror did not exist (`docs/ROADMAP.md`, defect 34). Two lessons came out of writing it, and they generalise past this file:
+
+- **A shared fixture is only as good as the cases in it.** The mirror passed all nine normalization cases with the trailing-dot strip hoisted out of the suffix loop — a real bug — because the input that distinguishes them lived in the TypeScript *test file* rather than in the shared fixture. Any case that pins a rule both languages implement belongs in the fixture; a case only one suite can see is how the halves drift while both are green.
+- **The two must agree on the rejection *reason*, not merely on rejecting.** Every length check runs before the charset check, so the unit a language counts in decides what the user is told. `String.length` counts UTF-16 code units, so the Rust side does too (`wire_length`), and a non-ASCII and an astral case are in the fixture to hold it there.
+
+Adding a case to the fixture is the way to change either side. Add it first, then make both pass.
 
 ## Live-edge tests
 

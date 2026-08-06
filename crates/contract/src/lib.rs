@@ -8,10 +8,16 @@
 //!
 //! This file is the hand-written shell. It holds only what codegen cannot express: the error
 //! envelope, which needs a typed [`ErrorCode`] where JSON Schema can only say "string".
+//!
+//! [`subdomain`] is hand-written for the same reason and is the other half of the contract the CLI
+//! needs locally — normalization and validation, so `-s my_app` fails instantly instead of after a
+//! round trip. Its *constants* are generated like everything else; only its rules are not.
 
 #![forbid(unsafe_code)]
 
 mod generated;
+
+pub mod subdomain;
 
 pub use generated::*;
 
