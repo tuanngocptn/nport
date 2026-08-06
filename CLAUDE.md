@@ -46,7 +46,7 @@ packages/contract/ zod + OpenAPI + errors — API AUTHORITY
 packages/design-tokens/  tokens.css, shared by web + desktop
 packages/tsconfig/ shared tsconfig bases
 schema/            GENERATED OpenAPI document
-infra/terraform/   staging + prod infrastructure → infra/terraform/README.md
+infra/terraform/   staging + prod infrastructure → docs/DEPLOYMENT.md
 docs/              contributor docs (user docs live in apps/web/src/content/docs)
 docs/mockup/       the approved UI design — check web and desktop against it. Reference only:
                    never edited by hand, never imported, excluded from every check
