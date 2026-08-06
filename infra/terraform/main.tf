@@ -94,4 +94,18 @@ resource "cloudflare_ruleset" "api_rate_limit" {
       }
     }
   ]
+
+  lifecycle {
+    # Checked as a *rate*, because the count alone is meaningless without the window — and the window
+    # is not ours to choose. The rulesets API accepts 10, 60, 600 and 3600, but a zone is only
+    # *entitled* to some of them: on the free plan the API refuses anything but 10, which is a
+    # sentence you only read after an apply has already created half the stack.
+    #
+    # The Worker's own limiter allows 60 requests a minute per source. At or below 1/s this rule fires
+    # first and hides the control it is supposed to sit outside.
+    precondition {
+      condition     = var.api_rate_limit_requests / var.api_rate_limit_period > 1
+      error_message = "The edge limit is ${var.api_rate_limit_requests}/${var.api_rate_limit_period}s, at or below the Worker's own 60/min per source. Raise the count or shorten the window, or the inner control becomes unreachable."
+    }
+  }
 }

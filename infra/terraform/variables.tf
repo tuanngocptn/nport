@@ -30,24 +30,19 @@ variable "api_subdomain" {
 # do the per-source accounting the Worker already does better. Set it below the Worker's limit and
 # the inner control becomes unreachable and untested.
 variable "api_rate_limit_requests" {
-  description = "Requests per period, per client IP, allowed to the control-plane hostname before the edge blocks."
+  description = "Requests per period, per client IP per colo, allowed to the control-plane hostname before the edge blocks."
   type        = number
-  default     = 600
-
-  validation {
-    condition     = var.api_rate_limit_requests >= 120
-    error_message = "Below ~120/min this would fire before the Worker's own 60/min per-source limiter, hiding the control it is supposed to sit outside."
-  }
+  default     = 100
 }
 
 variable "api_rate_limit_period" {
-  description = "The window in seconds. Cloudflare accepts 10, 60, 600 or 3600 and nothing else."
+  description = "The window in seconds. The rulesets API accepts 10, 60, 600 or 3600, but a plan is only *entitled* to some of them — free is 10 alone, which is what the API says when it refuses."
   type        = number
-  default     = 60
+  default     = 10
 
   validation {
     condition     = contains([10, 60, 600, 3600], var.api_rate_limit_period)
-    error_message = "Cloudflare accepts only 10, 60, 600 or 3600 seconds."
+    error_message = "The rulesets API accepts only 10, 60, 600 or 3600 seconds."
   }
 }
 
@@ -57,9 +52,6 @@ variable "api_rate_limit_timeout" {
   default     = 600
 }
 
-# Cloudflare's permission-group names, as variables because they are upstream strings this project
-# does not control. If Cloudflare renames one, the fix is a value here rather than a patch to
-# secrets.tf — and the precondition there tells you the new name is needed.
 variable "tunnel_permission_group" {
   description = "Account-scoped group granting tunnel create/delete. `docs/OPERATIONS.md`: Account → Cloudflare Tunnel → Edit."
   type        = string

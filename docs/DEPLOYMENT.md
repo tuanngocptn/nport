@@ -48,16 +48,29 @@ Dashboard → **My Profile → API Tokens → Create Token → Create Custom Tok
 | Scope | Needed for |
 | --- | --- |
 | Account → Workers Scripts → **Edit** | `wrangler deploy` |
-| Account → API Tokens → **Edit** | Terraform mints the Worker's own token |
+| **User** → API Tokens → **Edit** | Terraform mints the Worker's own token — see below |
 | Account → Cloudflare Tunnel → **Edit** | see below |
 | Zone → Zone Settings → **Edit** | the TLS floor and always-HTTPS |
 | Zone → DNS → **Edit** | `custom_domain: true` writes a record; and see below |
 | Zone → Zone WAF → **Edit** | the edge rate-limit ruleset |
 
-**The last two rows are the trap.** Cloudflare refuses to create a token carrying permissions the
-creating token does not itself hold, so a CI token scoped only to what the *deploy* needs fails at
-`cloudflare_api_token.worker` — during apply, after other resources have been created, not at plan
-time. Granting them costs nothing: this token already reaches the whole account.
+**Two traps here, both of which cost an apply to discover.**
+
+Cloudflare refuses to create a token carrying permissions the creating token does not itself hold,
+so the Tunnel and DNS rows are needed even though the *deploy* never uses them — they are what gets
+granted to the Worker's token. Without them the apply fails at `cloudflare_api_token.worker`, after
+other resources exist.
+
+And the API-tokens permission must be **User**-scoped, not Account-scoped. The provider creates the
+Worker's token through `POST /user/tokens`, which an account-scoped credential cannot reach: the
+failure is `403 … code 9109 Unauthorized to access requested resource`, which names neither the
+scope nor the fix.
+
+**Know what that second row grants.** A token that can write user API tokens can mint *any* token
+this Cloudflare user could — including a full-access one. Compromising the runner therefore
+compromises the account, not merely the deployment. That is contained here only because staging is a
+separate account with nothing of value in it (ADR-0038), and it is worth re-deciding before
+production rather than copying across.
 
 Set the zone resources to the zone from step 1. Copy the token now; Cloudflare shows it once.
 
@@ -202,6 +215,8 @@ Then a deploy, which syncs the new value. There is no runbook to follow and no v
 | Apply fails at a permission-group lookup | Cloudflare renamed the group; the error carries the API call that lists the real names, then set `tunnel_permission_group` or `dns_permission_group` |
 | `terraform init` cannot reach the backend | `TF_API_TOKEN` missing or expired, or `TF_CLOUD_ORGANIZATION` naming an organization the token cannot see |
 | "organization must be set … TF_CLOUD_ORGANIZATION" | The caller passed no `tf_organization`. The job prints what it resolved before Terraform runs |
+| `POST /user/tokens: 403 … 9109` | The CI token lacks **User** → API Tokens → Edit. Account-scoped is not enough |
+| "not entitled to use the period N" | The zone's plan does not allow that rate-limit window. Free allows 10 seconds only; set `api_rate_limit_period` |
 | Plan runs on HCP instead of in CI, and cannot find credentials | The workspace is in remote execution mode; set it to Local (step 3) |
 | Deploy green, every request 500s | The secret sync did not run or did not carry all six; `wrangler secret list --env staging` |
 | `verify-deployment` reports a mismatch | The `env` block's `vars` are incomplete — wrangler does not inherit them |
