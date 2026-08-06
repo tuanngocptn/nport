@@ -55,7 +55,11 @@ Everything else — including all six Worker runtime secrets — it generates an
    (the rate-limit ruleset).
 
    The CI token also needs Account → API Tokens → **Edit**, because Terraform mints the Worker's
-   own token (ADR-0040).
+   own token (ADR-0040) — **and it needs the two permissions it will be granting**: Account →
+   Cloudflare Tunnel → Edit and Zone → DNS → Edit. Cloudflare does not let a token create another
+   token with permissions it does not itself hold, so a CI token without them fails the apply at
+   `cloudflare_api_token.worker` with a permissions error rather than at plan time. Adding them
+   costs nothing: the CI token already reaches the whole account.
 
 4. **A GitHub Environment named for this deployment** — `staging`, later `production` — holding:
 
