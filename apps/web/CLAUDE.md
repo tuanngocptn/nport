@@ -35,7 +35,8 @@ The parenthesised entries are the intended shape of 2c; the app is still a booti
 
 ```bash
 pnpm dev:web                          # next dev with Worker bindings
-pnpm --filter @nport/web build        # next build + opennext
+pnpm --filter @nport/web build        # next build only — .next/, no Worker
+pnpm --filter @nport/web build:worker # the above, then opennext -> .open-next/worker.js
 pnpm --filter @nport/web preview      # run the built Worker locally
 pnpm --filter @nport/web deploy       # normally CI does this
 ```

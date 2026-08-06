@@ -45,7 +45,7 @@ Actions a deploy credential at all.
 
 Dashboard → **My Profile → API Tokens → Create Token → Create Custom Token**.
 
-Six rows. The columns are the form's first two dropdowns; **the third is `Edit` on every row.**
+Seven rows. The columns are the form's first two dropdowns; **the third is `Edit` on every row.**
 
 | Scope | Permission | Why |
 | --- | --- | --- |
@@ -53,6 +53,7 @@ Six rows. The columns are the form's first two dropdowns; **the third is `Edit` 
 | Account | Cloudflare Tunnel | granted onward to the Worker's own token — see below |
 | Zone | Zone Settings | the TLS floor and always-HTTPS |
 | Zone | DNS | `custom_domain: true` writes the hostname record — and granted onward |
+| Zone | Workers Routes | `wrangler deploy` reconciles the zone's routes even when every route is a custom domain |
 | Zone | Zone WAF | the edge rate-limit ruleset |
 | **User** | API Tokens | Terraform mints the Worker's own credential — **not `Account`; see below** |
 
@@ -242,6 +243,7 @@ Then a deploy, which syncs the new value. There is no runbook to follow and no v
 | Any `403 … 9109` on a `/user/tokens…` URL | The API Tokens row is scoped **Account**, not **User** — check the left dropdown, not the permission name |
 | "not entitled to use the period N" / "…mitigation timeout different from N" | The zone's plan pins both. Free allows 10 for each; set `api_rate_limit_period` and `api_rate_limit_timeout` |
 | Plan runs on HCP instead of in CI, and cannot find credentials | The workspace is in remote execution mode; set it to Local (step 3) |
+| `wrangler deploy` fails on `/zones/…/workers/routes` with `code: 10000` | The token has no **Zone → Workers Routes**. "Authentication error" here means a missing permission, not a bad token |
 | `wrangler deploy` fails with `code: 10063` | The account has no workers.dev subdomain and the step that claims one did not run or could not — see its output |
 | "workers.dev subdomain already taken" | The namespace is global. Set any free name once in the dashboard; nothing is served there, so the name does not matter |
 | Deploy green, every request 500s | The secret sync did not run or did not carry all six; `wrangler secret list --env staging` |
