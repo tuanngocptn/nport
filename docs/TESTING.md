@@ -9,7 +9,7 @@ applies_to:
 
 The strategy spans two languages, three runtimes (Node, `workerd`, native), and a live external service. That is why it lives in one document instead of being scattered across five `CLAUDE.md` files.
 
-**Status: implemented for `apps/api`, `crates/protocol`, and `crates/core`.** `apps/web`, `apps/desktop`, and `crates/cli` are still the plan rather than the practice.
+**Status: implemented for `apps/api`, `crates/protocol`, `crates/core`, `crates/cli`, `apps/registry` and `packages/*`.** `apps/web` has its unit tier only — the Playwright e2e and visual baselines below are still the plan. `apps/desktop` is untested and waits on Phase 4.
 
 ## Tiers
 
@@ -101,7 +101,7 @@ A changed fixture means one of: our encoder changed (justify it), the pinned clo
 
 ## Frontend e2e and visual regression
 
-`apps/web` is tested with Playwright: behavioural assertions plus `toHaveScreenshot()` visual baselines (ADR-0023). Not yet implemented — it lands with Phase 2c.
+`apps/web` is tested with Playwright: behavioural assertions plus `toHaveScreenshot()` visual baselines (ADR-0023). **Not yet implemented**, and 2c starting has not changed that: `/errors/[code]` landed with Vitest unit tests over `src/lib` instead, because the property that mattered was "every code the product emits has a page" rather than how the page looks. Standing up pinned browsers in CI is its own task, not something to attach to a route.
 
 Behaviour that must be covered, because nothing else covers it:
 

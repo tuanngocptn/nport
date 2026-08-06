@@ -17,7 +17,7 @@ its own, and a row that disagrees with its section is a bug in this table.
 | ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
 | ✅ | 2a · `apps/api` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
 | ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
-| ⬜ | 2c · `apps/web` | **G2c** ⬜ | Not started, and now **behind Phase 5** (ADR-0044). Its gate covers the 3.0 announcement, not the tunnel |
+| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Started.** `/errors/[code]` is live — 33 pages generated from the contract, closing 33 URLs the product printed and nothing served. Marketing sections, MDX docs, JSON-LD and the Playwright tier remain |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
 | ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` — and now also waits on discovery, which its Nodes screen renders |
@@ -612,6 +612,10 @@ TCP read is one frame.
 **Starts after Phase 5**, not alongside 2a and 2b, and no longer merely "after G2" — that gate closed on 2026-08-06 and federation took the slot (ADR-0044). The tracks are still technically parallel — 2c consumes the contract and touches nothing the tunnel needs — but a site that markets a tunnel nobody has yet opened is the wrong thing to be building, and reviewing the design surfaced enough open questions in it to make the sequencing worth stating rather than assuming.
 
 Next.js + OpenNext; v2 marketing parity (section order and copy per `apps/web/CLAUDE.md`); MDX user docs; `/errors/[code]` pages generated from the contract; SEO parity including the four JSON-LD blocks; one GA4 property.
+
+**`/errors/[code]` is done, and it went first for a reason worth recording.** It was not really new work: every error envelope `apps/api` returns carries `docsUrl: https://nport.link/errors/<slug>`, `crates/cli` prints that URL as the *whole* remedy for the seven codes it does not translate, and `crates/cli/src/i18n.rs` justifies leaving those untranslated on the grounds that "the page behind that URL is always current in a way a hand-written translation is not". Thirty-three such URLs existed and none of them resolved. The same shape as defects 34 and 35 — a claim about work done somewhere else — and the cheapest slice of 2c to boot, since the content is generated from the registry rather than written.
+
+Two things it settled. The **mockup does not design these pages** (it specifies the five marketing sections), so they follow `packages/design-tokens` and that is now written down rather than inferred. And `apps/web` has its **first test tier**: Vitest unit tests asserting one page per code and that every `docsUrl` round-trips. Playwright and its visual baselines (ADR-0023) are still ahead and are their own task — standing up browsers in CI is not something to bolt onto a page.
 
 The approved design is `docs/mockup/NPort Site.dc.html` — read `docs/mockup/README.md` first. It adds a `#compare` section the fixed v2 order has no slot for; placing it is a 2c decision.
 

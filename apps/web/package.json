@@ -11,6 +11,7 @@
     "build:worker": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -28,6 +29,7 @@
     "@types/react-dom": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
+    "vitest": "catalog:",
     "wrangler": "catalog:"
   }
 }

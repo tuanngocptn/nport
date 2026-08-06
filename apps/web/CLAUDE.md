@@ -10,26 +10,30 @@ The public site at `nport.link`: marketing page, user documentation, and generat
 
 **The approved design is `docs/mockup/NPort Site.dc.html`.** Read `docs/mockup/README.md` before building or changing anything visual — that file is what UI, UX, and behaviour are checked against. It is reference only: never imported, never hand-edited, excluded from every check.
 
-**Status: scaffolded, not implemented.** Next 16 + OpenNext + Tailwind v4 boot and serve one development page over `packages/design-tokens`; every section, the MDX docs, and `/errors/[code]` are Phase 2c. The scaffold exists so `pnpm dev` brings every surface up at once, not because 2c has started.
+**Status: 2c started — `/errors/[code]` is live.** Thirty-three error pages, generated from `@nport/contract` and prerendered at build time. That went first because it was not new work so much as an unkept promise: every error envelope `apps/api` returns carries a `docsUrl`, and for the seven codes `crates/cli` does not translate that URL is the *entire* remedy the user gets — and none of them resolved. The marketing sections, the MDX docs, the JSON-LD and the Playwright tier are still ahead.
 
 ## Layout
 
 ```
 src/app/layout.tsx page.tsx globals.css
+src/app/errors/page.tsx               the index: every code, grouped by origin
+src/app/errors/[code]/page.tsx        one page per code; the CLI and API deep-link here
+src/lib/error-codes.ts                slug ↔ code, in a lib so it is testable without a route
+src/lib/inline-markdown.tsx           the two markdown constructs the registry's prose uses
 open-next.config.ts next.config.ts postcss.config.mjs wrangler.jsonc
 
 # Planned for 2c and not yet written — parenthesised so the block cannot be read as
 # a description of the tree as it stands:
 (src/app/docs/[[...slug]]/page.tsx    MDX from src/content/docs)
-(src/app/errors/[code]/page.tsx       generated from @nport/contract; CLI deep-links here)
 (src/app/sitemap.ts robots.ts opengraph-image.tsx)
 (src/components/sections/             navbar, hero, how-it-works, features, powered-by, cta, footer)
 (src/content/docs/*.mdx               USER docs — the only home for them)
 (src/lib/seo.ts                       JSON-LD builders)
+(e2e/                                 Playwright: behaviour + visual baselines, ADR-0023)
 (public/.well-known/security.txt)
 ```
 
-The parenthesised entries are the intended shape of 2c; the app is still a booting scaffold (`docs/ROADMAP.md`). `cargo xtask verify-docs` checks the unparenthesised ones exist, so a rename that misses this block fails CI.
+The parenthesised entries are what 2c still owes (`docs/ROADMAP.md`). `cargo xtask verify-docs` checks the unparenthesised ones exist, so a rename that misses this block fails CI — and un-parenthesising an entry as you build it is what keeps that check meaningful.
 
 ## Commands
 
@@ -61,7 +65,9 @@ pnpm --filter @nport/web deploy       # normally CI does this
 
 **Add a design token** — `packages/design-tokens/tokens.css` `@theme` block. It becomes a Tailwind utility automatically and is simultaneously available to `apps/desktop`.
 
-**Add an error page** — you don't. `/errors/[code]` is generated from `@nport/contract`; add the code there and run `pnpm codegen`.
+**Add an error page** — you don't. `/errors/[code]` is generated from `@nport/contract`: add the code there and the page exists, because `generateStaticParams` walks the registry. A test asserts one page per code and that every `docsUrl` round-trips, so a code with no page fails rather than 404ing at whoever needed it.
+
+**The mockup does not design the error pages.** It specifies the marketing site's five sections; these follow `packages/design-tokens` and nothing else. Anything the mockup *does* cover is checked against it (`docs/mockup/README.md`).
 
 **Update the CLI flag reference** — also generated. Change the CLI, run `pnpm codegen`.
 
