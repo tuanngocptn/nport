@@ -1,3 +1,4 @@
+import createMDX from "@next/mdx"
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare"
 import type { NextConfig } from "next"
 
@@ -31,4 +32,6 @@ const config: NextConfig = {
 // before it serves anything.
 void initOpenNextCloudflareForDev()
 
-export default config
+const withMDX = createMDX({})
+
+export default withMDX(config)

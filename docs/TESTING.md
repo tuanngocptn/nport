@@ -118,7 +118,7 @@ Behaviour covered, because nothing else covers it:
 - the sections appear in the order `apps/web/CLAUDE.md` rule 1 fixes, and no withheld claim reaches the document
 - the theme honours the OS preference and a stored `nport-theme`, and the script that sets it is inline, synchronous and in `<head>`
 
-Still to cover, and blocked on the routes existing: `/docs/[[...slug]]` resolving for every MDX file.
+`/docs` is covered too: every registered page is served and titled, an unregistered slug 404s, MDX is styled rather than served raw, and **the CLI reference page lists exactly the flags the binary accepts** — read from `schema/cli.json`, so adding a flag and regenerating changes the page and the assertion together (ADR-0048, defect 38).
 
 **There is no dark-mode toggle.** This list used to require that "the dark-mode toggle persists across a reload". No such control exists — `docs/mockup/NPort Site.dc.html` does not draw one and the mockup is the authority on UI — so what is asserted is what the site does: honour the OS preference and the `nport-theme` key `apps/desktop` writes.
 

@@ -1,6 +1,7 @@
 import { ERROR_CODES } from "@nport/contract"
 import { describe, expect, it } from "vitest"
 
+import { DOC_PAGES, docHref } from "../content/docs"
 import { everySlug } from "../lib/error-codes"
 import { SITE_URL } from "../lib/seo"
 import robots from "./robots"
@@ -17,15 +18,20 @@ import sitemap from "./sitemap"
  */
 
 describe("the sitemap", () => {
-  it("lists the home page, the error index, and every error code", () => {
+  it("lists the home page, the docs, the error index, and every error code", () => {
     const urls = sitemap().map((entry) => entry.url)
 
     expect(urls).toContain(`${SITE_URL}/`)
     expect(urls).toContain(`${SITE_URL}/errors`)
-    expect(urls).toHaveLength(2 + ERROR_CODES.length)
+    // Home, the error index, every code, every doc page. Counted rather than only spot-checked so an
+    // entry added twice — the easy mistake when two registries feed one list — fails here.
+    expect(urls).toHaveLength(2 + ERROR_CODES.length + DOC_PAGES.length)
 
     for (const slug of everySlug()) {
       expect(urls, slug).toContain(`${SITE_URL}/errors/${slug}`)
+    }
+    for (const page of DOC_PAGES) {
+      expect(urls, page.slug).toContain(`${SITE_URL}${docHref(page.slug)}`)
     }
   })
 

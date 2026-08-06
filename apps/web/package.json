@@ -24,6 +24,9 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@mdx-js/loader": "3.1.1",
+    "@mdx-js/react": "3.1.1",
+    "@next/mdx": "16.3.0",
     "@nport/tsconfig": "workspace:*",
     "@opennextjs/cloudflare": "catalog:",
     "@playwright/test": "1.62.1",

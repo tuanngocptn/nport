@@ -1,6 +1,8 @@
 import { ERROR_CODES } from "@nport/contract"
 import { expect, test } from "@playwright/test"
 
+import { DOC_PAGES } from "../src/content/docs"
+
 /**
  * The SEO surface, asserted against what the Worker actually serves.
  *
@@ -83,8 +85,8 @@ test("sitemap.xml lists every real page and no fragment", async ({ request }) =>
   const xml = await response.text()
 
   const locations = [...xml.matchAll(/<loc>(.*?)<\/loc>/g)].map((match) => match[1] ?? "")
-  // Home, the index, one per code.
-  expect(locations).toHaveLength(2 + ERROR_CODES.length)
+  // Home, the error index, one per code, and one per doc page.
+  expect(locations).toHaveLength(2 + ERROR_CODES.length + DOC_PAGES.length)
   expect(locations).toContain("https://nport.link/")
   // v2 listed four `#fragment` URLs as separate documents; Google collapses them into one page.
   expect(locations.filter((location) => location.includes("#"))).toEqual([])

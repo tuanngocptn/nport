@@ -10,7 +10,7 @@ The public site at `nport.link`: marketing page, user documentation, and generat
 
 **The approved design is `docs/mockup/NPort Site.dc.html`.** Read `docs/mockup/README.md` before building or changing anything visual — that file is what UI, UX, and behaviour are checked against. It is reference only: never imported, never hand-edited, excluded from every check.
 
-**Status: 2c in progress.** `/errors/[code]` is live (33 generated pages), the page renders all seven sections plus `#compare` and `#faq`, the SEO surface is complete, and **Playwright drives the built Worker** — 23 specs, which is how the 404 in the gotcha below was found. Still ahead: the OpenGraph image, the MDX user docs, and arming the visual baselines (`docs/TESTING.md`).
+**Status: 2c nearly done.** `/errors/[code]` (33 generated pages), the marketing page with `#compare` and `#faq`, the SEO surface, `/docs` in MDX including a **generated CLI reference**, and Playwright driving the built Worker (30 specs — how the 404 in the gotcha below was found). Left: the OpenGraph image, more doc pages, and arming the visual baselines (`docs/TESTING.md`).
 
 **The design's copy is not shippable as written, and that is recorded rather than worked around.** `docs/mockup` was drawn for the finished product, so its hero and four of its eight features advertise a desktop app (Phase 4), a request inspector (Phase 4), and request replay (**Deferred**). `src/content/site.ts` keeps every one of those claims with a `ships` tag and the reason it is held back; the page renders only what is true, and `site.test.ts` fails if it ever renders more. Phase 4 is a status flip. The mockup's own README rule 4 is what licenses this — the design is not the authority on behaviour.
 
@@ -20,20 +20,21 @@ The public site at `nport.link`: marketing page, user documentation, and generat
 src/app/layout.tsx page.tsx globals.css sitemap.ts robots.ts
 src/components/sections/              navbar, hero, how-it-works, features, powered-by, compare, download, faq, footer
 src/content/site.ts                   the copy as data + which claims are true yet
-src/app/errors/page.tsx               the index: every code, grouped by origin
-src/app/errors/[code]/page.tsx        one page per code; the CLI and API deep-link here
+src/app/errors/page.tsx               the index; src/app/errors/[code]/page.tsx one page per code
+src/app/docs/[[...slug]]/page.tsx     the docs. /docs is the `""` slug — index and first page are one
+src/content/docs.ts                   the docs registry: slugs, nav order, loader. docs.test.ts checks it
+src/content/docs/*.mdx                USER docs, the only home for them; `export const meta`, no front-matter
+src/mdx-components.tsx mdx.d.ts       how MDX renders — the docs' entire stylesheet — and its types
 src/lib/error-codes.ts                slug ↔ code, in a lib so it is testable without a route
-src/lib/seo.ts                        the four JSON-LD blocks, plus per-page canonical and OG metadata
+src/lib/seo.ts                        the four JSON-LD blocks + per-page canonical/OG. json-ld.tsx emits them
+src/lib/cli-reference.ts              reads schema/cli.json; src/components/cli-table.tsx renders it
 src/lib/inline-markdown.tsx           the two markdown constructs the registry's prose uses
-src/components/json-ld.tsx            puts a block in a <script>; the escaping is in seo.ts, to be testable
-e2e/                                  Playwright against the built Worker (ADR-0048)
-open-next.config.ts next.config.ts postcss.config.mjs playwright.config.ts wrangler.jsonc
+e2e/ playwright.config.ts             Playwright against the built Worker (ADR-0048)
+open-next.config.ts next.config.ts postcss.config.mjs vitest.config.ts wrangler.jsonc
 
-# Planned for 2c and not yet written — parenthesised so the block cannot be read as
-# a description of the tree as it stands:
-(src/app/docs/[[...slug]]/page.tsx    MDX from src/content/docs)
+# Planned and not yet written — parenthesised so the block cannot be read as a
+# description of the tree as it stands:
 (src/app/opengraph-image.tsx          the card image; until it exists, no og:image is claimed)
-(src/content/docs/*.mdx               USER docs — the only home for them)
 (e2e/__screenshots__/linux/           visual baselines — not recorded yet, docs/TESTING.md)
 (public/.well-known/security.txt)
 ```
@@ -44,8 +45,7 @@ The parenthesised entries are what 2c still owes (`docs/ROADMAP.md`). `cargo xta
 
 ```bash
 pnpm dev:web                          # next dev with Worker bindings
-pnpm --filter @nport/web build        # next build only — .next/, no Worker
-pnpm --filter @nport/web build:worker # the above, then opennext -> .open-next/worker.js
+pnpm --filter @nport/web build        # next build only; build:worker adds opennext -> .open-next/
 pnpm --filter @nport/web preview      # run the built Worker locally
 pnpm test:e2e                         # Playwright, against that same Worker
 pnpm --filter @nport/web deploy       # normally CI does this
@@ -55,7 +55,7 @@ pnpm --filter @nport/web deploy       # normally CI does this
 
 1. **Section order is fixed**, carried from v2 because it converts: navbar → hero → how-it-works → features → powered-by → CTA → footer. Reordering needs a reason beyond taste. **`#compare` is settled**: it sits between `powered-by` and the CTA, which is where the mockup puts it relative to features and download, keeps the v2 sequence intact, and is the strongest position for it — a reader who has just seen what NPort does and where it runs is the one asking how it differs. A build-order assertion is not automated; `sections/compare.tsx` carries the reasoning.
 2. **Never claim something NPort does not do yet.** Marketing copy lives in `src/content/site.ts` with a `ships` tag per claim, and only `"3.0"` renders. Anything else needs a `because` saying where the deferral is decided. `site.test.ts` enforces both, because the design over-promises by construction and a reviewer's memory is not a check.
-3. **All four JSON-LD blocks are required** and built in `src/lib/seo.ts`: `WebSite`, `SoftwareApplication`, `HowTo`, `FAQPage`. This was v2's most deliberate SEO investment and the site's discovery depends on it. They take their claims **from `src/content/site.ts`, never restated** — `featureList` is the shipping feature titles and `FAQPage` is the shipping FAQ, so a Phase 4 flip updates the markup too. `FAQPage` is also why `#faq` exists: Google requires the questions be visible on the page carrying the block, and v2 shipped five that were nowhere on it.
+3. **All four JSON-LD blocks are required** — `WebSite`, `SoftwareApplication`, `HowTo`, `FAQPage`, built in `src/lib/seo.ts` and taking their claims **from `src/content/site.ts`, never restated**, so a Phase 4 flip updates the markup too. `FAQPage` is why `#faq` exists: Google requires the questions be visible on the page carrying the block, and v2 shipped five that were nowhere on it.
 4. **No raw hex colours in components.** Everything comes from `packages/design-tokens` via Tailwind utilities (ADR-0014).
 5. **Server-first.** `"use client"` needs a justification in review — the page's job is fast delivery, and v2 shipped its entire interaction budget in ~40 lines of vanilla JS.
 6. **Exactly one GA4 property** (ADR-0015). v2 double-tracked with two.
@@ -67,7 +67,7 @@ pnpm --filter @nport/web deploy       # normally CI does this
 
 ## Common tasks
 
-**Add a docs page** — `src/content/docs/<slug>.mdx` with front-matter → it routes automatically → add it to the nav → check it appears in `sitemap.ts`.
+**Add a docs page** — two edits, and `docs.test.ts` fails if you make only one: write `src/content/docs/<slug>.mdx` exporting `meta` (`{ title, description }` — an MDX export, not front-matter, because it is typed and needs no plugin), then add the slug to `DOC_PAGES` and `loadDoc` in `src/content/docs.ts`. The nav and `sitemap.ts` both read that registry, so neither needs touching.
 
 **Change marketing copy** — `src/content/site.ts`, not the component; the sections render it. The JSON-LD follows automatically, which is the point of the derivation: this entry used to say "update `SoftwareApplication` and `FAQPage` to match, or structured data starts lying", and an instruction is a worse guarantee than a data flow.
 
@@ -75,9 +75,9 @@ pnpm --filter @nport/web deploy       # normally CI does this
 
 **Add an error page** — you don't. `/errors/[code]` is generated from `@nport/contract`: add the code there and the page exists, because `generateStaticParams` walks the registry. A test asserts one page per code and that every `docsUrl` round-trips, so a code with no page fails rather than 404ing at whoever needed it.
 
-**The mockup does not design the error pages.** It specifies the marketing site's five sections; these follow `packages/design-tokens` and nothing else. Anything the mockup *does* cover is checked against it (`docs/mockup/README.md`).
+**The mockup designs neither the error pages nor the docs.** It specifies the marketing site's five sections; both other surfaces follow `packages/design-tokens` and nothing else. Anything the mockup *does* cover is checked against it (`docs/mockup/README.md`).
 
-**Update the CLI flag reference** — you don't. `schema/cli.json` is generated from `crates/cli`'s clap definition by `cargo xtask codegen`. The **page** that renders it is still owed and belongs with the MDX docs; read the JSON, never retype it.
+**Update the CLI flag reference** — you don't. `cargo xtask codegen` writes `schema/cli.json` from `crates/cli`'s clap definition and `/docs/cli` renders it, so a new flag reaches the page with no edit here. An e2e spec asserts the page lists exactly what the binary accepts.
 
 ## Gotchas
 

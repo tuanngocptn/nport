@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next"
 
+import { DOC_PAGES, docHref } from "../content/docs"
 import { everySlug } from "../lib/error-codes"
 import { SITE_URL } from "../lib/seo"
 
@@ -30,6 +31,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 1,
     },
+    // The docs, from the same registry the route uses — a page added there appears here without anyone
+    // remembering to, which is the property `apps/web/CLAUDE.md` § Common tasks used to ask for by hand.
+    ...DOC_PAGES.map((page) => ({
+      url: `${SITE_URL}${docHref(page.slug)}`,
+      changeFrequency: "monthly" as const,
+      priority: 0.8,
+    })),
     {
       url: `${SITE_URL}/errors`,
       changeFrequency: "monthly",

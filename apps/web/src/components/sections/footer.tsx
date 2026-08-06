@@ -29,6 +29,11 @@ export function Footer() {
                 </a>
               </li>
               <li>
+                <Link href="/docs" className="hover:text-text">
+                  Docs
+                </Link>
+              </li>
+              <li>
                 <Link href="/errors" className="hover:text-text">
                   Error codes
                 </Link>

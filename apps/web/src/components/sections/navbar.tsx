@@ -37,6 +37,15 @@ export function Navbar() {
               vs ngrok
             </a>
           </li>
+          {/* Not in the mockup's nav, for the same reason `#faq` is not in its sections: the design was
+              drawn before there were docs to link to. A docs site with no entry point from the home page
+              is the discoverability half of the bug that left 33 error pages unreachable — so this is a
+              `Link`, not an anchor, and it is the only nav item that leaves the page. */}
+          <li>
+            <Link href="/docs" className="hover:text-text">
+              Docs
+            </Link>
+          </li>
         </ul>
 
         <div className="ml-auto flex items-center gap-4 text-muted">

@@ -17,7 +17,7 @@ its own, and a row that disagrees with its section is a bug in this table.
 | ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
 | ✅ | 2a · `apps/api` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
 | ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
-| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **In progress.** `/errors/[code]` live (33 generated pages), all seven sections plus `#compare` and `#faq`, the SEO surface complete, and Playwright driving the built Worker (23 specs — which found defect 37, 33 pages that 404'd in production). The OpenGraph image, MDX docs and armed visual baselines remain |
+| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Nearly done.** `/errors/[code]` (33 generated pages), all seven sections plus `#compare` and `#faq`, the SEO surface, `/docs` in MDX with a generated CLI reference, and Playwright driving the built Worker (30 specs — which found defect 37, 33 pages that 404'd in production). The OpenGraph image, more doc pages and armed visual baselines remain |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
 | ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` — and now also waits on discovery, which its Nodes screen renders |
@@ -658,7 +658,13 @@ Two of the new specs are there because a unit test cannot reach them: **every** 
 
 Two things only reading the built output caught, both now tests: clap has not injected `--help` and `--version` until `Command::build()` runs, so an unbuilt walk silently omits two flags the binary accepts; and before that same call `--quiet` reports itself as taking a value named `QUIET`, which would have published `--quiet QUIET`. Reading a builder mid-construction gives you the shape the author wrote rather than the shape the binary parses.
 
-**The page that renders it is still owed** and belongs with the MDX docs — the artifact and its rendering are separate deliverables, and the artifact is the one the three files were wrong about.
+**And the page now renders it.** `/docs/cli` reads `schema/cli.json` through `src/lib/cli-reference.ts`, so a flag added to `args.rs` reaches the site with no edit to the page — verified by adding one, regenerating, and finding it in the built HTML. An e2e spec asserts the rendered table is exactly the binary's flag set, which is the assertion the three false claims were really about.
+
+**The MDX docs are live**, which was the last substantial 2c item: `@next/mdx` under Turbopack, `/docs` as an optional catch-all where the index is the `""` slug, and `src/mdx-components.tsx` mapping every element to design tokens — Tailwind's preflight strips heading sizes and list markers, so that file is the docs' entire stylesheet and an unstyled page looks like a broken build. Two pages so far: getting started, and the generated CLI reference.
+
+Three decisions in it worth keeping. **`export const meta` rather than front-matter**, because it is a native MDX export that is typed by `src/mdx.d.ts` and needs no remark plugin — `@types/mdx` was installed and removed, since it types the default export and says in its own comment that it cannot type the named ones, which is the half that matters. **A registry rather than a directory scan**, because `generateStaticParams` runs at build time and a Worker has no filesystem — with `docs.test.ts` reading the directory and failing if the two disagree, since a hand-kept list is the shape defects 34, 35, 37 and 38 all had. And **`Docs` in the navbar**, which the mockup does not draw because it was drawn before there were docs: a docs site with no entry point from the home page is the discoverability half of the bug that left 33 error pages unreachable.
+
+**Still open in 2c:** the OpenGraph image, more doc pages (configuration, self-hosting, troubleshooting), and arming the visual baselines.
 
 **Gate G2c.** The site builds, deploys, and passes its own checks. It gates the 3.0 announcement, not the tunnel.
 

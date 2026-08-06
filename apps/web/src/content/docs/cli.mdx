@@ -1,0 +1,26 @@
+import { CliTable } from "../../components/cli-table"
+
+export const meta = {
+  title: "CLI reference",
+  description:
+    "Every flag and argument the nport command accepts, generated from the binary's own definition.",
+}
+
+# CLI reference
+
+```bash
+nport [OPTIONS] [PORT]
+```
+
+The port can be given either way. `nport 3000` and `nport -p 3000` are the same thing, and if you give
+both, `-p` wins.
+
+<CliTable />
+
+## This page is generated
+
+The table above comes from `nport`'s own argument definitions, not from prose someone keeps in step with
+them. `cargo xtask codegen` reads the compiled parser and writes `schema/cli.json`; this page renders
+that file. A flag added to the CLI without regenerating fails the build.
+
+So if `nport --help` and this page ever disagree, the page is wrong and it is a bug worth reporting.

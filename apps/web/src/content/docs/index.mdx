@@ -1,0 +1,69 @@
+export const meta = {
+  title: "Getting started",
+  description:
+    "Give your local development server a public HTTPS URL with one command. No account, no config, no signup.",
+}
+
+# Getting started
+
+NPort gives a port on your machine a public HTTPS URL. There is no account to create and nothing to
+configure — you run one command and get a URL you can send to anyone.
+
+## Run it
+
+Start your dev server, then point NPort at its port:
+
+```bash
+npx nport 3000
+```
+
+That prints a URL. Anything that reaches the URL is forwarded to `localhost:3000`, over HTTPS, from
+Cloudflare's edge network.
+
+To keep it around rather than fetching it each time:
+
+```bash
+npm i -g nport
+```
+
+Homebrew and Scoop packages are published alongside the npm ones.
+
+## Pick your own name
+
+By default you get a generated subdomain. Ask for a specific one with `-s`:
+
+```bash
+nport 3000 -s myapp
+```
+
+That claims `myapp.nport.link` for as long as your client keeps it. Custom subdomains are free and
+always have been — there is no tier that unlocks them.
+
+If the name is already taken you get a `SUBDOMAIN_IN_USE` error rather than a silent substitution, so
+the URL you were told about is always the URL you asked for.
+
+## How long it lasts
+
+The server decides, and it tells your client the expiry when the tunnel is created. `nport` shows you
+what it was given; it does not choose. Keep the process running and the lease is renewed for you.
+
+That split is deliberate: a client that enforced its own limit would be a client you could patch to
+ignore one, so every time limit lives on the server.
+
+## When something goes wrong
+
+Every failure NPort reports carries a code, and every code has a page:
+
+- Look it up at [nport.link/errors](/errors)
+- Branch on the code in scripts, never on the message text — messages are translated and free to change
+
+## Your own Cloudflare account
+
+Point NPort at your own account and the shared infrastructure drops out completely. Your tunnels, your
+zone, your logs:
+
+```bash
+nport 3000 --backend https://your-worker.example.com
+```
+
+The [CLI reference](/docs/cli) lists every flag.
