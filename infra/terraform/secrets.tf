@@ -49,16 +49,19 @@ resource "cloudflare_api_token" "worker" {
     {
       effect            = "allow"
       permission_groups = [{ id = data.cloudflare_account_api_token_permission_groups_list.tunnel.result[0].id }]
-      resources = {
+      # A JSON *string*, not an object — the provider types this attribute as a string whose contents
+      # are json ("A json object representing the resources"). `terraform validate` accepts the object
+      # form and only `plan` rejects it, so this is not a mistake the gate can catch.
+      resources = jsonencode({
         "com.cloudflare.api.account.${var.account_id}" = "*"
-      }
+      })
     },
     {
       effect            = "allow"
       permission_groups = [{ id = data.cloudflare_account_api_token_permission_groups_list.dns.result[0].id }]
-      resources = {
+      resources = jsonencode({
         "com.cloudflare.api.account.zone.${data.cloudflare_zone.this.zone_id}" = "*"
-      }
+      })
     },
   ]
 
