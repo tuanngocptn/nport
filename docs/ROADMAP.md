@@ -670,7 +670,20 @@ Two things it changed elsewhere. `twitter.card` moves from `summary` to `summary
 
 **Satori has no CSS pipeline**, so the card cannot use Tailwind or a custom property, and rule 4's "no raw hex" cannot hold literally. It holds mechanically instead: `src/lib/og-colours.ts` copies three values and `og-colours.test.ts` parses `tokens.css` and fails if the copy drifts — the same arrangement `crates/contract/src/subdomain.rs` uses for the subdomain rules, and the reason `globals.css`'s two stray hex values were worth fixing rather than tolerating.
 
-**Still open in 2c:** more doc pages (configuration, self-hosting, troubleshooting), and arming the visual baselines.
+**Still open in 2c:** more doc pages (configuration, troubleshooting), and arming the visual baselines.
+
+**Defect 39: `docs/SELF_HOSTING.md` documented a configuration surface that did not exist.** Found while gathering facts to write a self-hosting doc page, which is a good argument for writing user docs from the code rather than from the contributor docs.
+
+Of the eight vars in its tuning table, **five had never existed** — `TUNNEL_MAX_AGE_HOURS`, `HEARTBEAT_TIMEOUT_SECONDS`, `MAX_LEASES_PER_SOURCE`, `MAX_CREATES_PER_HOUR`, `RESERVED_EXTRA` — and the three real ones carried no real values ("tuned", "current"). It also documented `nport --set-backend` and `NPORT_BACKEND_URL`, neither of which the CLI has ever had, as two of the "three ways in precedence order" to point a client at your deployment.
+
+Two of the errors were worse than wrong names:
+
+- It recommended **`POW_DIFFICULTY_BITS = 0`** to disable proof of work on a private instance. `packages/worker-kit/src/pow.ts` sets `MIN_BITS = 1` and `issueChallenge` throws a `RangeError` outside `1..32`, so following that advice makes every provision fail. The Limits section then built a security note on the same false premise. PoW cannot be turned off; the honest framing is that it prices bulk abuse and never stops a single determined caller, so Cloudflare Access is the answer if the URL leaking matters.
+- A bolded paragraph told operators to **add their zone's hostnames to `RESERVED_EXTRA`** before going live, warning that the reserved list "is the only thing standing between a user and your DNS". The warning is correct and there was no such var. The list is `RESERVED_SUBDOMAINS`/`RESERVED_PREFIXES` in `packages/contract/src/subdomain.ts` — a build-time constant shared with the Rust client (ADR-0045) — so reserving a name is a code change and a redeploy, which the page now says.
+
+**`verify-docs` now pins that table to `apps/api/wrangler.jsonc`**, checking both that each var exists and that the documented default matches, and failing loudly if the `## Tuning` heading it keys on ever disappears.
+
+The general version was **prototyped and rejected**, which is the more useful finding. "Every `SCREAMING_SNAKE` token in the docs must appear somewhere in the source" surfaced 12 tokens, of which 10 were legitimate: seven Phase 3 CI secrets for workflows that do not exist yet, an HTTP/2 frame name in `docs/PROTOCOL.md`, and this page's own new prose *saying* two vars do not exist. Ten exceptions is an allowlist, and an allowlist behind a guarantee is what `verify_docs.rs` already distrusts in two places. So the fifth instance of the "claimed elsewhere" shape is only partly mechanisable: a table with a single authority behind it can be pinned, and prose cannot.
 
 **Gate G2c.** The site builds, deploys, and passes its own checks. It gates the 3.0 announcement, not the tunnel.
 

@@ -4,7 +4,7 @@ Run your own control plane on your own domain. Clients point at it with `--backe
 
 Reasons to: you want your own domain instead of `*.nport.link`; you need tunnels without the public instance's time limit; your organisation cannot send subdomain names to a third party; or you want a private instance with no abuse controls in the way.
 
-**Status: not yet implemented.** This is the intended setup; `apps/api` lands in Phase 2.
+**Status: followable.** `apps/api` is feature-complete and deployed (`docs/ROADMAP.md` §2a), so the steps below describe software that exists. What has *not* happened is somebody other than us following them end to end on a fresh account — and every var name and flag on this page was wrong until 2026-08-07 (defect 39), so treat a discrepancy as this page's bug and report it.
 
 ## What you get and what you own
 
@@ -75,15 +75,20 @@ curl https://api.example.com/v1/health
 
 ### 3. Point clients at it
 
-Three ways, in precedence order:
+Two ways. The flag wins over the file:
 
 ```bash
 nport 3000 -s myapp --backend https://api.example.com   # one-off
-nport --set-backend https://api.example.com             # persist to ~/.nport/config.toml
-export NPORT_BACKEND_URL=https://api.example.com        # environment
 ```
 
-`--backend` beats the config file, which beats the environment variable, which beats the default. Same precedence as v2, so existing muscle memory works.
+```toml
+# ~/.nport/config.toml — every key is a default for the matching flag
+backend = "https://api.example.com"
+```
+
+`NPORT_HOME` moves that file, which is the seam `pnpm smoke` uses.
+
+**There is no `--set-backend` and no `NPORT_BACKEND_URL`.** This page described both for weeks; neither has ever existed (`schema/cli.json` is the generated list of what does). Editing the file is the persistent option, and `crates/cli/src/config.rs` is the authority on its keys — `subdomain`, `backend`, `registry`, `node`, `lang`, `port`, and nothing else. Unknown keys are a hard error rather than a silent ignore, so a typo tells you.
 
 ## Tuning
 
@@ -91,16 +96,20 @@ Set these as `vars` in `wrangler.jsonc`. The public instance's values are chosen
 
 | Var | Public default | Notes |
 | --- | --- | --- |
-| `TUNNEL_MAX_AGE_HOURS` | 4 | Set high or effectively unlimited for a private instance |
-| `HEARTBEAT_TIMEOUT_SECONDS` | 120 | How fast a dead client's lease is reaped |
-| `MAX_ACTIVE_TUNNELS` | tuned | Global cap → `503 CAPACITY_EXHAUSTED` |
-| `MAX_LEASES_PER_SOURCE` | 2 | Raise for a team instance |
-| `MAX_CREATES_PER_HOUR` | 10 | |
-| `POW_DIFFICULTY_BITS` | tuned | **0 disables proof-of-work** — reasonable on a private instance |
-| `MIN_CLIENT_VERSION` | current | |
-| `RESERVED_EXTRA` | — | Additional reserved names for your zone |
+| `LEASE_TTL_SECONDS` | `14400` | The lease ceiling — four hours. Raise it freely on a private instance |
+| `HEARTBEAT_GRACE_SECONDS` | `120` | How long after a client goes quiet its lease is reaped |
+| `MAX_ACTIVE_TUNNELS` | `1000` | Global cap → `503 CAPACITY_EXHAUSTED` |
+| `MAX_CONCURRENT_PER_SOURCE` | `3` | Per-source cap. Raise for a team instance |
+| `MAX_CREATES_PER_HOUR_PER_SOURCE` | `20` | |
+| `POW_DIFFICULTY_BITS` | `20` | Starting difficulty. **The floor is 1, not 0** — see below |
+| `POW_MAX_DIFFICULTY_BITS` | `26` | Ceiling the adaptive difficulty climbs to under load |
+| `MIN_CLIENT_VERSION` | `"3.0.0"` | Raising it is how you tell users to upgrade |
 
-**Add your own infrastructure hostnames to `RESERVED_EXTRA`** before going live. The built-in list protects `api`, `www`, `mail`, and similar, but it does not know about your zone. If `app.example.com` is your production site and your zone is `example.com`, a tunnel could otherwise claim it — the reserved list is the only thing standing between a user and your DNS.
+**Proof of work cannot be turned off.** `packages/worker-kit/src/pow.ts` sets `MIN_BITS = 1`, and `issueChallenge` throws a `RangeError` outside `1..32` — so a `0` here does not relax the instance, it makes every provision attempt fail. This page recommended `0` until 2026-08-07. One bit is nearly free to solve, so if what you want is "no meaningful gate", `1` is that; it is not the same as no gate, and the note under **Limits** about protecting a private instance still applies.
+
+**Reserve your own infrastructure hostnames before going live**, and note that this is a code change rather than a var. There is no `RESERVED_EXTRA` — this page named one until 2026-08-07 and nothing ever read it. The list is `RESERVED_SUBDOMAINS` and `RESERVED_PREFIXES` in `packages/contract/src/subdomain.ts`, a build-time constant shared by the Worker and the Rust client (ADR-0045), so adding a name means editing it, running `pnpm codegen && cargo xtask codegen`, and redeploying.
+
+The risk is real and unchanged by the mechanism: the built-in list protects `api`, `www`, `mail` and similar, but it does not know about your zone. If `app.example.com` is your production site and your zone is `example.com`, a tunnel can claim it — the reserved list is the only thing between a user and your DNS.
 
 ## Operating it
 
@@ -136,7 +145,7 @@ The registry resolves that record, probes your `GET /v1/meta`, and lists you. `P
 
 - **One zone per deployment.** Multi-tenant hosting across zones is not supported.
 - No web UI. The site (`apps/web`) is marketing and docs, not a dashboard (ADR-0007).
-- No accounts, so a private instance is protected by obscurity of the backend URL, not by authentication. **If your instance is reachable and PoW is disabled, anyone who learns the URL can create tunnels in your zone.** Use Cloudflare Access in front of it, or keep PoW enabled with a high difficulty.
+- No accounts, so a private instance is protected by obscurity of the backend URL, not by authentication. **Anyone who learns the URL can create tunnels in your zone.** Proof of work does not change that — it prices bulk abuse, and at any difficulty a single determined caller gets through. Put Cloudflare Access in front of it if that matters.
 - The DO migration path is forward-only (`docs/RELEASE.md`). Deploy upgrades in order; do not skip major versions.
 
 ## Upgrading

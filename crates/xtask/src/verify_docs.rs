@@ -21,6 +21,12 @@
 //!    two of them long before anyone noticed. A stated limit nobody measures is the shape every defect
 //!    in `docs/ROADMAP.md`'s list shares, and the cost of measuring it is a line count.
 //!
+//! 6. **`docs/SELF_HOSTING.md`'s tuning table matches `apps/api/wrangler.jsonc`.** Both that a var
+//!    exists and that its documented default is the real one. Five of that table's eight rows named vars
+//!    that had never existed, and one recommended a value the code rejects at runtime (defect 39). It is
+//!    the narrowest check here on purpose — see [`check_self_hosting_vars`] for the general version that
+//!    was prototyped and rejected.
+//!
 //! Deliberately not checked: prose accuracy, and external URLs (a network call would make CI flaky
 //! and fail on someone else's outage).
 
@@ -83,6 +89,7 @@ pub fn run() -> Result<(), String> {
     problems.extend(check_relative_links(&repo)?);
     problems.extend(check_decision_index(&repo)?);
     problems.extend(check_line_caps(&repo)?);
+    problems.extend(check_self_hosting_vars(&repo)?);
 
     if problems.is_empty() {
         println!("verify-docs: documentation matches the repository");
@@ -556,8 +563,227 @@ fn link_targets(text: &str) -> Vec<String> {
     out
 }
 
+/// Every var in `docs/SELF_HOSTING.md`'s tuning table exists in `apps/api/wrangler.jsonc`, with the
+/// default the table claims.
+///
+/// **This table was wrong in five of its eight rows.** It named `TUNNEL_MAX_AGE_HOURS`,
+/// `HEARTBEAT_TIMEOUT_SECONDS`, `MAX_LEASES_PER_SOURCE`, `MAX_CREATES_PER_HOUR` and `RESERVED_EXTRA` —
+/// none of which has ever existed — and recommended `POW_DIFFICULTY_BITS = 0`, which `worker-kit`'s
+/// `MIN_BITS = 1` rejects with a `RangeError`, so following the advice broke every provision. Defect 39.
+///
+/// The check is narrow on purpose. The obvious general version — *every* `SCREAMING_SNAKE` token in the
+/// docs must appear somewhere in the source — was prototyped and rejected: it found 12 tokens, and 10 were
+/// legitimate (Phase 3 CI secrets that do not exist yet, an HTTP/2 frame name, and this page's own new
+/// prose saying two vars do *not* exist). Ten exceptions is an allowlist, and an allowlist behind a
+/// guarantee is the thing this file already distrusts twice over. One table with a real authority behind
+/// it is checkable without one.
+fn check_self_hosting_vars(repo: &Path) -> Result<Vec<String>, String> {
+    let mut problems = Vec::new();
+
+    let doc = std::fs::read_to_string(repo.join("docs/SELF_HOSTING.md"))
+        .map_err(|error| format!("reading docs/SELF_HOSTING.md: {error}"))?;
+    let wrangler = std::fs::read_to_string(repo.join("apps/api/wrangler.jsonc"))
+        .map_err(|error| format!("reading apps/api/wrangler.jsonc: {error}"))?;
+
+    let Some(table) = tuning_table(&doc) else {
+        // Not "no rows, nothing to check": the section vanishing is how a check quietly stops checking.
+        problems.push(
+            "docs/SELF_HOSTING.md: no `## Tuning` section with a table — `check_self_hosting_vars` \
+             is keyed on that heading and has just stopped verifying anything"
+                .to_owned(),
+        );
+        return Ok(problems);
+    };
+
+    if table.is_empty() {
+        problems.push("docs/SELF_HOSTING.md: the `## Tuning` table has no var rows".to_owned());
+    }
+
+    for (var, default) in table {
+        // The top-level `vars` block is what a fresh deployment gets; `env.staging` overrides some of
+        // them, which is why the documented default is compared against the top level only.
+        match top_level_var(&wrangler, &var) {
+            None => problems.push(format!(
+                "docs/SELF_HOSTING.md § Tuning names `{var}`, which is not in apps/api/wrangler.jsonc"
+            )),
+            Some(actual) if actual != default => problems.push(format!(
+                "docs/SELF_HOSTING.md § Tuning says `{var}` defaults to `{default}`, \
+                 but apps/api/wrangler.jsonc says `{actual}`"
+            )),
+            Some(_) => {}
+        }
+    }
+
+    Ok(problems)
+}
+
+/// The `(var, documented default)` pairs from the `## Tuning` table, or `None` if there is no such table.
+///
+/// Rows look like `| `LEASE_TTL_SECONDS` | `14400` | notes |`. Only the first two cells matter, and a row
+/// whose first cell is not a backticked identifier is a header or a separator.
+fn tuning_table(doc: &str) -> Option<Vec<(String, String)>> {
+    let start = doc.find("\n## Tuning")?;
+    let rest = &doc[start + 1..];
+    // Stop at the next heading of the same level, so a var named in a later section is not swept in.
+    let end = rest[1..]
+        .find("\n## ")
+        .map_or(rest.len(), |offset| offset + 1);
+    let section = &rest[..end];
+
+    let mut rows = Vec::new();
+    for line in section.lines().filter(|line| line.starts_with('|')) {
+        let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+        // `["", first, second, ...]` — a leading empty cell from the opening pipe.
+        let (Some(first), Some(second)) = (cells.get(1), cells.get(2)) else {
+            continue;
+        };
+        if let (Some(var), Some(default)) = (backticked(first), backticked(second)) {
+            rows.push((var, default));
+        }
+    }
+    Some(rows)
+}
+
+/// The contents of a cell that is exactly one backticked span, or `None`.
+fn backticked(cell: &str) -> Option<String> {
+    let inner = cell.strip_prefix('`')?.strip_suffix('`')?;
+    if inner.is_empty() || inner.contains('`') {
+        return None;
+    }
+    Some(inner.to_owned())
+}
+
+/// A var's value in `wrangler.jsonc`'s **first** `"vars"` block, rendered the way the table writes it.
+///
+/// Hand-parsed rather than deserialized because the file is JSONC — comments and trailing commas — and
+/// pulling in a JSONC parser for one lookup is a dependency this crate does not otherwise need.
+fn top_level_var(wrangler: &str, var: &str) -> Option<String> {
+    let vars_at = wrangler.find("\"vars\"")?;
+    let open = wrangler[vars_at..].find('{')? + vars_at;
+
+    let mut depth = 0usize;
+    let mut close = None;
+    for (offset, character) in wrangler[open..].char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(open + offset);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let block = &wrangler[open..close?];
+
+    let needle = format!("\"{var}\"");
+    for line in block.lines() {
+        // Strip a trailing `// comment` so a value is not confused with prose about it.
+        let code = line.split("//").next().unwrap_or(line);
+        let Some(rest) = code.split_once(&needle).map(|(_, rest)| rest) else {
+            continue;
+        };
+        // Quotes are kept, so the table shows the JSON literal: `14400` is a number and `"3.0.0"` is a
+        // string, and a reader copying a value into `wrangler.jsonc` needs to know which.
+        let value = rest
+            .trim_start()
+            .strip_prefix(':')?
+            .trim()
+            .trim_end_matches(',')
+            .trim();
+        return Some(value.to_owned());
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
+    /// The tuning-table parsers, on input this crate does not have to read off disk.
+    ///
+    /// Worth unit-testing rather than trusting the one real file: the parsers decide whether the check
+    /// *runs*, and a parser that silently returns nothing is a check that silently passes — which is the
+    /// failure mode `check_self_hosting_vars` exists to prevent in the first place.
+    mod tuning {
+        use super::super::{backticked, top_level_var, tuning_table};
+
+        // A raw multi-line string, not a `\\`-continued one: `cargo fmt` collapses continuations onto a
+        // single line and keeps their indentation, which left every table row starting with spaces
+        // instead of a pipe. The parser was right and the fixture was wrong.
+        const DOC: &str = r#"# Self-hosting
+
+## Tuning
+
+| Var | Public default | Notes |
+| --- | --- | --- |
+| `LEASE_TTL_SECONDS` | `14400` | four hours |
+| `MIN_CLIENT_VERSION` | `"3.0.0"` | a string |
+
+## Operating it
+
+| `NOT_A_VAR` | `1` | in a later section |
+"#;
+
+        #[test]
+        fn reads_the_var_and_its_documented_default() {
+            let rows = tuning_table(DOC).expect("section found");
+            assert_eq!(
+                rows,
+                vec![
+                    ("LEASE_TTL_SECONDS".to_owned(), "14400".to_owned()),
+                    ("MIN_CLIENT_VERSION".to_owned(), "\"3.0.0\"".to_owned()),
+                ]
+            );
+        }
+
+        #[test]
+        fn stops_at_the_next_heading() {
+            // A table in a later section is a different claim about a different thing. Sweeping it in
+            // would make the check fail on rows it was never meant to police.
+            let rows = tuning_table(DOC).expect("section found");
+            assert!(!rows.iter().any(|(var, _)| var == "NOT_A_VAR"));
+        }
+
+        #[test]
+        fn reports_a_missing_section_rather_than_an_empty_table() {
+            assert!(tuning_table("# Self-hosting\n\n## Configuration\n").is_none());
+        }
+
+        #[test]
+        fn ignores_a_header_row() {
+            // `| Var | Public default |` has no backticks, so it is not a var row.
+            assert_eq!(backticked("Var"), None);
+            assert_eq!(
+                backticked("`LEASE_TTL_SECONDS`"),
+                Some("LEASE_TTL_SECONDS".to_owned())
+            );
+            assert_eq!(backticked("`a` and `b`"), None);
+        }
+
+        #[test]
+        fn keeps_the_json_literal_so_a_string_is_distinguishable_from_a_number() {
+            let wrangler = "{\n  \"vars\": {\n    \"A\": 14400,\n    \"B\": \"3.0.0\"\n  }\n}";
+            assert_eq!(top_level_var(wrangler, "A"), Some("14400".to_owned()));
+            assert_eq!(top_level_var(wrangler, "B"), Some("\"3.0.0\"".to_owned()));
+            assert_eq!(top_level_var(wrangler, "MISSING"), None);
+        }
+
+        #[test]
+        fn reads_only_the_first_vars_block() {
+            // `wrangler.jsonc` has an `env.staging` block with its own `vars`, overriding some of them.
+            // The documented default is what a fresh deployment gets, which is the top level.
+            let wrangler = "{\n  \"vars\": { \"A\": 1 },\n  \"env\": { \"staging\": { \"vars\": { \"A\": 2 } } }\n}";
+            assert_eq!(top_level_var(wrangler, "A"), Some("1".to_owned()));
+        }
+
+        #[test]
+        fn ignores_a_trailing_comment() {
+            let wrangler = "{\n  \"vars\": {\n    \"A\": 20, // starting difficulty\n  }\n}";
+            assert_eq!(top_level_var(wrangler, "A"), Some("20".to_owned()));
+        }
+    }
+
     use super::*;
 
     /// The false positive that expanding the file set turned up.
