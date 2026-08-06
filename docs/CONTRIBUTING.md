@@ -155,7 +155,7 @@ Non-negotiable:
 - **Never guess a constant.** Read it from the pinned cloudflared commit and cite `file:symbol` in a comment.
 - Any wire-format change needs an updated golden fixture and a reviewed `insta` snapshot.
 - Any protocol change updates `docs/PROTOCOL.md` in the **same commit**.
-- `src/h2.rs` must keep compiling even while unused — it is the ADR-0017 fallback.
+- **`src/h2.rs` is not written yet** (ADR-0017 Fallback 1). When it is, it must be declared in `lib.rs` so `cargo clippy --all-targets` compiles it even while nothing calls it — an undeclared module is invisible to the build, which is the only way the fallback can rot unnoticed.
 
 Live-edge tests need a real tunnel token and outbound UDP 7844:
 

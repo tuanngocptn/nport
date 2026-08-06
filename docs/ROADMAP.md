@@ -678,6 +678,14 @@ Troubleshooting is organised by **symptom rather than by code**, and links nine 
 
 **Still open in 2c:** arming the visual baselines, which needs a Linux runner. G2c also wants the site deployed, which is an ops step (`docs/DEPLOYMENT.md`).
 
+**Defect 40: the PR template asked contributors to confirm a file compiles that has never existed.** `.github/pull_request_template.md`'s protocol section carried the checkbox "`src/h2.rs` still compiles (ADR-0017)", and `docs/CONTRIBUTING.md` and `crates/protocol/CLAUDE.md` rule 6 both stated it as a present obligation. `crates/protocol/CLAUDE.md`'s own layout block says `NOT YET WRITTEN` eight lines above the rule.
+
+This is the purest instance of the shape yet: a **check that cannot be performed**, on the most-read document in the repository. Its only possible outcome is a contributor ticking a box without looking, which is worse than no box — it teaches that the list is decorative.
+
+The fix is also the more useful rule. "Must keep compiling" is not something a human should verify: `cargo clippy --all-targets` compiles every module the crate declares, so the real obligation is **declaring `h2.rs` in `lib.rs`** when it is written. An undeclared module is invisible to the build, and that is the only way this fallback can actually rot. All three places now say that, and say it does not exist yet.
+
+**Two sweeps behind it, both of which found nothing else and are worth recording as negative results.** Every `pnpm <script>` named in any document exists. Every backticked path resolves, once the 100-odd false positives are discounted — `docs/PROTOCOL.md` alone cites ~40 cloudflared Go paths deliberately (`connection/quic.go` and friends), and the rest are MIME types, GitHub slugs and branch-name examples. Combined with the `SCREAMING_SNAKE` sweep from defect 39, that is three attempts at a general "documented thing exists" check and three findings that it is not mechanisable at the repository level. What *is* checkable is a table or a list with a single authority behind it — which is what the two checks that did land verify.
+
 **Defect 39: `docs/SELF_HOSTING.md` documented a configuration surface that did not exist.** Found while gathering facts to write a self-hosting doc page, which is a good argument for writing user docs from the code rather than from the contributor docs.
 
 Of the eight vars in its tuning table, **five had never existed** — `TUNNEL_MAX_AGE_HOURS`, `HEARTBEAT_TIMEOUT_SECONDS`, `MAX_LEASES_PER_SOURCE`, `MAX_CREATES_PER_HOUR`, `RESERVED_EXTRA` — and the three real ones carried no real values ("tuned", "current"). It also documented `nport --set-backend` and `NPORT_BACKEND_URL`, neither of which the CLI has ever had, as two of the "three ways in precedence order" to point a client at your deployment.

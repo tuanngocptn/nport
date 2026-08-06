@@ -51,7 +51,7 @@ cargo xtask fixtures                      # capture golden byte fixtures
 3. **Vendored `.capnp` files are read-only.** Copied verbatim from the pinned commit, including the deprecated legacy section — type IDs matter.
 4. **Any wire-format change needs an updated golden fixture and a reviewed `insta` snapshot** in the same PR.
 5. **Any protocol change updates `docs/PROTOCOL.md` in the same commit.** Never a follow-up.
-6. **`src/h2.rs` must keep compiling even while unused.** It is the ADR-0017 fallback and it is worthless if it has silently rotted by the time you need it.
+6. **When `src/h2.rs` is written, declare it in `lib.rs`.** It is the ADR-0017 fallback, worthless if it has rotted by the time you need it — and a module nobody declares is a module the build never sees. Declaring it is the whole guarantee; `cargo clippy --all-targets` does the rest. It does not exist yet, so there is nothing to do here today.
 7. **Re-pinning the cloudflared commit is a deliberate act**, not a drive-by: bump the SHA, re-read every cited symbol, update §1's date, re-run the live tests, record it in `docs/DECISIONS.md`.
 8. **Answers to the open questions in §17 get written down** with a date, the moment the spike answers one. They are a deliverable. **Try the source first**: four of the six were answered by reading the pinned tree rather than by touching the edge, and one of those turned out to be the wrong question — it asked for the full set of `ConnectionError.cause` strings, which does not exist, because `shouldRetry :Bool` carries the decision.
 9. `#![forbid(unsafe_code)]`. No exceptions.

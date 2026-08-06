@@ -21,4 +21,4 @@
 - [ ] golden fixture captured from **cloudflared**, not from our own encoder
 - [ ] `insta` snapshots reviewed one by one, not accepted in bulk
 - [ ] `docs/PROTOCOL.md` updated in this same PR
-- [ ] `src/h2.rs` still compiles (ADR-0017)
+- [ ] if `src/h2.rs` exists, it is declared in `lib.rs` — that, not this box, is what keeps ADR-0017's fallback compiling
