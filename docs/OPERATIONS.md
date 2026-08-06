@@ -29,8 +29,8 @@ A **separate Cloudflare account** on a separate domain (ADR-0038), so nothing in
 | --- | --- | --- |
 | Cloudflare account | staging-only, distinct from production | — |
 | Cloudflare zone | `nport.online` | added by hand; settings by `infra/terraform` |
-| Worker (API) | `nport-api-staging` → `api.nport.online` | `apps/api/wrangler.jsonc` § `env.staging` |
-| Worker (site) | `nport-web-staging` → `nport.online`, `www.nport.online` | `apps/web/wrangler.jsonc` § `env.staging` |
+| Worker (API) | `nport-api` → `api.nport.online` | `apps/api/wrangler.jsonc` § `env.staging` |
+| Worker (site) | `nport-web` → `nport.online`, `www.nport.online` | `apps/web/wrangler.jsonc` § `env.staging` |
 | Edge rate limit | ruleset on `api.nport.online` | `infra/terraform` (same config as production) |
 | Terraform state | HCP Terraform workspace `nport-staging` | app.terraform.io, local execution mode (ADR-0042) |
 | Deploy | `.github/workflows/deploy-staging.yml` | gate → terraform → workers → verify |

@@ -756,6 +756,7 @@ The consequence is that **the server could not shorten its own grace period**. D
 - Two accounts to pay for and two to keep in the runbook. Both are free-plan eligible.
 - `wrangler.jsonc` names no account id; `CLOUDFLARE_ACCOUNT_ID` in the deploy environment selects it. Editing a constant cannot send a deploy to the wrong account.
 - The staging zone gets the *same* subdomain deny list, so `api`, `www` and the rest stay unclaimable there too. `staging` is already on that list, which is why `staging.nport.link` would have been an odd name to hand to a real tunnel.
+- **The Worker names are identical in both accounts** — `nport-api` and `nport-web`, not a `-staging` variant. Once the account is the isolation, a name suffix isolates nothing and only makes the two deployments differ in a way nothing else does; dashboards, log queries and runbooks then read the same in both places. Wrangler defaults an environment's `name` to `<name>-<env>`, so each environment states its name explicitly and `pnpm deploy:check` fails if one drifts — an unset `name` is a silent rename, not an error, and the symptom is a second Worker that nothing routes to.
 
 ## ADR-0039 — Terraform manages infrastructure; it never mints a credential CI could use
 

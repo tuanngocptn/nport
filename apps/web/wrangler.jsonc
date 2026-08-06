@@ -28,7 +28,14 @@
   // the same `notInheritable` rule would apply the moment one is added, so add it to both blocks.
   "env": {
     "staging": {
-      "name": "nport-web-staging",
+      // **The same name as production, deliberately.** Staging and production are separate
+      // Cloudflare accounts (ADR-0038), so the account is the isolation and a name suffix would
+      // only make the two deployments differ in a way nothing else does. Identical names mean the
+      // dashboards, the logs and the docs read the same in both places.
+      //
+      // Wrangler defaults an environment's name to `<name>-<env>`, so this line is what stops
+      // that. The account comes from CLOUDFLARE_ACCOUNT_ID, scoped per GitHub Environment.
+      "name": "nport-web",
       "workers_dev": false,
       "routes": [
         { "pattern": "nport.online", "custom_domain": true },

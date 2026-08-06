@@ -72,9 +72,21 @@ for (const relative of ["apps/api/wrangler.jsonc", "apps/web/wrangler.jsonc"]) {
   for (const [envName, env] of Object.entries(config.env ?? {})) {
     compare(relative, top, shapeOf(env), envName)
 
-    if (typeof env.name !== "string" || env.name === config.name) {
+    // **Every environment deploys under the same Worker name, and must say so explicitly.**
+    //
+    // Environments are separate Cloudflare accounts (ADR-0038), so the account is the isolation and
+    // there is nothing for a matching name to collide with. Keeping them identical is what makes
+    // the dashboards, logs and runbooks read the same everywhere.
+    //
+    // The check is here because wrangler defaults an unset environment `name` to `<name>-<env>`.
+    // Delete the line and staging silently becomes `nport-api-staging`: the deploy still succeeds,
+    // the old Worker keeps serving the custom domain, and the only symptom is a second Worker in
+    // the dashboard that nothing routes to.
+    if (env.name !== config.name) {
+      const actual = typeof env.name === "string" ? env.name : `${config.name}-${envName}`
       console.error(
-        `  ${relative} env.${envName}: needs its own \`name\`, or it overwrites ${config.name}`,
+        `  ${relative} env.${envName}: deploys as ${actual}, not ${config.name}` +
+          (typeof env.name === "string" ? "" : " — an unset `name` is suffixed with the env name"),
       )
       problems += 1
     }
