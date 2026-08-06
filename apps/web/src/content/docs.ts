@@ -26,6 +26,8 @@ export interface DocPage {
  */
 export const DOC_PAGES: readonly DocPage[] = [
   { slug: "", label: "Getting started" },
+  { slug: "configuration", label: "Configuration" },
+  { slug: "troubleshooting", label: "Troubleshooting" },
   { slug: "cli", label: "CLI reference" },
 ]
 
@@ -40,6 +42,10 @@ export async function loadDoc(slug: string) {
   switch (slug) {
     case "":
       return import("./docs/index.mdx")
+    case "configuration":
+      return import("./docs/configuration.mdx")
+    case "troubleshooting":
+      return import("./docs/troubleshooting.mdx")
     case "cli":
       return import("./docs/cli.mdx")
     default:

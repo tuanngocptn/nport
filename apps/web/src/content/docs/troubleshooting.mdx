@@ -1,0 +1,74 @@
+export const meta = {
+  title: "Troubleshooting",
+  description:
+    "What to do when a tunnel will not start, will not stay up, or serves the wrong thing — by symptom.",
+}
+
+# Troubleshooting
+
+Every failure NPort reports carries a code, and **every code has its own page** with what caused it and
+what to do. This page is the other direction: start from what you are seeing.
+
+If you already have a code, go straight to [the error index](/errors).
+
+## "Nothing is listening on that port"
+
+`LOCAL_PORT_CLOSED`. NPort checks your port *before* it claims a URL, so this fails fast rather than
+handing you a URL that answers 502.
+
+Start your dev server first, then check the port. A server bound to `127.0.0.1` is fine; one bound only
+to a container's internal interface is not reachable from your machine, which is the usual surprise.
+
+See [`local-port-closed`](/errors/local-port-closed).
+
+## The name I asked for was refused
+
+Three different codes, and they mean different things:
+
+- [`invalid-subdomain`](/errors/invalid-subdomain) — the name cannot be a subdomain. Lowercase letters,
+  digits and hyphens; no leading or trailing hyphen; no underscores. NPort checks this **before** any
+  network call, so you find out immediately.
+- [`subdomain-in-use`](/errors/subdomain-in-use) — somebody has it right now. Names are first come,
+  first served, and released when the holder's tunnel ends.
+- [`subdomain-reserved`](/errors/subdomain-reserved) — the name is held back permanently, because it
+  belongs to infrastructure. `api`, `www` and similar.
+
+## The URL loads but I get an error page from my own server
+
+The tunnel is working. Cloudflare reached NPort, NPort reached your port, and your server answered with
+whatever you are seeing.
+
+The one case worth knowing about is [`local-request-failed`](/errors/local-request-failed): your server
+accepted the connection and then refused or reset the request. A server that rejects requests whose
+`Host` header it does not recognise is the common cause — your app sees `myapp.nport.link`, not
+`localhost`. Most frameworks have an allowed-hosts setting.
+
+## It stopped after a few hours
+
+Leases expire, and the server decides when. `nport` shows you the expiry it was given when the tunnel
+starts, and renews it for as long as the process runs. If the process was killed, the lease is reaped
+shortly after it stops sending heartbeats.
+
+There is no way to make a tunnel permanent on the public instance. [Run your own
+backend](/docs/configuration) if you need one that outlasts a session.
+
+## "This version of NPort is no longer supported"
+
+`CLIENT_TOO_OLD`. NPort owns the connector protocol, so when Cloudflare's edge changes, installed
+clients can break in ways only a new binary fixes — and refusing the old one is the only way to say so.
+
+Upgrade, and it works again. See [`client-too-old`](/errors/client-too-old).
+
+## Too many tunnels, or too many attempts
+
+- [`concurrency-limit`](/errors/concurrency-limit) — you already have the maximum open at once. Close
+  one; waiting will not help.
+- [`rate-limited`](/errors/rate-limited) — you are creating them faster than the limit. This one *is*
+  worth retrying, after a pause.
+- [`capacity-exhausted`](/errors/capacity-exhausted) — not you. The instance is full; try shortly.
+
+## Anything else
+
+Errors that reach you carry a `requestId`. Quote it in a
+[bug report](https://github.com/tuanngocptn/nport/issues) — it is how a failure gets traced without any
+account or personal data being involved.

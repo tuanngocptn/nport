@@ -17,7 +17,7 @@ its own, and a row that disagrees with its section is a bug in this table.
 | ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
 | ✅ | 2a · `apps/api` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
 | ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
-| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Nearly done.** `/errors/[code]` (33 generated pages), all seven sections plus `#compare` and `#faq`, the SEO surface with a build-time OpenGraph card, `/docs` in MDX with a generated CLI reference, and Playwright driving the built Worker (32 specs — which found defect 37, 33 pages that 404'd in production). More doc pages and armed visual baselines remain |
+| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Code-complete.** `/errors/[code]` (33 generated pages), all seven sections plus `#compare` and `#faq`, the SEO surface with a build-time OpenGraph card, four MDX doc pages with a generated CLI reference, and Playwright driving the built Worker (32 specs — which found defect 37, 33 pages that 404'd in production). Left: armed visual baselines (needs Linux) and the deploy itself |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
 | ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` — and now also waits on discovery, which its Nodes screen renders |
@@ -670,7 +670,13 @@ Two things it changed elsewhere. `twitter.card` moves from `summary` to `summary
 
 **Satori has no CSS pipeline**, so the card cannot use Tailwind or a custom property, and rule 4's "no raw hex" cannot hold literally. It holds mechanically instead: `src/lib/og-colours.ts` copies three values and `og-colours.test.ts` parses `tokens.css` and fails if the copy drifts — the same arrangement `crates/contract/src/subdomain.rs` uses for the subdomain rules, and the reason `globals.css`'s two stray hex values were worth fixing rather than tolerating.
 
-**Still open in 2c:** more doc pages (configuration, troubleshooting), and arming the visual baselines.
+**2c is code-complete.** The last two user doc pages are written — configuration and troubleshooting — bringing `/docs` to four, and both were written from the code rather than from `docs/`, which is the direct lesson of defect 39.
+
+Troubleshooting is organised by **symptom rather than by code**, and links nine error pages rather than restating them: the registry already generates cause and action for all 33, so a copy here would be a second source going stale (rule 3). The one genuinely additive thing it says is the `Host`-header case — a local server that rejects requests whose `Host` it does not recognise sees `myapp.nport.link`, not `localhost`, and that is the failure most likely to look like NPort's fault when it is not.
+
+`docs-links.test.ts` checks every internal link in the MDX against the routes the app actually serves. Nine of them are error slugs, and a typo'd slug is a 404 handed to somebody already debugging — defect 37 with the arrow reversed. `verify-docs` checks relative links in `docs/`; it does not read MDX, so this is the same guarantee for the other half of the documentation.
+
+**Still open in 2c:** arming the visual baselines, which needs a Linux runner. G2c also wants the site deployed, which is an ops step (`docs/DEPLOYMENT.md`).
 
 **Defect 39: `docs/SELF_HOSTING.md` documented a configuration surface that did not exist.** Found while gathering facts to write a self-hosting doc page, which is a good argument for writing user docs from the code rather than from the contributor docs.
 

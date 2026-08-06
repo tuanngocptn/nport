@@ -116,6 +116,7 @@ Behaviour covered, because nothing else covers it:
 - each page declares **its own** canonical, not the home page's
 - `sitemap.xml` and `robots.txt` are served, the sitemap has no fragment URLs, and **every URL in it resolves**
 - `/opengraph-image` is a real 1200×630 PNG, checked by its signature and IHDR rather than its status code, and the metadata points at it
+- **every internal link in the MDX docs resolves to a route the app serves** (`src/content/docs-links.test.ts`). Nine are error slugs, and a typo'd slug is a 404 handed to somebody already debugging. `cargo xtask verify-docs` covers relative links in `docs/` and does not read MDX, so this is the same guarantee for the user-facing half
 - the sections appear in the order `apps/web/CLAUDE.md` rule 1 fixes, and no withheld claim reaches the document
 - the theme honours the OS preference and a stored `nport-theme`, and the script that sets it is inline, synchronous and in `<head>`
 

@@ -1,0 +1,67 @@
+export const meta = {
+  title: "Configuration",
+  description:
+    "The config file, the environment variables NPort reads, and which one wins when they disagree.",
+}
+
+# Configuration
+
+NPort needs no configuration. Everything below is optional, and exists so you can stop retyping the
+same flags.
+
+## The config file
+
+`~/.nport/config.toml`. Every key is a default for the matching flag, and every key is optional:
+
+```toml
+port = 3000
+subdomain = "myapp"
+lang = "en"
+backend = "https://api.example.com"
+registry = "https://registry.nport.link"
+node = "nport-link-1"
+```
+
+Those six are the whole file. **An unknown key is an error, not a warning** — NPort refuses to start
+and tells you which key it did not recognise, along with the ones it accepts. A typo that silently
+changed what the tool did would be worse than a message.
+
+The same is true of a malformed file: you get a clear failure rather than a silent fall back to
+defaults. A missing file is not a failure — most people never create one.
+
+**It holds no credentials, and it never will.** Tunnel tokens are issued by the control plane, used in
+memory, and never written to disk.
+
+## Environment variables
+
+Two, and neither is a substitute for the config file:
+
+| Variable | What it does |
+| --- | --- |
+| `NPORT_HOME` | Moves the whole `.nport` directory. NPort looks in `$NPORT_HOME/.nport/`, falling back to `$HOME` and then `%USERPROFILE%` |
+| `NPORT_LANG` | Interface language, same values as `--lang` |
+
+There is no environment variable for the backend, the subdomain, or the port. Use a flag or the file.
+
+## What wins
+
+Flags beat the file. For the port specifically, `-p` beats the positional argument, and both beat the
+file — so `nport 8080 -p 3000` tunnels 3000, and says so.
+
+Language resolves through a longer chain, because a terminal usually already knows what language you
+read:
+
+```
+--lang  →  NPORT_LANG  →  config file  →  LC_ALL / LC_MESSAGES / LANG  →  English
+```
+
+English, Vietnamese and Spanish are the three that exist. An unrecognised value falls through to the
+next source rather than failing, so `--lang klingon` gets you your ambient locale, not an error.
+
+## The node cache
+
+`~/.nport/nodes.json`, beside the config file and moved by the same `NPORT_HOME`. It caches the list of
+nodes NPort discovered so a later run can start faster. Deleting it is always safe — the next run
+rediscovers.
+
+Passing `--backend` skips discovery entirely, so a self-hosted setup never reads or writes this file.
