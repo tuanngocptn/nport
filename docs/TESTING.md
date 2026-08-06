@@ -9,7 +9,7 @@ applies_to:
 
 The strategy spans two languages, three runtimes (Node, `workerd`, native), and a live external service. That is why it lives in one document instead of being scattered across five `CLAUDE.md` files.
 
-**Status: implemented for `apps/api`, `crates/protocol`, `crates/core`, `crates/cli`, `apps/registry` and `packages/*`.** `apps/web` has its unit tier only — the Playwright e2e and visual baselines below are still the plan. `apps/desktop` is untested and waits on Phase 4.
+**Status: implemented for every app and crate except `apps/desktop`**, which is untested and waits on Phase 4. `apps/web` now has both its tiers: Vitest over `src/lib` and `src/content`, and Playwright against the built Worker. Its **visual baselines are wired but not armed** — see § Frontend e2e.
 
 ## Tiers
 
@@ -17,17 +17,17 @@ The strategy spans two languages, three runtimes (Node, `workerd`, native), and 
 | --- | --- | --- | --- | --- |
 | Unit (TS) | `apps/*`, `packages/*` | Vitest | ms | every commit |
 | Integration (Workers) | `apps/api/test` | Vitest + `@cloudflare/vitest-pool-workers` | ~s | every commit |
-| **E2E + visual (web)** | `apps/web/e2e` | Playwright | ~10 s | every commit |
+| **E2E (web)** | `apps/web/e2e` | Playwright, against the built Worker | ~50 s | every commit |
 | Unit (Rust) | inline `#[cfg(test)]` | `cargo test` | ms | every commit |
 | Snapshot (Rust) | `crates/protocol/tests` | `cargo test` + `insta` | ms | every commit |
 | Property (Rust) | `crates/protocol`, validators | `proptest` | ~s | every commit |
 | **Golden fixtures** | `crates/protocol/tests/fixtures` | `cargo test` | ms | every commit |
 | Live edge | `crates/protocol/tests/live` | `cargo test -- --ignored` | ~30 s | nightly, releases |
 | **Smoke (local stack)** | `scripts/smoke.mjs` | `pnpm smoke` | ~40 s | before a push, after any dev-fake or CLI change |
-| Smoke (end-to-end) | `.github/workflows/smoke.yml` | real tunnels, 6 OS | minutes | nightly, releases — **Phase 3, not yet written** |
+| Smoke (end-to-end) | `.github/workflows/smoke.yml` | real tunnels, 3 OS | minutes | nightly, and per staging deploy |
 | Canary (protocol) | `.github/workflows/protocol-canary.yml` | live handshake | seconds | every 6 h — **Phase 3, not yet written** |
 
-The two Phase 3 rows describe what will exist, not what runs today. `.github/workflows/` currently holds `ci.yml` and `codegen-drift.yml`; everything above those two rows is real and gated. Both need a deployed control plane (`docs/ROADMAP.md` § The critical path), so neither can be written before G2.
+One row still describes what will exist rather than what runs: **`protocol-canary.yml` is not written** (Phase 3). Everything else is real and gated. `smoke.yml` is — it runs nightly and on every staging deploy, on macOS, Linux and Windows rather than the six targets the plan named, because the other three are cross-compiled and have no runner to smoke them on.
 
 ## What must be which
 
@@ -101,15 +101,26 @@ A changed fixture means one of: our encoder changed (justify it), the pinned clo
 
 ## Frontend e2e and visual regression
 
-`apps/web` is tested with Playwright: behavioural assertions plus `toHaveScreenshot()` visual baselines (ADR-0023). **Not yet implemented**, and 2c starting has not changed that: `/errors/[code]` landed with Vitest unit tests over `src/lib` instead, because the property that mattered was "every code the product emits has a page" rather than how the page looks. Standing up pinned browsers in CI is its own task, not something to attach to a route.
+`apps/web` is tested with Playwright: behavioural assertions plus `toHaveScreenshot()` visual baselines (ADR-0023). **The behavioural half is implemented — 23 specs in `apps/web/e2e` — and the visual baselines are not armed**; see below for what that means and how to arm them.
 
-Behaviour that must be covered, because nothing else covers it:
+**It drives the built Worker, not `next dev`** (ADR-0048). `playwright.config.ts` runs `opennextjs-cloudflare build && preview`, which is slower and is the entire point: the first thing this tier found was that **all 33 `/errors/[code]` pages returned 404 from the Worker** while `next build` prerendered every one and the unit tests passed. No tier that reads `.next/` can see a fault in how the Worker reads its own output.
 
-- `/docs/[[...slug]]` resolves for every MDX file, and an unknown slug 404s
-- `/errors/[code]` renders for a real code from the contract — this is where the CLI deep-links users mid-failure
-- the dark-mode toggle persists across a reload, and the anti-FOUC script runs before first paint
-- all four JSON-LD blocks are present and parse as JSON
-- `sitemap.xml` and `robots.txt` are served, and the sitemap contains no fragment URLs
+Use `preview`, never bare `wrangler dev` — `populateCache` is what copies prerendered pages into the assets directory, and skipping it reproduces those same 404s against a build that is fine.
+
+Behaviour covered, because nothing else covers it:
+
+- **every** code in the contract resolves at `/errors/<slug>` and renders its own heading — this is where the CLI deep-links users mid-failure, and checking all 33 rather than a sample is the point: the pages are generated, so the interesting failure is a missing subset
+- an unknown slug 404s rather than being rendered on demand
+- all four JSON-LD blocks are present and parse, and the `FAQPage` questions are visible on the page
+- `SoftwareApplication.featureList` names nothing `src/content/site.ts` holds back
+- each page declares **its own** canonical, not the home page's
+- `sitemap.xml` and `robots.txt` are served, the sitemap has no fragment URLs, and **every URL in it resolves**
+- the sections appear in the order `apps/web/CLAUDE.md` rule 1 fixes, and no withheld claim reaches the document
+- the theme honours the OS preference and a stored `nport-theme`, and the script that sets it is inline, synchronous and in `<head>`
+
+Still to cover, and blocked on the routes existing: `/docs/[[...slug]]` resolving for every MDX file.
+
+**There is no dark-mode toggle.** This list used to require that "the dark-mode toggle persists across a reload". No such control exists — `docs/mockup/NPort Site.dc.html` does not draw one and the mockup is the authority on UI — so what is asserted is what the site does: honour the OS preference and the `nport-theme` key `apps/desktop` writes.
 
 The original objection to screenshot tests was churn, and it was correct. Three constraints answer it:
 
@@ -117,7 +128,15 @@ The original objection to screenshot tests was churn, and it was correct. Three 
 2. **Playwright's pinned browser builds are the baseline's stability guarantee.** Bumping Playwright is therefore a deliberate act that may legitimately update baselines — same discipline as re-pinning the cloudflared commit.
 3. **Dynamic regions are masked, not tolerated.** Anything time-, version-, or count-dependent gets `mask:`. A snapshot that fails intermittently teaches people to re-record without reading, which is strictly worse than no snapshot.
 
-A changed baseline is reviewed like a changed golden fixture: decide whether the intent changed, the browser changed, or the site broke. Never re-record on red without deciding which.
+A changed baseline is reviewed like a changed golden fixture: decide whether the intent changed, the browser changed, or the site broke. Never re-record on red without deciding which. Baselines live at `apps/web/e2e/__screenshots__/<platform>/`, with the platform in the path so a locally recorded snapshot cannot be mistaken for the committed Linux one.
+
+**Arming them.** `apps/web/e2e/visual.spec.ts` is skipped unless `NPORT_VISUAL=1`, because no Linux baseline exists yet and one cannot honestly be recorded on macOS — committing a macOS snapshot would fail every CI run, which is the churn the original objection was about. To record the first one, on Linux:
+
+```bash
+pnpm --filter @nport/web test:e2e:update   # NPORT_VISUAL=1 playwright test --update-snapshots
+```
+
+Then commit `__screenshots__/linux/`, drop the `NPORT_VISUAL` guard in that spec, and the `web-e2e` job compares against it from then on. Until that happens, "visual regression" is wired and unarmed — stated here rather than implied by the ADR, so nobody assumes a snapshot is watching the page.
 
 `apps/desktop` is **not** covered by this. Playwright cannot drive a Tauri WebView; that needs `tauri-driver` with WebdriverIO and arrives with Phase 4. The manual per-platform pass below still stands for it.
 
@@ -197,9 +216,11 @@ There are two, and they answer different questions.
 
 The credential is fake, so the edge refuses registration on purpose: everything up to the lease is real, the QUIC dial genuinely happens, and what gets exercised past that point is the retry ladder and the release. A tunnel that carries traffic needs a deployment.
 
-### `smoke.yml` — the published artifact, nightly (Phase 3, not yet written)
+### `smoke.yml` — the only test that opens a port on the internet
 
-Nightly and on every release, across six runners. Installs the published artifact — not a local build — creates a tunnel under a **generated** name, asserts a **byte-exact** response through it, exercises a WebSocket echo, then shuts down gracefully and verifies the lease is gone.
+**Written and running.** Nightly at 03:20 UTC, on every staging deploy, and on demand, across macOS, Linux and Windows. It provisions a real lease on the deployed control plane, dials Cloudflare's edge over QUIC, creates a tunnel under a **generated** name, asserts a **byte-exact** response through it, exercises a WebSocket echo, then shuts down gracefully and verifies the lease is gone. It is the mechanism behind Gate G2's cross-platform criterion.
+
+Three runners rather than the six targets the plan named: the other three are cross-compiled and GitHub has no runner to smoke them on. **What remains for Phase 3** is the artifact it installs — today it builds the CLI from source, and once the npm packages, Homebrew tap and Scoop manifest exist it should install the *published* one, which is a different claim and the one users depend on.
 
 v2's smoke test only checked that the process stayed alive for 30 s and that the log contained no error strings. It would have passed while serving nothing. Assert on the response body.
 

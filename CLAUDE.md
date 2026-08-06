@@ -6,7 +6,7 @@ Guidance for Claude Code working in this repository. Read this file first; it te
 
 NPort tunnels HTTP/HTTPS from localhost to a public `*.nport.link` URL over Cloudflare's edge. It is free, MIT-licensed, and **account-free** — no signup, no API keys, `nport 3000 -s myapp` and you have a URL. v3 is a from-scratch rewrite that replaces the bundled `cloudflared` binary with a native Rust implementation of Cloudflare's tunnel connector protocol.
 
-**Status: staging is live and real tunnels serve traffic on macOS, Linux and Windows** (2026-08-06), with WebSocket and server-enforced expiry, verified per deploy by `.github/workflows/smoke.yml`. Gate G2 is five of six: the gap is graceful Ctrl+C on Windows, where there is no `SIGINT` to send a child process. **Phase 5 (federation) is the active phase** — its contract step is done, `apps/registry` is not written. `apps/web` and `apps/desktop` are still booting scaffolds. `docs/ROADMAP.md`.
+**Status: staging is live and real tunnels serve traffic on macOS, Linux and Windows** (2026-08-06), with WebSocket and server-enforced expiry, verified per deploy by `.github/workflows/smoke.yml`. Gate G2 is five of six: the gap is graceful Ctrl+C on Windows, where there is no `SIGINT` to send a child process. **Phase 5 (federation) is written and not deployed** — contract, `apps/registry`, node fields and client discovery all land; G5 needs a second Cloudflare account. `apps/web` is mid-2c: pages, copy, SEO and a Playwright tier against the built Worker. `apps/desktop` is still a booting scaffold. `docs/ROADMAP.md`.
 
 ## The five apps
 

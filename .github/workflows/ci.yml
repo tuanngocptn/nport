@@ -32,6 +32,39 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
+  # Its own job rather than a step in `typescript`, because it is the slowest thing in CI by an order
+  # of magnitude: it runs a full OpenNext build and boots `workerd`. Failing it should not delay the
+  # lint and typecheck feedback, and passing it should not be waited on by them.
+  web-e2e:
+    name: Web e2e
+    # Pinned to Linux, and it must stay pinned: ADR-0023 makes Linux the visual baseline platform
+    # because font rasterisation differs per OS. The baselines are not recorded yet — see
+    # `apps/web/e2e/visual.spec.ts` — but the runner they will be recorded on is decided here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Only chromium, and `--with-deps` for the system libraries a headless browser needs on a bare
+      # runner. Playwright pins its own browser build, which is what makes a baseline stable enough to
+      # be worth having (ADR-0023) — so this must not be replaced by a system Chrome.
+      - name: Install the pinned browser
+        run: pnpm --filter @nport/web exec playwright install --with-deps chromium
+      # `playwright.config.ts` builds through OpenNext and serves the real Worker, so there is no
+      # separate build step here. That is deliberate: this tier exists to test the artifact that
+      # deploys, and the first thing it caught was 33 pages that 404 only from the Worker.
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
+
   rust:
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

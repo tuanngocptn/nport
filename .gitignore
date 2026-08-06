@@ -57,6 +57,14 @@ npm-debug.log*
 .pnpm-debug.log*
 *.pending-snap
 
+# Playwright's per-run output: traces, failure screenshots, and the HTML report. All derived, and CI
+# uploads the report as an artifact instead (`.github/workflows/ci.yml`). The **baselines** under
+# `apps/web/e2e/__screenshots__` are deliberately not here — a visual baseline is reviewed like a golden
+# fixture and has to be committed to be reviewable (ADR-0023, docs/TESTING.md).
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
+
 # Claude Code's scratch worktrees. Each is a full git repository, so `git add -A` picks it up as a
 # gitlink — a commit pointing at a clone nobody else has. Ignored rather than remembered.
 .claude/worktrees/

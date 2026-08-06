@@ -17,6 +17,7 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:e2e": "pnpm --filter @nport/web test:e2e",
     "codegen": "turbo run codegen",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

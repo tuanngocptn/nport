@@ -10,7 +10,7 @@ The public site at `nport.link`: marketing page, user documentation, and generat
 
 **The approved design is `docs/mockup/NPort Site.dc.html`.** Read `docs/mockup/README.md` before building or changing anything visual — that file is what UI, UX, and behaviour are checked against. It is reference only: never imported, never hand-edited, excluded from every check.
 
-**Status: 2c in progress.** `/errors/[code]` is live (33 pages generated from `@nport/contract`), the marketing page renders all seven sections plus `#compare` and `#faq`, and the SEO surface is complete: four JSON-LD blocks, `sitemap.xml` (35 URLs, no fragments), `robots.txt`, and a per-page canonical. Still ahead: the OpenGraph image, the MDX user docs, and the Playwright tier.
+**Status: 2c in progress.** `/errors/[code]` is live (33 generated pages), the page renders all seven sections plus `#compare` and `#faq`, the SEO surface is complete, and **Playwright drives the built Worker** — 23 specs, which is how the 404 in the gotcha below was found. Still ahead: the OpenGraph image, the MDX user docs, and arming the visual baselines (`docs/TESTING.md`).
 
 **The design's copy is not shippable as written, and that is recorded rather than worked around.** `docs/mockup` was drawn for the finished product, so its hero and four of its eight features advertise a desktop app (Phase 4), a request inspector (Phase 4), and request replay (**Deferred**). `src/content/site.ts` keeps every one of those claims with a `ships` tag and the reason it is held back; the page renders only what is true, and `site.test.ts` fails if it ever renders more. Phase 4 is a status flip. The mockup's own README rule 4 is what licenses this — the design is not the authority on behaviour.
 
@@ -26,14 +26,15 @@ src/lib/error-codes.ts                slug ↔ code, in a lib so it is testable 
 src/lib/seo.ts                        the four JSON-LD blocks, plus per-page canonical and OG metadata
 src/lib/inline-markdown.tsx           the two markdown constructs the registry's prose uses
 src/components/json-ld.tsx            puts a block in a <script>; the escaping is in seo.ts, to be testable
-open-next.config.ts next.config.ts postcss.config.mjs wrangler.jsonc
+e2e/                                  Playwright against the built Worker (ADR-0048)
+open-next.config.ts next.config.ts postcss.config.mjs playwright.config.ts wrangler.jsonc
 
 # Planned for 2c and not yet written — parenthesised so the block cannot be read as
 # a description of the tree as it stands:
 (src/app/docs/[[...slug]]/page.tsx    MDX from src/content/docs)
 (src/app/opengraph-image.tsx          the card image; until it exists, no og:image is claimed)
 (src/content/docs/*.mdx               USER docs — the only home for them)
-(e2e/                                 Playwright: behaviour + visual baselines, ADR-0023)
+(e2e/__screenshots__/linux/           visual baselines — not recorded yet, docs/TESTING.md)
 (public/.well-known/security.txt)
 ```
 
@@ -46,6 +47,7 @@ pnpm dev:web                          # next dev with Worker bindings
 pnpm --filter @nport/web build        # next build only — .next/, no Worker
 pnpm --filter @nport/web build:worker # the above, then opennext -> .open-next/worker.js
 pnpm --filter @nport/web preview      # run the built Worker locally
+pnpm test:e2e                         # Playwright, against that same Worker
 pnpm --filter @nport/web deploy       # normally CI does this
 ```
 
@@ -80,9 +82,9 @@ pnpm --filter @nport/web deploy       # normally CI does this
 ## Gotchas
 
 - **`nodejs_compat` is required** in `wrangler.jsonc`, and `next dev` needs `initOpenNextCloudflareForDev()` in `next.config.ts` or local bindings are missing.
-- **OpenNext output paths matter**: `main` is `.open-next/worker.js` and assets are `.open-next/assets`. Getting these wrong deploys an empty site that returns 200.
+- **OpenNext output paths matter**: `main` is `.open-next/worker.js` and assets are `.open-next/assets`. Getting these wrong deploys an empty site that returns 200 — and the worked example is real: with **no incremental cache configured, every `generateStaticParams` page 404s** from the Worker, because that cache is where prerendered pages are stored *and read back from*, not just where revalidated ones go. All 33 error pages were broken this way while `next build` and every unit test passed (ADR-0048). Use `preview`, never bare `wrangler dev` — `populateCache` is the step that copies them into the assets directory.
 - **Nothing is committed from a build.** v2 committed a minified `index.html` and its CI re-inlined a CSS file that was gitignored — deploys silently depended on a local build. Do not recreate that.
 - **Tailwind v4 has no `tailwind.config.js`.** Tokens are CSS `@theme`; dark mode is `@custom-variant dark (&:where(.dark, .dark *))`. v3 idioms and config objects will not work.
 - **Dark mode needs the anti-FOUC inline script** in `<head>` reading `localStorage["nport-theme"]` before first paint, or the page flashes on load.
-- **`sitemap.xml` should not be fragment URLs.** v2 listed `/#features` and similar, which Google treats as one page.
+- **`sitemap.xml` must not list fragment URLs** (v2 listed `/#features`; Google treats them as one page) and **`e2e/seo.spec.ts` fetches every URL it does list** — the error pages were 404ing while advertised there.
 - The apex is currently served by Cloudflare Pages. Going live is a DNS cutover with a rollback path — `docs/OPERATIONS.md`.

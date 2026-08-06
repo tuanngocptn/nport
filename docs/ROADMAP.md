@@ -17,7 +17,7 @@ its own, and a row that disagrees with its section is a bug in this table.
 | ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
 | ✅ | 2a · `apps/api` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
 | ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
-| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **In progress.** `/errors/[code]` live (33 generated pages), the marketing page renders all seven sections plus `#compare` and `#faq`, and the SEO surface is complete (four JSON-LD blocks derived from the copy, 35-URL sitemap, robots, per-page canonical). The OpenGraph image, MDX docs and the Playwright tier remain |
+| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **In progress.** `/errors/[code]` live (33 generated pages), all seven sections plus `#compare` and `#faq`, the SEO surface complete, and Playwright driving the built Worker (23 specs — which found defect 37, 33 pages that 404'd in production). The OpenGraph image, MDX docs and armed visual baselines remain |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
 | ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` — and now also waits on discovery, which its Nodes screen renders |
@@ -52,7 +52,7 @@ Building two apps against a shape that is about to change is the cost being avoi
 
 ## Current position
 
-**Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b code-complete, and staging is deployed.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented, tested in real `workerd`, and **running at `api.nport.online`**. Federation is written but not deployed, and 2c is in progress: the site's pages, copy and SEO are built, with the OpenGraph image, MDX docs and Playwright tier left.
+**Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b code-complete, and staging is deployed.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented, tested in real `workerd`, and **running at `api.nport.online`**. Federation is written but not deployed, and 2c is in progress: the site's pages, copy, SEO and e2e tier are built, with the OpenGraph image, the MDX docs and armed visual baselines left.
 
 **A port has been opened to the internet** (2026-08-06). The first tunnel provisioned, opened four HA connections to Cloudflare's edge, served a byte-identical body over HTTP/2, and tore down leaving NXDOMAIN — see Gate G2 below for exactly which criteria that did and did not cover. Getting there found four defects nothing offline could have found: `fetch` called with the wrong receiver, so *every* Cloudflare call raised `Illegal invocation`; the site's build script invoking itself until the runner died; staging's client-version floor refusing the only build that would ever point at it; and a Workers account with no `workers.dev` subdomain, which blocks all script uploads.
 
@@ -635,6 +635,20 @@ The general lesson is worth more than the fix. **A design mockup is a claim abou
 - A canonical URL set once in `layout.tsx` would have been inherited by every route and asked Google to drop all 33 of those pages. Each page states its own through `pageMetadata()`, and a test asserts it, because nothing renders a canonical tag and the failure is therefore silent.
 
 Also fixed while here: **four component comments cited the wrong `apps/web/CLAUDE.md` rule number** — off-by-ones from the previous commit. A cross-reference pointing at the wrong rule is worse than none, and unlike the checks above this one is not mechanisable, since every wrong number was still in range.
+
+**The Playwright tier is up — 23 specs against the built Worker (ADR-0048) — and it immediately found defect 37, which is the most alarming one on this list.**
+
+**Defect 37: all 33 `/errors/[code]` pages returned 404 from the deployed Worker.** Every layer said they were fine. `next build` prerendered 33 pages, `src/lib/error-codes.test.ts` asserted one page per code and passed, the sitemap listed all of them, and the two routes anyone checks by hand — `/` and `/errors` — worked, because they are fully static and get inlined into the Worker. The broken routes were precisely the set nothing on the site links to, and precisely the set the product deep-links users to from a failing terminal. The cause was `open-next.config.ts` configuring no incremental cache, on the reasoning that nothing revalidates: true, and irrelevant, because that cache is also where prerendered pages are *stored and read back from*. `staticAssetsIncrementalCache` fixes it with no new binding.
+
+Three lessons, in order of how much they generalise:
+
+1. **This is the third instance of the same shape** — defect 34 (two files claiming a Rust subdomain mirror that did not exist), defect 36 (a node normalizing against a hardcoded zone it did not serve), and now a page count asserted by a test that never fetched a page. Each was a claim about work done *somewhere else in the pipeline*, and each was invisible to the layer making the claim.
+2. **A test tier is worth what its weakest realism assumption is worth.** Everything before this ran against `.next/` or a fake; the artifact that deploys had never been asked a question. `apps/web/CLAUDE.md` had even written down the failure mode — "deploys an empty site that returns 200" — which is a warning, not a check.
+3. **The investigation itself had a false start worth recording**: probing with bare `wrangler dev` reproduces the same 404s against a perfectly good build, because `populateCache` only runs under `preview`. Half an hour went into a symptom that was partly the measurement. That is now a comment in `playwright.config.ts`, where the next person hits it.
+
+Two of the new specs are there because a unit test cannot reach them: **every** URL in `sitemap.xml` is fetched, and every `FAQPage` question is asserted visible on the page. And one of the specs was itself rewritten twice — an early version compared the theme script's position to the first stylesheet's, which is not the guarantee (Next hoists stylesheets via `data-precedence`) and raced React's float management, so the same code passed and failed on consecutive runs. It now reads the served HTML. A flaky test in this tier is worse than no tier at all, which is ADR-0023's own argument turned back on itself.
+
+**Visual baselines are wired and not armed.** ADR-0023 pins them to Linux; none has been recorded, because a macOS-recorded snapshot would fail every CI run, which is exactly the churn the original objection described. `apps/web/e2e/visual.spec.ts` is skipped behind `NPORT_VISUAL=1` and `docs/TESTING.md` carries the one command that records it. Same category as G5: the remaining step needs a machine this is not.
 
 **Gate G2c.** The site builds, deploys, and passes its own checks. It gates the 3.0 announcement, not the tunnel.
 

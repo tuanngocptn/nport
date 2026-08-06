@@ -55,6 +55,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0045 | The subdomain mirror is hand-written logic over generated constants | Accepted |
 | 0046 | The registry gets its own OpenAPI document, and capacity is probed rather than claimed | Accepted |
 | 0047 | Worker plumbing shared in a package, rather than imported across deployables | Accepted |
+| 0048 | Prerendered pages are served from Workers Static Assets, and e2e drives the Worker | Accepted |
 
 ---
 
@@ -974,3 +975,27 @@ The boundary is **no bindings, no `env`, no Hono**. That is what keeps the packa
 - One more package in the graph, and a real cost: `packages/worker-kit` is a third place a Worker change might need to land. Accepted because the alternative is two copies of the code that decides how every failure looks to every client.
 
 **Rejected.** *Importing across `apps/`* — couples two deployables and records the dependency nowhere. *Duplicating both modules* — the drift this repository has spent thirty-five defects learning to distrust, and the error envelope is the worst possible thing to have two of. *Putting them in `packages/contract`* — the contract is the API's authority, not a runtime library; giving it a crypto implementation and an exception class would make "the contract" mean two different things. *A broader `packages/shared`* — a name that invites everything and explains nothing; the next thing that wants sharing should have to argue for its own boundary, as this did.
+
+## ADR-0048 — Prerendered pages are served from Workers Static Assets, and e2e drives the Worker
+
+**Date** 2026-08-07 · **Status** Accepted · **Refines** ADR-0006, ADR-0023
+
+**Context.** `apps/web` deployed a Worker in which **all 33 `/errors/[code]` pages returned 404**. Nothing local could see it. `next build` prerendered every one, `src/lib/error-codes.test.ts` asserted one page per code and passed, and the two routes anyone would check by hand — `/` and `/errors` — worked throughout, because they are fully static and get inlined into the Worker. The broken routes were exactly the ones nothing on the site links to, and they are the ones the product deep-links users to from a failing terminal.
+
+The cause was a reasoning error recorded in `open-next.config.ts` itself: it configured no incremental cache, on the grounds that "there is no ISR and nothing to revalidate, so a KV or R2 cache would be a binding to provision, pay for, and reason about for no behaviour." True about revalidation. Wrong about serving — OpenNext writes pages produced by `generateStaticParams` **into** the incremental cache at build time and reads them back on every request. With no cache the handler threw `NoFallbackError`.
+
+**Decision.** Two parts, and the second is why this is an ADR rather than a bug fix.
+
+1. **`staticAssetsIncrementalCache`.** Prerendered payloads are served from the `.open-next/assets` directory the Worker already deploys. No namespace, no bucket, no binding — the original intent, now achieved. It is **read-only**: `set` and `delete` log an error rather than writing.
+
+2. **`apps/web`'s e2e tier drives the built Worker, not `next dev`.** `playwright.config.ts` runs `opennextjs-cloudflare build && preview`. ADR-0023 said "asserting a deployed route end to end" and this is what that has to mean here: no tier that reads `.next/` or runs `next dev` can see a fault in how the Worker reads its own output, and `apps/web/CLAUDE.md` already warned that a mistake in this layer "deploys an empty site that returns 200".
+
+**Consequences.**
+
+- The read-only cache is a **constraint kept on purpose**. A route that starts needing real revalidation fails loudly instead of quietly serving a stale page — at which point the honest answer is a KV or R2 cache and its own ADR, not a silent upgrade.
+- `preview` is required rather than `wrangler dev`, because `populateCache` is the step that copies the payloads into the assets directory. Running bare `wrangler dev` reproduces the same 404s against a build that is fine — a false alarm that cost an investigation during this work, so `playwright.config.ts` says so where someone would hit it.
+- The e2e tier is CI's slowest job by an order of magnitude — a full Next build plus `workerd` boot. It gets its own job so it does not delay lint and typecheck.
+- **The generated-page count is now load-bearing in two places**, which is the property worth having: the sitemap lists 35 URLs from the contract, and a spec fetches every one. A code added to `packages/contract` that failed to build a page would fail the e2e run rather than 404 for whoever needed it.
+- Visual baselines are **specified and not armed**: ADR-0023 pins them to Linux and none has been recorded, because a macOS-recorded snapshot would fail every CI run. `apps/web/e2e/visual.spec.ts` is skipped behind `NPORT_VISUAL=1` and `docs/TESTING.md` carries the recording command.
+
+**Rejected.** *A KV or R2 incremental cache* — real infrastructure to provision and pay for, for a site with nothing to revalidate; correct only once something genuinely revalidates. *`output: "export"`* — would make the whole app static assets and remove OpenNext, which is ADR-0006 territory and a much larger change than the bug warranted. *Testing `next start` instead* — faster and would not have found this, since the fault is in the Worker's own read path. *Leaving the 404s and asserting them* — a red test in CI is not a fix, and these pages are the entire remedy `crates/cli` offers for seven error codes.

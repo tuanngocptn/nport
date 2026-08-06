@@ -12,6 +12,8 @@
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:update": "NPORT_VISUAL=1 playwright test --update-snapshots",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -24,6 +26,7 @@
   "devDependencies": {
     "@nport/tsconfig": "workspace:*",
     "@opennextjs/cloudflare": "catalog:",
+    "@playwright/test": "1.62.1",
     "@tailwindcss/postcss": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
