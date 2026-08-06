@@ -307,3 +307,34 @@ describe("fqdn", () => {
     expect(new CloudflareClient(CONFIG).fqdn("myapp")).toBe("myapp.nport.test")
   })
 })
+
+describe("the default fetcher", () => {
+  it("calls the global fetch with the global as its receiver, not the client", async () => {
+    // `this.#fetcher(…)` is a method call, so an unbound default arrives at `fetch` with the client
+    // as its receiver — and workerd answers `TypeError: Illegal invocation`, on every operation.
+    //
+    // Nothing else in this suite can catch it: every other test injects a plain function, which does
+    // not care about `this`. So this one asserts the receiver rather than the behaviour, because the
+    // receiver is the thing that was wrong.
+    const seen: unknown[] = []
+    const original = globalThis.fetch
+    globalThis.fetch = function (this: unknown) {
+      seen.push(this)
+      return Promise.resolve(
+        new Response(JSON.stringify({ success: true, result: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+    } as unknown as typeof fetch
+
+    try {
+      await new CloudflareClient(CONFIG).findDnsRecord("myapp.nport.test")
+    } finally {
+      globalThis.fetch = original
+    }
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toBe(globalThis)
+  })
+})

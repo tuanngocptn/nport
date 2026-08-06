@@ -172,12 +172,22 @@ export class CloudflareClient {
   readonly #fetcher: typeof fetch
 
   /**
-   * `fetcher` defaults to the global `fetch`, resolved at construction.
+   * `fetcher` defaults to the global `fetch`, resolved at construction and **bound to `globalThis`**.
+   *
+   * The bind is load-bearing. `this.#fetcher(…)` is a method call, so it passes *this client* as the
+   * receiver, and workerd's `fetch` refuses any receiver but the global with `TypeError: Illegal
+   * invocation`. Nothing catches that before production: every test injects a plain function, which
+   * does not care what `this` is, and the dev fake is a plain function too — so the only code path
+   * that reaches the real `fetch` is the one that only runs against the real API. It failed there on
+   * the first provisioning attempt, on every operation at once.
+   *
+   * Only the default is bound. An injected fetcher is called as given, in case it is a method that
+   * needs its own receiver.
    *
    * It is injectable so `client.test.ts` can drive every branch — retry, backoff, error mapping —
    * without a network or a workerd binding. The Durable Object always uses the default.
    */
-  constructor(config: CloudflareConfig, fetcher: typeof fetch = globalThis.fetch) {
+  constructor(config: CloudflareConfig, fetcher: typeof fetch = globalThis.fetch.bind(globalThis)) {
     this.#config = config
     this.#fetcher = fetcher
   }
