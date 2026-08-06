@@ -314,3 +314,20 @@ jobs:
       - name: The site answers
         run: |
           curl -fsS -o /dev/null -w "site: %{http_code}\n" "https://$SITE_HOST/"
+
+  # ── A tunnel, on three operating systems ───────────────────────────────────────────────
+  #
+  # `verify` proves the deployed Worker matches the repository. It does not prove that anything can
+  # actually tunnel through it, and every other test in CI stops at a fake. This is the only job in
+  # the pipeline that opens a port on the internet.
+  #
+  # **Staging only.** Production deploys must not mint real tunnels on the production account as a
+  # side effect of shipping; there the nightly schedule in `smoke.yml` is the right cadence, and the
+  # per-source hourly cap is deliberately tighter (`apps/api/wrangler.jsonc`).
+  smoke:
+    name: Smoke
+    needs: verify
+    if: inputs.environment == 'staging'
+    uses: ./.github/workflows/smoke.yml
+    with:
+      backend: https://api.${{ inputs.zone }}
