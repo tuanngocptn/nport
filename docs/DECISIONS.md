@@ -759,7 +759,7 @@ The consequence is that **the server could not shorten its own grace period**. D
 
 ## ADR-0039 — Terraform manages infrastructure; it never mints a credential CI could use
 
-**Status.** Accepted, 2026-08-06.
+**Status.** Superseded by ADR-0040, 2026-08-06. Kept because the argument it makes is still the cost of the decision that replaced it.
 
 **Context.** `docs/OPERATIONS.md` § Secrets states that the Worker's runtime secrets "are set with `wrangler secret put` and never pass through Actions". The Cloudflare provider can create `cloudflare_api_token`, and doing so is genuinely attractive: the token needs exact scopes (Account → Cloudflare Tunnel → Edit, Zone → DNS → Edit), getting them right by hand is error-prone, and the runbook currently asks a human to do it.
 
@@ -776,3 +776,23 @@ Terraform also does not manage the Workers, their routes, or their custom domain
 - The stack is small. Its value is the rate-limit rule — which `docs/OPERATIONS.md` § Cloudflare setup step 7 had carried as "_TBD_ threshold" — plus settings that are otherwise dashboard clicks, and a frame production can copy.
 - Bootstrap is not fully automated, deliberately. The manual steps are exactly the ones whose automation would hand CI more authority than it should hold.
 - If tunnel records ever need to be *audited* rather than managed, that is a read-only job for the reconciliation cron, which already does it — not an import into this stack.
+
+## ADR-0040 — Terraform owns every runtime secret; CI holds only the keys to the state
+
+**Status.** Accepted, 2026-08-06. Supersedes ADR-0039.
+
+**Context.** ADR-0039 kept secret material out of Terraform so that compromising CI could not yield a token that provisions tunnels. The cost it accepted was a manual step: six `wrangler secret put` invocations per environment, performed from a laptop, with values a person had to invent, store somewhere, and remember to rotate.
+
+That cost is larger than it looks. A secret typed by hand once is a secret nobody rotates, kept in whatever the operator had to hand. Two environments double it. There is no record of which value is deployed where, so "is staging using the same HMAC key as production" is unanswerable without going and looking. And the step is the kind that gets skipped, leaving a Worker deployed and refusing every request for a reason that takes a while to find.
+
+**Decision.** Terraform generates and owns all six runtime secrets. `random_password` produces `POW_SECRET` and `IP_HASH_SECRET`; `cloudflare_api_token` mints the Worker's `CF_API_TOKEN` with exactly two permission groups; the remaining three are identifiers Terraform already knows. A single sensitive output carries them as JSON, and the deploy pipes it into `wrangler secret bulk`. No value is ever typed by a person or stored outside the state file.
+
+GitHub Actions holds four values, none of which is a Worker secret: the Cloudflare API token Terraform authenticates with, the account id, and the two R2 keys for the state backend.
+
+**Consequences.**
+
+- **The Terraform state is now the most sensitive object in the deployment**, and this is the real price. `random_password` keeps its result in state and `cloudflare_api_token` keeps the minted token there, because Terraform must know a value to detect drift. Anyone who can read the state can read every secret, so the R2 bucket and its two keys are the thing to protect — they are what ADR-0039 was protecting by spreading the risk instead.
+- ADR-0039's objection is not answered, it is accepted: CI *can* mint a Tunnel-Edit token, because it runs the apply. The mitigation is that staging and production are separate accounts (ADR-0038), so a compromised staging pipeline reaches only staging.
+- Rotation becomes `terraform apply -replace`, which is a command rather than a runbook.
+- `docs/OPERATIONS.md` § Secrets no longer says "never in CI" for the runtime set. It says what is true now: they live in Terraform state, and the state's credentials are the boundary.
+- The permission-group names are upstream strings this project does not control, so they are variables with preconditions that fail the plan with the API call that lists the real ones — rather than minting a token with no permissions, which fails much later and much less clearly.

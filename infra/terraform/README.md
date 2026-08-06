@@ -23,7 +23,7 @@ starts fighting an apply.
 | **Terraform** (`infra/terraform/`) | zone settings, the edge rate-limit ruleset | Wrangler cannot express them at all |
 | **Wrangler** (`apps/*/wrangler.jsonc`) | Worker scripts, routes, custom domains, DO migrations, `vars` | `custom_domain: true` creates the DNS record; a Terraform record for the same name would fight every deploy. The repo is the source of truth for both hostnames (`docs/OPERATIONS.md` § Inventory) |
 | **The control plane, at runtime** | one CNAME per live tunnel | There are as many as there are tunnels and none are known at plan time |
-| **A human, once** | Worker runtime secrets | `docs/OPERATIONS.md` § Secrets: they never pass through Actions (ADR-0039) |
+| **Terraform** (`secrets.tf`) | the Worker's six runtime secrets | Generated, not typed — and the deploy syncs them with `wrangler secret bulk` (ADR-0040) |
 
 Terraform only ever destroys what its own state created, so the runtime tunnel records are safe by
 construction. That is not a reason to relax: **never add a broad `cloudflare_dns_record` import or a
@@ -32,8 +32,10 @@ than a resource, so `terraform destroy` cannot take the zone with it.
 
 ## Bootstrap — once per environment, by hand
 
-Terraform cannot create the bucket its own state lives in, and must not create the credentials CI is
-forbidden to hold. Everything below is the irreducible manual part.
+Four steps, and they are the irreducible part: Terraform cannot create the bucket its own state
+lives in, cannot mint the credential it authenticates with, and cannot delegate your nameservers.
+Everything else — including all six Worker runtime secrets — it generates and the deploy syncs
+(ADR-0040).
 
 1. **Cloudflare account and zone.** Staging is a *separate account* from production (ADR-0038), with
    its own domain. Add the zone and delegate its nameservers.
@@ -52,24 +54,10 @@ forbidden to hold. Everything below is the irreducible manual part.
    Edit, Zone → DNS → Edit (wrangler's `custom_domain` writes a record), Zone → Zone WAF → Edit
    (the rate-limit ruleset).
 
-4. **A second, narrower token for the Worker itself** — Account → Cloudflare Tunnel → Edit and
-   Zone → DNS → Edit, per `docs/OPERATIONS.md`. **Not the CI token, and not created by Terraform.**
-   A stack CI can apply must not be able to mint a token that provisions tunnels; that is the whole
-   of ADR-0039.
+   The CI token also needs Account → API Tokens → **Edit**, because Terraform mints the Worker's
+   own token (ADR-0040).
 
-5. **Worker runtime secrets**, from a laptop, never from CI:
-
-   ```bash
-   cd apps/api
-   for name in CF_API_TOKEN CF_ACCOUNT_ID CF_ZONE_ID CF_DOMAIN POW_SECRET IP_HASH_SECRET; do
-     pnpm wrangler secret put "$name" --env staging
-   done
-   ```
-
-   `CF_ZONE_ID` and `CF_DOMAIN` are `terraform output` values, so nothing has to be copied out of a
-   dashboard. They survive every subsequent deploy — this step is not repeated.
-
-6. **A GitHub Environment named for this deployment** — `staging`, later `production` — holding:
+4. **A GitHub Environment named for this deployment** — `staging`, later `production` — holding:
 
    | Kind | Name |
    | --- | --- |

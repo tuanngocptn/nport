@@ -21,7 +21,10 @@
  * Run by `pnpm deploy:check`, and by the deploy workflow before it touches an account.
  */
 
-import { loadWranglerConfig } from "./lib/wrangler-config.mjs"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+
+import { loadWranglerConfig, ROOT } from "./lib/wrangler-config.mjs"
 
 /** The shape that must match across environments. Values are free to differ; names are not. */
 function shapeOf(config) {
@@ -79,6 +82,50 @@ for (const relative of ["apps/api/wrangler.jsonc", "apps/web/wrangler.jsonc"]) {
       console.error(`  ${relative} env.${envName}: no routes — it would deploy with no hostname`)
       problems += 1
     }
+  }
+}
+
+// ── Terraform emits exactly the secrets the Worker requires ────────────────────────────
+//
+// Two files have to agree and neither imports the other: `REQUIRED_SECRETS` in `apps/api/src/env.ts`
+// is what the Worker refuses to start without, and the `worker_secrets` output in
+// `infra/terraform/outputs.tf` is what the deploy actually sets (ADR-0040). Add a secret to the code
+// and forget the output and every request fails after a green deploy — the Worker is up, correctly
+// refusing, and nothing in the pipeline said so.
+//
+// Read with regexes rather than parsed, because one side is TypeScript and the other is HCL. Both
+// patterns are anchored tightly enough that a miss shows up as an empty set, which fails loudly
+// below rather than passing vacuously.
+function namesInRequiredSecrets() {
+  const source = readFileSync(join(ROOT, "apps/api/src/env.ts"), "utf8")
+  const block = source.match(/const REQUIRED_SECRETS = \[([\s\S]*?)\] as const/)
+  if (block === null) throw new Error("env.ts: no REQUIRED_SECRETS array — this check has rotted")
+  return [...block[1].matchAll(/"([A-Z0-9_]+)"/g)].map((match) => match[1]).sort()
+}
+
+function namesInTerraformOutput() {
+  const source = readFileSync(join(ROOT, "infra/terraform/outputs.tf"), "utf8")
+  const block = source.match(/output "worker_secrets"[\s\S]*?jsonencode\(\{([\s\S]*?)\}\)/)
+  if (block === null)
+    throw new Error("outputs.tf: no worker_secrets output — this check has rotted")
+  return [...block[1].matchAll(/^\s*([A-Z0-9_]+)\s*=/gm)].map((match) => match[1]).sort()
+}
+
+{
+  const required = namesInRequiredSecrets()
+  const emitted = namesInTerraformOutput()
+
+  if (required.length === 0 || emitted.length === 0) {
+    console.error("  could not read one of the secret lists — the patterns in this check are stale")
+    problems += 1
+  }
+  for (const name of required.filter((n) => !emitted.includes(n))) {
+    console.error(`  env.ts requires \`${name}\` and infra/terraform/outputs.tf does not emit it`)
+    problems += 1
+  }
+  for (const name of emitted.filter((n) => !required.includes(n))) {
+    console.error(`  infra/terraform/outputs.tf emits \`${name}\` and env.ts does not require it`)
+    problems += 1
   }
 }
 

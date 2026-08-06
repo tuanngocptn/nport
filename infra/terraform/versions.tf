@@ -18,6 +18,12 @@ terraform {
       source  = "cloudflare/cloudflare"
       version = "~> 5.23"
     }
+    # Generates the HMAC keys. Kept in state like every other secret here (ADR-0040) rather than
+    # typed in by a person, so nobody has to invent entropy and nobody has to remember to rotate.
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 
   # State in R2, through the S3-compatible API.

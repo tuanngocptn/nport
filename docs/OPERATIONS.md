@@ -39,7 +39,7 @@ Staging runs a **1-hour lease** and a **16-bit proof-of-work floor** against pro
 
 ## Secrets
 
-### Worker runtime (`wrangler secret put`, per environment)
+### Worker runtime (generated and owned by Terraform, ADR-0040)
 
 | Secret | Scope | Rotatable without downtime |
 | --- | --- | --- |
@@ -52,13 +52,19 @@ Staging runs a **1-hour lease** and a **16-bit proof-of-work floor** against pro
 
 `CF_API_TOKEN` must be a **scoped** token. v2 supported the legacy Global API Key as a fallback, which grants full account control — v3 does not.
 
+None of these is typed by a person. `infra/terraform/secrets.tf` generates the two HMAC keys and mints the API token with exactly two permission groups; the other three are identifiers Terraform already has. The deploy pipes a single sensitive output into `wrangler secret bulk`, so the whole set lands in one call and a partial application is not a state the Worker can be left in.
+
+**The Terraform state is therefore the most sensitive object in the deployment.** `random_password` and `cloudflare_api_token` both keep their values in state — Terraform must know a value to detect drift — so whoever can read the R2 bucket can read every secret. That bucket and its two keys are the boundary to protect. This is a deliberate trade recorded in ADR-0040: one credential to guard and rotate, instead of six values invented by hand and never rotated.
+
 ### CI (GitHub Actions secrets)
 
 `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `NPM_TOKEN`, `CARGO_REGISTRY_TOKEN`, `HOMEBREW_TAP_TOKEN`, `APPLE_ID` + `APPLE_TEAM_ID` + `APPLE_APP_PASSWORD` + `APPLE_CERTIFICATE` (+ password), `WINDOWS_CERTIFICATE` (+ password), `TAURI_SIGNING_PRIVATE_KEY` (+ password).
 
-Never in CI: the Worker runtime secrets above. They are set with `wrangler secret put` and never pass through Actions. **Terraform does not create them either, and does not create the tokens** (ADR-0039) — a stack CI can apply must not be able to mint a credential that provisions tunnels.
+**Actions holds four values and none of them is a Worker secret** (ADR-0040): `CLOUDFLARE_API_TOKEN` for Terraform to authenticate with, `CLOUDFLARE_ACCOUNT_ID`, and `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` for the state backend. Everything the Worker runs on is derived from those by `terraform apply`.
 
-Staging takes the same list with `--env staging`, against its own account's values. The GitHub Environment `staging` holds only what a *deploy* needs: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and the two R2 keys for Terraform state.
+The consequence, stated rather than buried: CI *can* mint a Tunnel-Edit token, because it runs the apply. ADR-0039 refused that and paid for it in manual steps; ADR-0040 accepts it and relies on staging and production being separate accounts (ADR-0038), so a compromised staging pipeline reaches only staging.
+
+**Rotation** is `terraform apply -replace=random_password.pow` (or `.ip_hash`, or `cloudflare_api_token.worker`) followed by a deploy. There is no runbook to follow and no value to copy.
 
 ### Two names that must never be set on a deployed Worker
 
@@ -82,7 +88,7 @@ For a fresh deployment (also the basis of `docs/SELF_HOSTING.md`):
 1. Zone for the apex domain, nameservers delegated.
 2. API token with Account → Cloudflare Tunnel → Edit and Zone → DNS → Edit.
 3. `wrangler deploy` in `apps/api`; DO migrations apply automatically on first deploy.
-4. `wrangler secret put` each runtime secret.
+4. `terraform apply` — generates the runtime secrets and the Worker's token, and the deploy syncs them (ADR-0040).
 5. Confirm `api.<domain>` resolves to the Worker and `GET /v1/health` returns 200.
 6. `wrangler deploy` in `apps/web`.
 7. Zone rate-limiting rule on `api.<domain>` — `infra/terraform` applies it: 600 requests / 60 s per IP per colo, blocked for 10 minutes. Deliberately well above the Worker's own 60/min per-source limiter, which it sits outside rather than replaces.

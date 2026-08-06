@@ -56,3 +56,18 @@ variable "api_rate_limit_timeout" {
   type        = number
   default     = 600
 }
+
+# Cloudflare's permission-group names, as variables because they are upstream strings this project
+# does not control. If Cloudflare renames one, the fix is a value here rather than a patch to
+# secrets.tf — and the precondition there tells you the new name is needed.
+variable "tunnel_permission_group" {
+  description = "Account-scoped group granting tunnel create/delete. `docs/OPERATIONS.md`: Account → Cloudflare Tunnel → Edit."
+  type        = string
+  default     = "Cloudflare Tunnel Write"
+}
+
+variable "dns_permission_group" {
+  description = "Zone-scoped group granting DNS record create/delete. `docs/OPERATIONS.md`: Zone → DNS → Edit."
+  type        = string
+  default     = "DNS Write"
+}
