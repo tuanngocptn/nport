@@ -40,6 +40,7 @@
 
 import { spawn } from "node:child_process"
 import { createHash, randomBytes } from "node:crypto"
+import { promises as dns } from "node:dns"
 import { createServer } from "node:http"
 import { platform } from "node:os"
 
@@ -79,8 +80,15 @@ function check(condition, what, detail) {
 // HTTP plus a hand-rolled WebSocket echo. Node ships a WebSocket *client* but no server, and this is
 // ~50 lines against a dependency that would exist solely for one test — see `docs/conventions`.
 
-/** RFC 6455 §1.3. The one constant in the handshake, and it is not a secret. */
-const WS_GUID = "258EAFA5-E914-47DA-95CA-5AB0DC85B11D"
+/**
+ * RFC 6455 §1.3. The one constant in the handshake, and it is not a secret.
+ *
+ * Easy to mistype and impossible to eyeball: the last group is `C5AB0DC85B11`, and moving that `C`
+ * to the end as a `D` produces a GUID that looks right, hashes cleanly, and fails every handshake
+ * with "Incorrect hash received in Sec-WebSocket-Accept header". The check that catches it is the
+ * RFC's own vector — key `dGhlIHNhbXBsZSBub25jZQ==` must yield `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`.
+ */
+const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 function acceptKey(key) {
   return createHash("sha1")
@@ -89,34 +97,44 @@ function acceptKey(key) {
 }
 
 /**
- * Decodes one client frame, which is always masked (§5.3), and returns its text payload.
+ * Decodes the first complete client frame in `buffer`, which is always masked (§5.3).
  *
- * Only what an echo needs: single-frame text, payloads under 64 KiB. Anything else returns null and
- * the caller ignores it — this is a fixture, not a WebSocket implementation.
+ * Returns how many bytes it consumed as well as the payload, because **TCP is a stream and frames
+ * are not chunks**. Twenty quick `send()` calls arrive as one or two reads, so a decoder that
+ * handles a chunk as exactly one frame answers the first message and silently drops the other
+ * nineteen — which is what this did, and it looked like the tunnel losing messages rather than the
+ * fixture misreading them.
+ *
+ * Only what an echo needs: single-frame text, payloads under 64 KiB.
  */
 function decodeFrame(buffer) {
   if (buffer.length < 2) return null
   const opcode = buffer[0] & 0x0f
-  if (opcode === 0x8) return { close: true }
-  if (opcode !== 0x1) return null
-
   const masked = (buffer[1] & 0x80) !== 0
   let length = buffer[1] & 0x7f
   let at = 2
+
   if (length === 126) {
+    if (buffer.length < 4) return null
     length = buffer.readUInt16BE(2)
     at = 4
   } else if (length === 127) {
     return null
   }
 
-  const mask = masked ? buffer.subarray(at, at + 4) : null
   if (masked) at += 4
+  if (buffer.length < at + length) return null
+
+  const mask = masked ? buffer.subarray(at - 4, at) : null
   const payload = Buffer.from(buffer.subarray(at, at + length))
   if (mask !== null) {
     for (let i = 0; i < payload.length; i += 1) payload[i] ^= mask[i % 4]
   }
-  return { text: payload.toString("utf8") }
+
+  const consumed = at + length
+  if (opcode === 0x8) return { close: true, consumed }
+  if (opcode !== 0x1) return { ignored: true, consumed }
+  return { text: payload.toString("utf8"), consumed }
 }
 
 /** Encodes an unmasked text frame — servers never mask (§5.1). */
@@ -159,18 +177,24 @@ async function startOrigin() {
         "Connection: Upgrade\r\n" +
         `Sec-WebSocket-Accept: ${acceptKey(key)}\r\n\r\n`,
     )
-    // `head` can already hold the first frame when the client is fast; feeding it back through the
-    // same path is what stops message 1 going missing on a fast connection.
+    // A running buffer, drained frame by frame. `head` can already hold the first frame when the
+    // client is fast, so it seeds the buffer rather than being handled separately.
+    let pending = head !== undefined && head.length > 0 ? Buffer.from(head) : Buffer.alloc(0)
     const consume = (chunk) => {
-      const frame = decodeFrame(chunk)
-      if (frame === null) return
-      if (frame.close) {
-        socket.end()
-        return
+      pending = Buffer.concat([pending, chunk])
+      for (;;) {
+        const frame = decodeFrame(pending)
+        if (frame === null) return
+        pending = pending.subarray(frame.consumed)
+        if (frame.close) {
+          socket.end()
+          return
+        }
+        if (frame.ignored === true) continue
+        socket.write(encodeFrame(`echo:${frame.text}`))
       }
-      socket.write(encodeFrame(`echo:${frame.text}`))
     }
-    if (head !== undefined && head.length > 0) consume(head)
+    consume(Buffer.alloc(0))
     socket.on("data", consume)
     socket.on("error", () => socket.destroy())
   })
@@ -220,23 +244,58 @@ async function waitForUrl(tunnel, deadlineMs = 120_000) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
- * A tunnel is routable a moment after the CLI prints its URL — DNS and the edge both have to catch
- * up. Retrying a 5xx here is the difference between a real failure and a race.
+ * Waits for the hostname to exist **without letting the OS resolver see it first**.
+ *
+ * `dns.resolve4` goes to the configured nameserver through c-ares; `fetch` goes through
+ * `getaddrinfo`, which consults the OS cache. That difference is not academic here: the record is
+ * created moments before the CLI prints the URL, so a `fetch` issued immediately can get NXDOMAIN
+ * and the OS then caches *that* for the zone's negative TTL — five minutes on a Cloudflare zone.
+ * Every subsequent retry reads the poisoned cache and fails identically, so the test failed for two
+ * minutes while `dig @1.1.1.1` answered correctly the whole time.
+ *
+ * Resolving first means the first `getaddrinfo` happens only once the record demonstrably exists.
  */
-async function waitForRoute(url, deadlineMs = 90_000) {
+async function waitForDns(host, deadlineMs = 120_000) {
   const until = Date.now() + deadlineMs
   let last = "no attempt"
   while (Date.now() < until) {
+    try {
+      const addresses = await dns.resolve4(host)
+      if (addresses.length > 0) return addresses
+      last = "empty answer"
+    } catch (error) {
+      last = error instanceof Error ? (error.code ?? error.message) : String(error)
+    }
+    await sleep(2_000)
+  }
+  throw new Error(`${host} never resolved: ${last}`)
+}
+
+/**
+ * A tunnel is routable a moment after the CLI prints its URL — DNS and the edge both have to catch
+ * up. Retrying a 5xx here is the difference between a real failure and a race.
+ */
+async function waitForRoute(url, deadlineMs = 120_000) {
+  const until = Date.now() + deadlineMs
+  let last = "no attempt"
+  let attempt = 0
+  while (Date.now() < until) {
+    attempt += 1
     try {
       const response = await fetch(url, { headers: { "cache-control": "no-cache" } })
       if (response.ok) return await response.text()
       last = `HTTP ${response.status}`
     } catch (error) {
-      last = String(error)
+      // `fetch` reports every transport failure as the same `TypeError: fetch failed`; the DNS or
+      // TLS reason that actually distinguishes "not routable yet" from "will never work" is on
+      // `.cause`. Dropping it turns a diagnosable failure into a mystery.
+      const cause = error instanceof Error && error.cause !== undefined ? ` (${error.cause})` : ""
+      last = `${error}${cause}`
     }
+    if (attempt % 5 === 0) console.log(`    …still waiting for ${url}: ${last}`)
     await sleep(3_000)
   }
-  throw new Error(`${url} never served: ${last}`)
+  throw new Error(`${url} never served after ${attempt} attempts: ${last}`)
 }
 
 async function echoOverWebSocket(url, messages = 20) {
@@ -299,6 +358,9 @@ let url
 try {
   url = await waitForUrl(tunnel)
   console.log(`  tunnel at ${url}\n`)
+
+  const addresses = await waitForDns(new URL(url).hostname)
+  console.log(`  resolves to ${addresses.join(", ")}`)
 
   const body = await waitForRoute(url)
   check(body === BODY, "the body arrives byte-identical", `got ${JSON.stringify(body)}`)
