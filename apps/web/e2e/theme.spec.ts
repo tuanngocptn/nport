@@ -22,6 +22,10 @@ test("dark is the default when nothing says otherwise", async ({ browser }) => {
   const page = await context.newPage()
   await page.goto("/")
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+  // The page background comes from `--np-page` in `packages/design-tokens`, not from a hex value in
+  // `globals.css`. Both themes are asserted because the token is the only thing switching them now —
+  // there is no `[data-theme="light"] body` rule left to catch a mistake in one direction.
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(7, 7, 10)")
   await context.close()
 })
 

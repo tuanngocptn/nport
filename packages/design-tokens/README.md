@@ -10,4 +10,6 @@ This is the *only* thing the two React targets share. There is deliberately no `
 
 Two halves, for a reason worth knowing before editing: the glass surfaces are ordinary custom properties under `:root` and `[data-theme="light"]` because they switch at **runtime**, and Tailwind v4's `@theme` values are static. The `@theme` block then points Tailwind's scales at those properties, which is what makes `bg-card` follow the theme.
 
+`--np-page` is the odd one out and worth knowing about: every other surface here is translucent, and it is the opaque page they all composite over. `apps/web` uses it for `<body>`; `apps/desktop` does **not**, because its window is transparent so the real OS wallpaper shows through. It lives here anyway — it differs per theme, and it was the one colour `apps/web` was carrying as raw hex.
+
 **Scaffolded.** The tokens are real and both apps import them; the components that use them are Phase 2c and Phase 4 in [`docs/ROADMAP.md`](../../docs/ROADMAP.md).

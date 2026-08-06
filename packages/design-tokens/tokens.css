@@ -54,6 +54,11 @@
   --np-t-slow: 0.35s;
 
   /* --- Glass: DARK (the default) ------------------------------------------ */
+  /* The page underneath everything, and the only surface here that is opaque — every glass value
+     below is translucent and composites over *this*. It belongs in this file for the same reason
+     `--np-text` does: it differs per theme, and `apps/web`'s `globals.css` was carrying both values
+     as raw hex, which is the one thing ADR-0014 exists to prevent. From the mockup's `<body>`. */
+  --np-page: #07070a;
   --np-window: rgba(30, 30, 34, 0.62);
   --np-sidebar: rgba(255, 255, 255, 0.045);
   --np-content: rgba(20, 20, 24, 0.4);
@@ -96,6 +101,7 @@
 
 /* --- Glass: LIGHT --------------------------------------------------------- */
 [data-theme="light"] {
+  --np-page: #f2f2f6;
   --np-window: rgba(250, 250, 252, 0.7);
   --np-sidebar: rgba(255, 255, 255, 0.34);
   --np-content: rgba(255, 255, 255, 0.55);
@@ -138,6 +144,7 @@
   --color-yellow-ink: var(--np-yellow-ink);
   --color-star: var(--np-star);
 
+  --color-page: var(--np-page);
   --color-window: var(--np-window);
   --color-sidebar: var(--np-sidebar);
   --color-content: var(--np-content);

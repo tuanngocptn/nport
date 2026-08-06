@@ -14,13 +14,21 @@ html {
   color-scheme: dark light;
 }
 
+/**
+ * `--np-page` rather than two hex values and a second selector.
+ *
+ * This block used to hardcode `#07070a` here and `#f2f2f6` under `[data-theme="light"]`, which is the
+ * raw-hex-in-a-stylesheet that ADR-0014 exists to prevent — and it meant the page background was the one
+ * surface switching theme by its own rule rather than by the token file's. The token switches, so the
+ * second selector is gone with it.
+ *
+ * Not shared with `apps/desktop`, which sets `background: transparent` so the real OS wallpaper shows
+ * through the glass. The token earns its place by being the base every translucent surface composites
+ * over, and by being the only colour this app had that `packages/design-tokens` did not define.
+ */
 body {
-  background: #07070a;
+  background: var(--np-page);
   color: var(--np-text);
   font-family: var(--np-font);
   -webkit-font-smoothing: antialiased;
-}
-
-[data-theme="light"] body {
-  background: #f2f2f6;
 }
