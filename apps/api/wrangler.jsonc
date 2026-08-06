@@ -82,7 +82,23 @@
     // Per-source caps. Surfaced by GET /v1/meta so clients discover them rather than
     // hardcoding them — v2's CLI hardcoded its one limit and was wrong about it (R6).
     "MAX_CONCURRENT_PER_SOURCE": 3,
-    "MAX_CREATES_PER_HOUR_PER_SOURCE": 20
+    "MAX_CREATES_PER_HOUR_PER_SOURCE": 20,
+
+    // ── Federation (ADR-0031). This node's identity in the directory.
+    //
+    // **`REGISTRY_URL` is what switches federation on**, and its absence is the private deployment
+    // `docs/SELF_HOSTING.md` describes: a node that never registers and is never listed. Set nothing
+    // and nothing happens, which is why a self-hoster does not have to know these exist.
+    //
+    // `PUBLIC_URL` must be under `CF_DOMAIN`: the registry refuses a URL outside the domain being
+    // proved, because otherwise the DNS TXT proof covers nothing it actually fetches
+    // (apps/registry/src/upstream.ts).
+    "NODE_ID": "nport-link-1",
+    "PUBLIC_URL": "https://api.nport.link",
+    "REGISTRY_URL": "https://registry.nport.link",
+    // Display-only and never verified. CI can overwrite it at deploy time; a stale value costs one
+    // confusing line in a node list and nothing else.
+    "NODE_VERSION": "3.0.0"
   },
 
   // The staging deployment, on a **separate Cloudflare account** with its own zone (ADR-0038).
@@ -151,7 +167,13 @@
         // live smoke test costs one create per run per OS and a failed run costs one too.
         // Twenty is roughly an afternoon of debugging from a single address — it locked the
         // maintainer out of the environment on its first day.
-        "MAX_CREATES_PER_HOUR_PER_SOURCE": 60
+        "MAX_CREATES_PER_HOUR_PER_SOURCE": 60,
+        // Staging registers with staging's directory, never production's — a staging node in the
+        // public list would hand real users a tunnel on a deployment that gets wiped.
+        "NODE_ID": "nport-online-1",
+        "PUBLIC_URL": "https://api.nport.online",
+        "REGISTRY_URL": "https://registry.nport.online",
+        "NODE_VERSION": "3.0.0-dev"
       }
     }
   }

@@ -6,7 +6,7 @@
 
 A native Rust implementation of Cloudflare's tunnel connector protocol: edge discovery, QUIC and HTTP/2 transports, Cap'n Proto registration RPC, and per-stream request framing. This replaces the `cloudflared` binary entirely (ADR-0002).
 
-**Not responsible for:** tunnel lifecycle, provisioning, the NPort API, retries above the connection level, or anything user-facing. It speaks the wire and nothing else. `crates/core` owns policy.
+**Not responsible for:** tunnel lifecycle, provisioning, the NPort API, retries above the connection level, or anything user-facing. It speaks the wire and nothing else; `crates/core` owns policy.
 
 **Status: implemented and proven live.** Phase 1 closed on 2026-08-03: token, edge discovery, QUIC handshake, registration, framing, WebSockets, and a four-connection pool, all verified against the real edge. The DoT discovery fallback landed 2026-08-05 (ADR-0035), so `src/edge.rs` now does all three of §4's paths rather than the two its layout claimed. `src/h2.rs` is still unwritten (ADR-0017 Fallback 1).
 
@@ -45,13 +45,7 @@ cargo xtask fixtures                      # capture golden byte fixtures
 
 ## Rules
 
-1. **Never guess a constant.** Read it from the pinned cloudflared commit in `docs/PROTOCOL.md` §1 and cite `file:symbol` in a comment beside it. A value without a citation will be deleted in review.
-
-   ```rust
-   /// The edge closes idle connections after 5s, so this must stay well below it.
-   /// cloudflared: quic/constants.go → MaxIdlePingPeriod
-   const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(1);
-   ```
+1. **Never guess a constant.** Read it from the pinned cloudflared commit in `docs/PROTOCOL.md` §1 and cite `file:symbol` in a comment beside it. A value without a citation will be deleted in review. The shape is in `docs/conventions/rust.md` § Comments, which is where it lives — this file carried a second, byte-identical copy of the same example.
 
 2. **Never take a protocol fact from a blog post, a wiki, or an LLM's memory.** Several third-party write-ups describe the per-stream body as msgpack. It is Cap'n Proto. Read the source.
 3. **Vendored `.capnp` files are read-only.** Copied verbatim from the pinned commit, including the deprecated legacy section — type IDs matter.

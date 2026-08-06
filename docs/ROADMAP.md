@@ -21,20 +21,23 @@ its own, and a row that disagrees with its section is a bug in this table.
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
 | ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` — and now also waits on discovery, which its Nodes screen renders |
-| 🚧 | **5 · Federation — registry and nodes** | **G5** ⬜ | **In progress, two of four steps done.** The contract is frozen (ADR-0046) and `apps/registry` is written and tested but never deployed. Next: `apps/api`'s node fields, then `crates/core::discovery` |
+| 🚧 | **5 · Federation — registry and nodes** | **G5** ⬜ | **In progress, three of four steps done.** Contract frozen (ADR-0046), `apps/registry` written and tested, `apps/api` is a self-registering node publishing its own capacity. Left: `crates/core::discovery`, then a two-node G5 run |
 | ⬜ | 6 · v2 sunset | — | Waits on 3.0 being `latest` |
 
-**What to build next: Phase 5's third step** — `apps/api`'s node fields (`NODE_ID`, `PUBLIC_URL`,
-`REGISTRY_URL`, self-registration on the existing `scheduled` export, and the two capacity fields on
-`GET /v1/meta`), then `crates/core::discovery`. The first two steps are done: the contract froze first
-for the same reason it did in Phase 1.5 — it is the serializing dependency — and `apps/registry` came
-next because the contract's node schema is what it is written against.
+**What to build next: Phase 5's last step** — `crates/core::discovery`: fetch the node list, cache it
+to `~/.nport/nodes.json`, probe a few in parallel, pick the fastest with capacity, and fail over —
+**never after `POST /v1/tunnels` has been sent**, because that endpoint is not idempotent and a retry
+elsewhere leaves a provisioned tunnel nobody holds the tokens for.
 
-**`GET /v1/meta` is the seam to get right in step three.** The contract's `activeTunnels` and
-`maxActiveTunnels` exist and `apps/registry` already reads them; `apps/api`'s handler does not populate
-them yet, so every probe currently records "capacity unknown". That is deliberately harmless —
-discovery treats unknown as usable — but until the handler counts its own leases, no client can select
-on headroom, which is most of what federation is for.
+The three steps before it are done, in the order they had to be: the contract froze first because it is
+the serializing dependency (the Phase 1.5 argument, applied again), `apps/registry` came next because
+the node schema is what it is written against, and `apps/api` third because a directory with nothing in
+it is not testable. The whole chain is now exercisable offline — a node registers with a fake registry
+in `apps/api`'s tests, and a registry probes a fake node in its own.
+
+**What is not yet true**: nothing has been deployed, so no node has ever registered with a real
+registry, and `G5` wants two nodes on two accounts and two domains. Discovery is the last piece of code;
+after it, the gate is an operations task.
 
 Why this rather than the site or the desktop app: v2 still serves `nport.link`, so nothing downstream
 of v3 is urgent, and federation is what turns `apps/api` from "the control plane" into "a node" —
@@ -621,7 +624,7 @@ deployment and no users on it is as cheap as it will ever be. ADR-0031 owns the 
 
 - [x] `packages/contract`: `nodeSchema`, the list and registration schemas, `activeTunnels` on `GET /v1/meta`, and three codes — `NO_NODE_AVAILABLE`, `NODE_UNREACHABLE`, `REGISTRATION_REFUSED`. **Done**, plus what writing it settled (ADR-0046): a second OpenAPI document because the registry is a separate host, capacity **probed rather than claimed**, both `/v1/meta` capacity fields optional so an older node still parses, and the DNS TXT proof's record name and value derived from one function so the registry, the operator and the docs cannot spell them differently
 - [x] `apps/registry`: the `Directory` DO, open registration behind proof of work and a DNS TXT domain proof, and a cron that probes and delists. **Written and tested, never deployed** — 45 tests in real `workerd`. Two things came out of building it that ADR-0031 did not anticipate: registration must refuse a URL that is not under the proved domain (otherwise the DNS proof covers nothing we actually fetch, and the endpoint is an open fetch proxy for anyone who solves one challenge), and `PROBE_FAILURES_BEFORE_DOWN`/`_DELIST` give three states rather than two, because "not answering right now" and "gone" want different answers from a client. Shared Worker plumbing moved to `packages/worker-kit` first (ADR-0047), so the registry is a small app rather than a copy of `apps/api`'s abuse controls
-- `apps/api`: `NODE_ID`, `PUBLIC_URL`, `REGISTRY_URL`, self-registration on the existing `scheduled` export, and current usage on `/v1/meta`
+- [x] `apps/api`: `NODE_ID`, `PUBLIC_URL`, `REGISTRY_URL`, self-registration on the existing `scheduled` export, and current usage on `/v1/meta`. **Done.** `REGISTRY_URL` is the switch — unset it and the node never registers, which is the private deployment `docs/SELF_HOSTING.md` describes, reached by setting nothing rather than by opting out. Registration is a **schedule rather than a boot-time task**: a Worker has no boot, and a node the registry delisted after an outage has to relist itself unattended
 - `crates/core::discovery`: fetch, cache to `~/.nport/nodes.json`, probe a few in parallel, pick the fastest with capacity, fail over — but **never after `POST /v1/tunnels` has been sent**, which is not idempotent
 
 **Why after G2.** Nothing is deployed and the Cloudflare API paths have never met the live API. Federating an unproven provisioning path multiplies one unknown by N. Waiting costs nothing: the instance that closes G2 becomes node #1 and keeps serving `*.nport.link`.

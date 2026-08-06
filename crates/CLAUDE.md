@@ -1,10 +1,8 @@
 # crates/
 
-The Rust workspace: the connector, the tunnel manager, and the CLI.
+The Rust workspace: the connector, the tunnel manager, and the CLI. Style rules are in `docs/conventions/rust.md`; this file covers layering and the crate-specific rules that document cannot.
 
-Style rules are in `docs/conventions/rust.md`. This file covers layering and the crate-specific rules that document cannot.
-
-**Status: Phase 2b is code-complete.** `protocol` speaks the wire, `core` provisions, connects, proxies, inspects and tears down, and `nport` is a working CLI. Nothing has been run against the live control plane yet — `apps/api` is not deployed (`docs/ROADMAP.md`).
+**Status: Phase 2b is code-complete and live-verified** on macOS, Linux and Windows against deployed staging (`docs/ROADMAP.md`). `protocol` speaks the wire, `core` provisions, connects, proxies, inspects and tears down, and `nport` is a working CLI.
 
 ## Crates
 
@@ -23,9 +21,9 @@ protocol → core → { cli, desktop }
 contract → core
 ```
 
-**One-directional, no exceptions.** `crates/core` must never depend on `crates/cli`. This is the single most likely architectural regression in the repo, because the temptation to print a nice message from inside `core` is constant.
+**One-directional, no exceptions.** `crates/core` must never depend on `crates/cli` — the single most likely architectural regression here, because the temptation to print a nice message from inside `core` is constant.
 
-`core` is **headless**: no `println!`, no `eprintln!`, no `process::exit`, no TTY detection, no progress bars, no prompts. Its public surface is:
+`core` is **headless**: no `println!`, no `eprintln!`, no `process::exit`, no TTY detection, no progress bars, no prompts. Its surface is:
 
 ```rust
 TunnelManager::spawn(config) -> TunnelHandle
@@ -34,7 +32,7 @@ handle.events() -> broadcast::Receiver<TunnelEvent>
 
 `crates/cli` renders events to a terminal. `apps/desktop` forwards the same events to a WebView. If you want to communicate something from `core`, **add a `TunnelEvent` variant** — then handle it in both consumers, or the CLI silently drops it.
 
-The reason is concrete, not stylistic: a stray `println!` in `core` corrupts the desktop app's IPC channel, and `process::exit` from a library makes the GUI vanish without a dialog.
+The reason is concrete: a stray `println!` in `core` corrupts the desktop app's IPC channel, and `process::exit` from a library makes the GUI vanish without a dialog.
 
 ## Commands
 
@@ -78,9 +76,7 @@ The v2 CLI got several basics wrong; these are the corrections, and they are all
 
 **Add a `TunnelEvent`** — the enum in `core` → the exhaustive match in `event.rs`'s tests → render it in `crates/cli/src/render.rs` and add it to `renders_something_for_every_variant` → forward it in `apps/desktop` (its `src-tauri/src/events.rs` is Phase 4 and does not exist yet). **The compiler will not remind you**: `TunnelEvent` is `#[non_exhaustive]`, so a consumer in another crate needs a wildcard arm, and the CLI's is `_ => Vec::new()` — an unhandled variant renders as nothing. The `event.rs` test is the substitute, and it fails to compile rather than at runtime.
 
-**Add a language** — the language enum, the catalogue in `crates/cli`, and locale-detection tests. Open an issue first (`docs/CONTRIBUTING.md`).
-
-**Change the API client** — regenerate `crates/contract` from `packages/contract`; never hand-edit the generated types.
+**Add a language** — the language enum, the catalogue in `crates/cli`, and locale-detection tests. Open an issue first (`docs/CONTRIBUTING.md`). **Change the API client** — regenerate `crates/contract` from `packages/contract`; never hand-edit the generated types.
 
 ## Gotchas
 

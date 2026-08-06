@@ -17,6 +17,7 @@ import { rateLimit } from "./middleware/rate-limit"
 import { requestId } from "./middleware/request-id"
 import { requireBindings } from "./middleware/require-bindings"
 import { runScheduled } from "./reconcile"
+import { registerWithRegistry } from "./register"
 import { challengeRoute } from "./routes/challenge"
 import { healthRoute } from "./routes/health"
 import {
@@ -134,13 +135,26 @@ export default {
   fetch: app.fetch,
 
   /**
-   * Reconciliation only — orphaned tunnels with no lease. Expiry is driven by each lease's own alarm,
-   * so throughput scales with tunnel count rather than with cron frequency (v2 capped at ~10 per
-   * 30-minute run, defect R8).
+   * Two jobs, in this order: reconcile, then re-announce.
    *
-   * `src/reconcile.ts` holds the logic and the reasoning about what may be deleted.
+   * **Reconciliation** reaps orphaned tunnels with no lease. Expiry itself is driven by each lease's
+   * own alarm, so throughput scales with tunnel count rather than with cron frequency (v2 capped at
+   * ~10 per 30-minute run, defect R8). `src/reconcile.ts` holds the reasoning about what may be
+   * deleted.
+   *
+   * **Self-registration** tells the directory this node exists, and is a no-op unless `REGISTRY_URL`
+   * is set (ADR-0031). `src/register.ts` explains why it is a schedule rather than a boot-time task.
+   *
+   * Reconciliation goes first because it is the job that protects something — a leaked tunnel costs a
+   * DNS record and a slot — while a missed registration costs a listing this node can live without.
+   * Awaited in sequence rather than raced so the two do not contend for the subrequest budget, and so
+   * the registration's ~1.2 s of solve CPU cannot delay the sweep.
    */
   async scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
     await runScheduled(env)
+    // Never allowed to fail the invocation: `registerWithRegistry` catches everything itself, and the
+    // reason is right there — a cron that threw here would abandon nothing, but a future edit that
+    // let it throw *before* the sweep would.
+    await registerWithRegistry(env)
   },
 }

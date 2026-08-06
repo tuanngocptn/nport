@@ -36,6 +36,33 @@ interface DevOnly {
   FAKE_CLOUDFLARE?: string
 }
 
+/**
+ * Node identity, for federation (ADR-0031).
+ *
+ * **All three are optional, and that is the private-deployment case, not an oversight.** A node with
+ * no `REGISTRY_URL` never registers and is never listed — which is exactly the self-hosted deployment
+ * `docs/SELF_HOSTING.md` already describes, reached by setting nothing rather than by opting out.
+ * `missingBindings` therefore does not require them; `src/register.ts` checks the group together and
+ * declines as a whole, because a `NODE_ID` with no `PUBLIC_URL` is a half-configured node rather than
+ * a private one.
+ */
+interface NodeIdentity {
+  /** This node's id in the directory. Stable across deploys; `[a-z0-9-]`, 3–32 characters. */
+  NODE_ID?: string
+  /** Where clients reach this node, e.g. `https://api.nport.link`. Must be under `CF_DOMAIN`. */
+  PUBLIC_URL?: string
+  /** The directory to register with. **Absent means never register.** */
+  REGISTRY_URL?: string
+  /**
+   * What this node reports as its build.
+   *
+   * Display-only and never verified — the registry stores it and a UI shows it. A stale value costs
+   * nothing but a confusing line in a node list, which is why it is a var rather than something
+   * derived: nothing here depends on it being right.
+   */
+  NODE_VERSION?: string
+}
+
 /** Plain values from `wrangler.jsonc` § vars. Strings, because Workers vars are strings. */
 interface Vars {
   LEASE_TTL_SECONDS: number
@@ -50,7 +77,7 @@ interface Vars {
   MAX_CREATES_PER_HOUR_PER_SOURCE: number
 }
 
-export interface Env extends Secrets, Vars, DevOnly {
+export interface Env extends Secrets, Vars, NodeIdentity, DevOnly {
   // Parameterized so the stubs expose their classes' methods. Without the type argument every
   // Durable Object call would be typed `unknown` and a renamed method would fail at runtime rather
   // than at `tsc`. Inline `import(...)` rather than a top-level one because both classes import

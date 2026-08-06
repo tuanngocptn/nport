@@ -4,9 +4,9 @@
 
 The control plane at `api.nport.link`. Hono on Cloudflare Workers. Validates requests, claims subdomain leases, provisions Cloudflare tunnels and DNS records, and reaps expired leases.
 
-**Not responsible for:** carrying tunnel traffic (it never touches the data path), user identity (there is none), or the connector protocol.
+**Not responsible for:** carrying tunnel traffic (it never touches the data path), user identity (there is none), or the connector protocol. Under ADR-0031 it is **a node**: one deployment, one Cloudflare account, one domain. It self-registers with `apps/registry` when `REGISTRY_URL` is set, and is a private deployment when it is not.
 
-**Status: Phase 2a complete.** Lease lifecycle, abuse controls, reconciliation cron, and the v2 compatibility shim. Not yet deployed, and the Cloudflare API paths are unverified against the live API (`docs/ROADMAP.md`).
+**Status: Phase 2a complete and deployed to staging**, serving real tunnels since 2026-08-06. Phase 5 added its node identity, self-registration, and the two capacity fields on `GET /v1/meta` (`docs/ROADMAP.md`).
 
 ## Layout
 
@@ -18,6 +18,7 @@ src/do/subdomain-lease.ts   DO per subdomain: atomic claim, saga journal, expiry
 src/do/registry.ts          singleton DO: global index, cap, challenge ledger
 src/do/source-quota.ts      DO per source: concurrency, hourly quota, PoW difficulty
 src/reconcile.ts        the cron sweep: orphan tunnels only, and what it may delete
+src/register.ts         self-registration with the directory; a no-op without REGISTRY_URL
 src/routes/legacy.ts    the v2 method-dispatch shim, and why it is weaker than /v1
 src/cloudflare/client.ts    the only place this Worker calls Cloudflare
 src/cloudflare/factory.ts   the only place a client is constructed
@@ -54,21 +55,22 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 10. **`Retry-After` runs in both directions.** Outbound: a 429 or 503 that knows when it frees up must say so. `retryAfterSeconds` in `@nport/worker-kit` derives it from `details.retryAfter` (a duration) or `details.resetAt` (an instant), clamped to 1 s–1 h. A refusal carrying neither — `CONCURRENCY_LIMIT` — deliberately sends no header, because waiting is not the remedy. Inbound: `CloudflareClient` reads the header off a retryable upstream response, honours a delay under a second, and **stops retrying** when it is longer — spending the remaining subrequests on a service that just said "wait 30 s" is how a short rate-limit block becomes a long one.
 11. **No module-level mutable state.** Isolates are shared across callers.
 12. **Never log a token, an `ownerToken`, or a raw IP.** Source identity is `HMAC(ip, secret)` only.
-13. Watch the subrequest budget — 50 on the free plan, and a Durable Object hop counts. Provisioning makes **3** Cloudflare calls (`create-tunnel`, `tunnel-token`, `create-dns`), 4 when a DNS conflict forces an ownership check; teardown makes 4. `test/tunnels.test.ts` asserts both lists, so a new saga step shows up as a failing test rather than as a number in a comment. Any loop over CF calls needs an explicit bound.
+13. **`GET /v1/meta` costs one Durable Object hop**, and it is the only route that reads storage without provisioning. It is polled by every client at startup and by the registry every five minutes, so the hop is deliberate rather than incidental: `activeTunnels` is what makes federated selection possible, and a node that could not report its own headroom would be picked blind.
+14. Watch the subrequest budget — 50 on the free plan, and a Durable Object hop counts. Provisioning makes **3** Cloudflare calls (`create-tunnel`, `tunnel-token`, `create-dns`), 4 when a DNS conflict forces an ownership check; teardown makes 4. `test/tunnels.test.ts` asserts both lists, so a new saga step shows up as a failing test rather than as a number in a comment. Any loop over CF calls needs an explicit bound.
 
 ## Common tasks
 
-**Add an endpoint** — `packages/contract` (schema + route) → `pnpm codegen` → `src/routes/` → test in `test/` → `docs/API.md` if the lifecycle changes. A new *code* needs nothing here; the status travels with it from the registry.
+**Add an endpoint** — `packages/contract` (schema + route) → `pnpm codegen` → `src/routes/` → test in `test/` → `docs/API.md` if the lifecycle changes.
 
-**Add an error code** — `packages/contract/src/errors.ts` → `pnpm codegen` (regenerates `docs/ERRORS.md`, `crates/contract`, and the website page) → translate it in `crates/cli/src/i18n.rs`, or add it to that file's `UNTRANSLATED` test list with the reason a user cannot act on it; a test enforces one or the other → assert the status mapping in a test. Nothing to change here: the status comes from the registry through `@nport/worker-kit`.
+**Add an error code** — `packages/contract/src/errors.ts` → `pnpm codegen` → translate it in `crates/cli/src/i18n.rs`, or add it to that file's `UNTRANSLATED` test list with the reason a user cannot act on it; a test enforces one or the other. Nothing to change here: the status travels with the code through `@nport/worker-kit`.
 
 **Change the provisioning saga** — `docs/ARCHITECTURE.md` §3a first, then `src/do/subdomain-lease.ts`. Every new step needs a journal entry, a compensation, and an integration test that kills the isolate mid-saga.
 
 **Change a limit** — `wrangler.jsonc` `vars`, surface it in `GET /v1/meta` so clients discover rather than hardcode it, and note the value in `docs/OPERATIONS.md`.
 
-**Add a reserved subdomain** — `packages/contract/src/subdomain.ts` plus a fixture case. A reserved *name* is also protected from cleanup; a reserved *prefix* may not be, because `nport-` and `smoke-` are ours to reap (`isProtectedFromCleanup`, ADR-0036).
+**Federate this node, or stop it** — `NODE_ID`, `PUBLIC_URL`, `REGISTRY_URL` and `NODE_VERSION` in `wrangler.jsonc` § vars. **`REGISTRY_URL` is the switch**: unset it and the node never registers and is never listed, which is the private deployment in `docs/SELF_HOSTING.md`. `PUBLIC_URL` must be under `CF_DOMAIN`, because the registry refuses a URL outside the domain being proved. Publishing the TXT record is the operator's job — `docs/API.md` § The registry API says which record.
 
-**Change an abuse limit** — `wrangler.jsonc` § vars, then confirm `GET /v1/meta` still reports it (clients discover limits rather than hardcoding them) and that `test/abuse-controls.test.ts` reads the var instead of the number.
+**Add a reserved subdomain** — `packages/contract/src/subdomain.ts` plus a fixture case. A reserved *name* is also protected from cleanup; a reserved *prefix* may not be, because `nport-` and `smoke-` are ours to reap (`isProtectedFromCleanup`, ADR-0036). **Change an abuse limit** — `wrangler.jsonc` § vars, then confirm `GET /v1/meta` still reports it (clients discover limits rather than hardcoding them) and that `test/abuse-controls.test.ts` reads the var instead of the number.
 
 ## Gotchas
 

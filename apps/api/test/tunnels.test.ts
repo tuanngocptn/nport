@@ -585,3 +585,38 @@ describe("GET /v1/tunnels/:subdomain", () => {
     expect(body.active).toBe(false)
   })
 })
+
+describe("GET /v1/meta capacity", () => {
+  /**
+   * The number federation actually selects on (ADR-0046), driven through a real create.
+   *
+   * `test/routes.test.ts` asserts the fields exist and read from the environment; this asserts the
+   * count *counts*. A count that is always zero is not a count — and zero is the value that makes a
+   * node look emptiest and get picked first by every client, so it is the wrong way to be wrong.
+   */
+  it("counts a live tunnel, and stops counting it after a release", async () => {
+    const meta = async () => {
+      const response = await SELF.fetch("https://api.nport.link/v1/meta", {
+        headers: { "user-agent": UA },
+      })
+      return (await response.json()) as { activeTunnels: number; maxActiveTunnels: number }
+    }
+
+    const before = await meta()
+    expect(before.maxActiveTunnels).toBe(Number(env.MAX_ACTIVE_TUNNELS))
+
+    const created = (await (await createTunnel("counted")).json()) as CreatedTunnel
+    expect((await meta()).activeTunnels).toBe(before.activeTunnels + 1)
+
+    const deleted = await SELF.fetch("https://api.nport.link/v1/tunnels/counted", {
+      method: "DELETE",
+      headers: { "user-agent": UA, "content-type": "application/json" },
+      body: JSON.stringify({ ownerToken: created.ownerToken }),
+    })
+    expect(deleted.status).toBe(204)
+
+    // Back down again. A count that only ever rose would report a node as full forever, which is a
+    // node quietly removing itself from every client's selection.
+    expect((await meta()).activeTunnels).toBe(before.activeTunnels)
+  })
+})

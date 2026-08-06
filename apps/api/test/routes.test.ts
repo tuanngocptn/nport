@@ -124,6 +124,28 @@ describe("GET /v1/meta", () => {
     expect(text).not.toContain(String(env.POW_SECRET))
     expect(text).not.toContain(String(env.IP_HASH_SECRET))
   })
+
+  /**
+   * The two fields federation runs on (ADR-0046).
+   *
+   * `apps/registry` probes this endpoint every five minutes and stores these as the node's observed
+   * capacity, which is what a client selects on. They were absent for the whole of the contract step
+   * and the registry recorded "capacity unknown" for every node — harmless, since unknown is treated
+   * as usable, and it meant no client could see headroom.
+   */
+  it("publishes its own capacity, so the registry can see this node's headroom", async () => {
+    const body = (await (await get("/v1/meta")).json()) as Record<string, number>
+
+    expect(body.maxActiveTunnels).toBe(Number(env.MAX_ACTIVE_TUNNELS))
+    // Not merely present: a real count, and a fresh isolate holds no leases. Asserting only
+    // `toBeDefined` would pass with a hardcoded zero, which is the value that makes a node look
+    // emptiest and get picked first.
+    expect(body.activeTunnels).toBe(0)
+    expect(body.activeTunnels).toBeLessThanOrEqual(body.maxActiveTunnels as number)
+  })
+
+  // The half that makes this mean something — a count that is always zero is not a count — lives in
+  // `test/tunnels.test.ts`, where the Cloudflare fake needed to create a real tunnel already is.
 })
 
 describe("GET /v1/challenge", () => {

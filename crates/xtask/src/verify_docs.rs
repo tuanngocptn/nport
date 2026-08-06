@@ -15,8 +15,14 @@
 //!    asks for the row itself and seven had gone missing, which makes settled decisions look
 //!    unmade — the one thing that file exists to prevent.
 //!
-//! Deliberately not checked: prose accuracy, external URLs (a network call would make CI flaky
-//! and fail on someone else's outage), and line-count limits on `CLAUDE.md` files.
+//! 5. **`CLAUDE.md` files stay inside their line caps.** Root `CLAUDE.md` states them as hard limits
+//!    — "Root ≤130 lines, per-app ≤90" — and this docblock used to list them as *deliberately not
+//!    checked*. That was the wrong call: when the check was finally written, **three files were over**,
+//!    two of them long before anyone noticed. A stated limit nobody measures is the shape every defect
+//!    in `docs/ROADMAP.md`'s list shares, and the cost of measuring it is a line count.
+//!
+//! Deliberately not checked: prose accuracy, and external URLs (a network call would make CI flaky
+//! and fail on someone else's outage).
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -76,6 +82,7 @@ pub fn run() -> Result<(), String> {
     problems.extend(check_error_codes(&repo)?);
     problems.extend(check_relative_links(&repo)?);
     problems.extend(check_decision_index(&repo)?);
+    problems.extend(check_line_caps(&repo)?);
 
     if problems.is_empty() {
         println!("verify-docs: documentation matches the repository");
@@ -285,6 +292,45 @@ fn check_error_codes(repo: &Path) -> Result<Vec<String>, String> {
 /// to translate. The first version let `to_string_lossy` through raw and the Windows job failed on
 /// `docs\\ROADMAP.md` while macOS and Linux passed — a test-only break, since the checker itself was
 /// correct, but a real one and only the matrix could see it.
+/// Root `CLAUDE.md` is at most [`ROOT_LINE_CAP`] lines and every other one at most [`NESTED_LINE_CAP`].
+///
+/// The caps come from root `CLAUDE.md`'s own documentation rules, and they exist because these files
+/// are read *first* by every agent and every new contributor: past a screen or two they stop being
+/// navigation and start being something to skim. Enforced here rather than trusted, because they were
+/// stated as hard limits and quietly exceeded by three files.
+///
+/// `.claude/CLAUDE.md` needs no exemption — it is ten lines. If something ever legitimately needs
+/// more, raise the cap here *and* in the rule, so the two cannot disagree.
+fn check_line_caps(repo: &Path) -> Result<Vec<String>, String> {
+    let mut problems = Vec::new();
+
+    for doc in markdown_files(repo)? {
+        if doc.file_name().is_none_or(|name| name != "CLAUDE.md") {
+            continue;
+        }
+        let relative = repo_relative(repo, &doc);
+        let text = std::fs::read_to_string(&doc)
+            .map_err(|error| format!("reading {relative}: {error}"))?;
+        let lines = text.lines().count();
+        let cap = if relative == "CLAUDE.md" {
+            ROOT_LINE_CAP
+        } else {
+            NESTED_LINE_CAP
+        };
+        if lines > cap {
+            problems.push(format!(
+                "{relative}: {lines} lines, over the {cap}-line cap in root CLAUDE.md's documentation rules"
+            ));
+        }
+    }
+
+    Ok(problems)
+}
+
+/// From root `CLAUDE.md` § Documentation rules. Change both together or they disagree.
+const ROOT_LINE_CAP: usize = 130;
+const NESTED_LINE_CAP: usize = 90;
+
 /// Every ADR in `docs/DECISIONS.md` has a row in that file's own index, and every row has an ADR.
 ///
 /// The file states the rule itself — "New entries: next number, status `Accepted`, and a one-line
@@ -671,6 +717,47 @@ mod tests {
                 .any(|p| p == ".github/pull_request_template.md"),
             "the walk should still reach .github, which merely starts with `.git`"
         );
+    }
+
+    /// The line caps are enforced, in both directions.
+    ///
+    /// Written after finding three files over the limit — two of them long-standing — because a cap
+    /// stated as hard and measured by nobody is the shape every entry in `docs/ROADMAP.md`'s defect
+    /// list shares.
+    #[test]
+    fn the_line_caps_are_measured_not_assumed() {
+        let root = std::env::temp_dir().join("nport-verify-docs-line-caps");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("apps/wordy")).expect("mkdir");
+        std::fs::create_dir_all(root.join("apps/terse")).expect("mkdir");
+
+        // Root is allowed more than a nested one, so a file that is fine at the root is not fine
+        // below it — the assertion that the two caps are actually different.
+        let hundred = "x
+"
+        .repeat(100);
+        std::fs::write(root.join("CLAUDE.md"), &hundred).expect("write");
+        std::fs::write(root.join("apps/wordy/CLAUDE.md"), &hundred).expect("write");
+        std::fs::write(
+            root.join("apps/terse/CLAUDE.md"),
+            "x
+",
+        )
+        .expect("write");
+
+        let problems = check_line_caps(&root).expect("check");
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("apps/wordy/CLAUDE.md"), "{problems:?}");
+        assert!(problems[0].contains("100 lines"), "{problems:?}");
+    }
+
+    /// And the repository itself is inside them.
+    #[test]
+    fn the_repositorys_claude_files_are_inside_their_caps() {
+        let repo = crate::codegen::repo_root().expect("repo root");
+        assert_eq!(check_line_caps(&repo).expect("check"), Vec::<String>::new());
     }
 
     /// Layout checking reaches every `CLAUDE.md`, not a list of them.

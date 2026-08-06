@@ -150,6 +150,26 @@ export class Registry extends DurableObject<Env> {
     return active < maxActive
   }
 
+  /**
+   * How many leases are live right now.
+   *
+   * Published by `GET /v1/meta` as `activeTunnels`, so the registry's probe — and through it every
+   * client's node selection — can see this node's headroom (ADR-0046). Split out from
+   * [`hasCapacity`] rather than reusing it because the two answer different questions: that one is a
+   * gate ("is there room for one more"), this one is a number a stranger reads.
+   *
+   * Derived and best-effort, like everything else in this object: a lost index update degrades the
+   * count, never a guarantee. A node that undercounts looks emptier than it is and gets picked more
+   * often, which the per-source caps and the global cap still bound — so the failure mode is uneven
+   * load, not an overrun.
+   */
+  async activeCount(): Promise<number> {
+    this.#prune(Date.now())
+    return this.ctx.storage.sql
+      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM lease_index")
+      .one().count
+  }
+
   /** Called by a lease when it becomes `ACTIVE`. Idempotent: the same name records once. */
   async record(subdomain: string, expiresAt: number): Promise<void> {
     this.ctx.storage.sql.exec(

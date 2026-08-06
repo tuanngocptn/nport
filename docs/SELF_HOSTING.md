@@ -12,6 +12,8 @@ Self-hosting replaces **only the control plane** (`apps/api`). The data plane is
 
 You become responsible for: your Cloudflare bill, your own abuse controls and caps, your API token's security, and keeping the deployment current when the protocol changes (`docs/OPERATIONS.md`).
 
+**Your deployment is a private node, and it stays private by default.** Under ADR-0031 a deployment of `apps/api` is a **node**, and nodes may list themselves in a public directory so that any client can discover them. Yours will not: listing requires `REGISTRY_URL`, and leaving it unset — which is what happens if you follow this guide and do nothing extra — means the node never registers, never appears in `GET /v1/nodes`, and is reachable only by someone who knows its URL and passes it with `--backend`. There is no opt-out to remember, because there is no opt-in you did not make.
+
 ## Prerequisites
 
 - A domain on Cloudflare with nameservers delegated. A subdomain of an existing zone works — `tunnels.example.com`, with tunnels at `<name>.tunnels.example.com`.
@@ -108,6 +110,27 @@ Two things worth doing early:
 
 - **Enable Workers observability** and alert on `DNS_CONFLICT`, which should be near-zero. It firing means a teardown failed permanently or something outside NPort touched your DNS.
 - **Set up the protocol canary** if you depend on this. A Cloudflare edge change breaks your clients exactly as it would break the public instance, and you will not hear about it from us.
+
+## Becoming a public node
+
+Optional, and only if you want strangers' tunnels on your Cloudflare account and your bill. Four vars in `apps/api/wrangler.jsonc` § vars, and one DNS record:
+
+| Var | What it is |
+| --- | --- |
+| `NODE_ID` | your node's id in the directory: `[a-z0-9-]`, 3–32 characters, stable across deploys |
+| `PUBLIC_URL` | where clients reach you. **Must be under your `CF_DOMAIN`** |
+| `REGISTRY_URL` | the directory. `https://registry.nport.link` for the public one |
+| `NODE_VERSION` | display-only, and never verified |
+
+Then publish a TXT record proving you control the domain, which is what stands in for an account:
+
+```text
+_nport-node.<your domain>   TXT   "nport-node=<your NODE_ID>"
+```
+
+The registry resolves that record, probes your `GET /v1/meta`, and lists you. `PUBLIC_URL` has to be under your domain because that record proves control of the domain and nothing else — a URL outside it would be a listing the proof does not cover. It re-registers on every cron tick, so a node that was delisted after an outage relists itself.
+
+**What you are taking on**: strangers create tunnels in your zone, against your caps, on your bill — and `docs/ARCHITECTURE.md` §1 is explicit that a node operator *can* read and modify the traffic passing through the tunnels they issue. Being trusted not to is the whole arrangement. Do not do this on an account that matters to you.
 
 ## Limits
 

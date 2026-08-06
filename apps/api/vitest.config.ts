@@ -47,6 +47,21 @@ export default defineConfig({
           // Loosened from the deployed floor of 20 bits: 4 bits exercises the identical code path but
           // does not make every create-path test hostage to a loaded CI runner's CPU.
           POW_DIFFICULTY_BITS: 4,
+          // **Federation off, or the suite talks to the internet.**
+          //
+          // `test/reconcile.test.ts` drives the real `scheduled` handler, which now also calls
+          // `registerWithRegistry` — so with `REGISTRY_URL` reaching the isolate from
+          // `wrangler.jsonc`, those tests fetched `https://registry.nport.link` for real. It did not
+          // fail, and that is the worrying part: registration swallows every error by design, so the
+          // escape was completely silent. Exactly the hazard the `FAKE_CLOUDFLARE` note above
+          // describes, in the other direction — a var added to the config quietly changed what an
+          // unrelated suite does.
+          //
+          // `test/register.test.ts` supplies these itself, with a fake registry.
+          NODE_ID: "",
+          PUBLIC_URL: "",
+          REGISTRY_URL: "",
+          NODE_VERSION: "",
         },
       },
     }),
