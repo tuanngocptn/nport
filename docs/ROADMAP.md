@@ -17,12 +17,22 @@ its own, and a row that disagrees with its section is a bug in this table.
 | ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
 | ✅ | 2a · `apps/api` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
 | ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
-| ⬜ | 2c · `apps/web` | **G2c** ⬜ | Not started. Was gated on G2, which is now closed — this is the next large block of work |
+| ⬜ | 2c · `apps/web` | **G2c** ⬜ | Not started, and now **behind Phase 5** (ADR-0044). Its gate covers the 3.0 announcement, not the tunnel |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
-| ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` |
-| ⬜ | 5 · Federation | — | ADR-0031. `apps/registry` is not written |
+| ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` — and now also waits on discovery, which its Nodes screen renders |
+| 🚧 | **5 · Federation — registry and nodes** | **G5** ⬜ | **In progress: this is what to build next** (ADR-0044). ADR-0031's design, unchanged. `apps/registry` is not written yet |
 | ⬜ | 6 · v2 sunset | — | Waits on 3.0 being `latest` |
+
+**What to build next: Phase 5, in this order** — `packages/contract` (node schema, the two route
+groups, three error codes), then `apps/registry`, then `apps/api`'s node fields, then
+`crates/core::discovery`. The contract goes first for the same reason it did in Phase 1.5: it is the
+serializing dependency, and nothing else can be written against it until it stops moving.
+
+Why this rather than the site or the desktop app: v2 still serves `nport.link`, so nothing downstream
+of v3 is urgent, and federation is what turns `apps/api` from "the control plane" into "a node" —
+changing its configuration surface and adding a discovery step in front of the client's entry point.
+Building two apps against a shape that is about to change is the cost being avoided (ADR-0044).
 
 ## Current position
 
@@ -545,7 +555,7 @@ TCP read is one frame.
 
 ### 2c · `apps/web` ⬜
 
-**Starts after G2 closes**, not alongside 2a and 2b. The tracks are still technically parallel — 2c consumes the contract and touches nothing the tunnel needs — but a site that markets a tunnel nobody has yet opened is the wrong thing to be building, and reviewing the design surfaced enough open questions in it to make the sequencing worth stating rather than assuming.
+**Starts after Phase 5**, not alongside 2a and 2b, and no longer merely "after G2" — that gate closed on 2026-08-06 and federation took the slot (ADR-0044). The tracks are still technically parallel — 2c consumes the contract and touches nothing the tunnel needs — but a site that markets a tunnel nobody has yet opened is the wrong thing to be building, and reviewing the design surfaced enough open questions in it to make the sequencing worth stating rather than assuming.
 
 Next.js + OpenNext; v2 marketing parity (section order and copy per `apps/web/CLAUDE.md`); MDX user docs; `/errors/[code]` pages generated from the contract; SEO parity including the four JSON-LD blocks; one GA4 property.
 
@@ -569,9 +579,12 @@ Tunnel list and one-click start; tray integration; the traffic inspector over `c
 
 **The scope is `docs/FEATURES.md` §§5–10, §12 and §14, plus the Nodes screen in §3** — the mapping table above — against the design in `docs/mockup/NPort Desktop.dc.html`. Two things to settle before components are written, both recorded in `apps/desktop/CLAUDE.md`: the design draws seven surfaces where the planned layout has four views, and every surface in the token sheet is a `backdrop-filter` glass layer, which is the property that degrades worst on WebKitGTK. §8 is excluded, per the mapping table. §12 is design work that has not been done at all — the mockup is macOS Tahoe only.
 
-## Phase 5 — Federation: a registry and many nodes ⬜
+## Phase 5 — Federation: a registry and many nodes 🚧 **← next**
 
-**Unblocks at G2, not before — well ahead of Phases 3 and 4, and parallel with them.** ADR-0031. Today's control plane is one Worker on one account and one zone, and three ceilings bind at once — DNS records per zone, tunnels per account, and the per-account API rate limit. A zone cannot span accounts, so each shard needs its own domain as well as its own account.
+**Unblocked, and now the active phase (ADR-0044).** G2 closed on 2026-08-06, and this runs ahead of
+2c, 3 and 4 rather than merely being allowed to: v2 still serves users, so nothing downstream of v3
+is urgent, and this is the change that turns `apps/api` into a node. Doing it while there is one
+deployment and no users on it is as cheap as it will ever be. ADR-0031 owns the design. Today's control plane is one Worker on one account and one zone, and three ceilings bind at once — DNS records per zone, tunnels per account, and the per-account API rate limit. A zone cannot span accounts, so each shard needs its own domain as well as its own account.
 
 `apps/api` becomes a **node**, essentially unchanged: it is already one deployment bound to one zone with its own credentials. `apps/registry` is new and small — a directory that accepts registrations, probes what it lists, and answers `GET /v1/nodes`. It holds no Cloudflare credentials and provisions nothing. `crates/core` gains a discovery step before the `Api` client it already has.
 
@@ -597,9 +610,10 @@ Dates and the exact sequence live in `docs/RELEASE.md`.
 - **Phase 1 precedes everything.** An unproven data plane invalidates the CLI and desktop designs.
 - **Phase 1.5 precedes Phase 2.** Without a frozen contract the tracks collide. ✅ closed
 - **Phase 4 follows Phase 3.** The desktop app needs a stable `core`.
-- **G2 precedes 2c.** 2a, 2b, and 2c *can* run in parallel once the contract is frozen, and for a while they did. They no longer do: with 2a and 2b both code-complete and nothing deployed, the only work that moves the project is getting a port open, and the site can be built against a tunnel that demonstrably works rather than one that is only tested.
+- **G2 precedes 2c.** ✅ closed. 2a, 2b, and 2c *can* run in parallel once the contract is frozen, and for a while they did. They no longer do: with 2a and 2b both code-complete and nothing deployed, the only work that moved the project was getting a port open, and the site can now be built against a tunnel that demonstrably works rather than one that is only tested.
+- **Phase 5 precedes 2c and Phase 4.** ADR-0044. Federation changes `apps/api`'s configuration surface and puts a discovery step in front of the client's entry point, so a site documenting how a client finds a server, and a desktop app whose Nodes screen renders that discovery, are both cheaper to write after it than before. v2 still serves users, so nothing downstream is urgent enough to outweigh writing the contract once.
 - **`docs/FEATURES.md` §11 precedes nothing.** It is blocked on an ADR, not on a phase.
-- **G2 precedes Phase 5.** Federating a provisioning path that has never run against the live Cloudflare API multiplies one unknown by the number of nodes. Once G2 closes, Phase 5 can run in parallel with 3 and 4 — the numbers are a reading order, not a queue — it touches the contract, `apps/api`, and `crates/core`, none of which the release pipeline or the desktop app own.
+- **G2 precedes Phase 5.** ✅ closed. Federating a provisioning path that had never run against the live Cloudflare API would have multiplied one unknown by the number of nodes. It has now run, on three operating systems, so this constraint is satisfied rather than merely waived. Phase 5 touches the contract, `apps/api`, and `crates/core`, none of which the release pipeline owns — so 3 can still run alongside it. **The numbers are a reading order, not a queue.**
 
 ## Deferred
 

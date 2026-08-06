@@ -34,7 +34,7 @@ Do not violate these without adding an ADR to `docs/DECISIONS.md` first.
 
 ```
 apps/api/          Hono control plane, one Cloudflare account + zone → apps/api/CLAUDE.md
-(apps/registry/    the node directory — Phase 5, ADR-0031, not yet written)
+(apps/registry/    the node directory — Phase 5, **next**: ADR-0031 + ADR-0044, not yet written)
 apps/web/          Next.js site + user docs    → apps/web/CLAUDE.md
 apps/desktop/      Tauri app                   → apps/desktop/CLAUDE.md
 crates/cli/        the `nport` binary          → crates/CLAUDE.md

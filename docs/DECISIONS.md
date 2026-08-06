@@ -858,3 +858,24 @@ The result was a CI credential whose authority was not "deploy this project" but
 - Two lists now have to agree that are not adjacent: `REQUIRED_SECRETS` in `apps/api/src/env.ts`, and what the deploy actually sets. `pnpm deploy:check` compares them and separately asserts that the workflow really writes the one name Terraform does not emit — a missing secret is otherwise a green deploy that refuses every request.
 - ADR-0040's own argument for automation stands and is simply outweighed here: the thing being automated was small, and the permission required to automate it was not.
 - **Both tokens become account-owned rather than user-owned**, which was impossible while Terraform minted one: `POST /user/tokens` is reachable only by a user token. With that call gone, every request the pipeline makes is account- or zone-scoped. Account tokens outlive the person who created them and cannot carry a user-scoped permission at all, so the scope-dropdown mistake that produced two failed runs is now unrepresentable. They cannot enumerate their own accounts, so `CLOUDFLARE_ACCOUNT_ID` becomes required rather than merely recommended — every job that runs wrangler already passes it.
+
+## ADR-0044 — Federation comes next, ahead of the website and the desktop app
+
+**Status.** Accepted, 2026-08-06. Reorders ADR-0031's placement; the design in ADR-0031 is unchanged.
+
+**Context.** G2 is closed: a real port is open and a tunnel carries traffic on three operating systems. ADR-0031 put federation at Phase 5, "unblocks at G2, not before — well ahead of Phases 3 and 4, and parallel with them", which leaves the reading order ambiguous about what a person should pick up next. The obvious candidates were 2c (the website) and Phase 4 (the desktop app).
+
+Two facts decide it. **v2 is still what serves users** — `nport.link` runs the old Worker, so nothing downstream of v3 is urgent in the way it would be if v3 were live. And **federation changes the shape of `apps/api`**: it gains `NODE_ID`, `PUBLIC_URL`, `REGISTRY_URL`, self-registration, and a usage field on `/v1/meta`; `crates/core` gains a discovery step in front of the `Api` client it already has; and the contract gains a node schema, two route groups and three error codes.
+
+Building the site and the desktop app first would mean building both against a control plane whose configuration surface and client entry point are about to change. The site's docs describe how a client finds a server; the desktop app's Nodes screen (`docs/FEATURES.md` §3) does not exist yet precisely because discovery does not.
+
+**Decision.** Do federation next: `packages/contract`, then `apps/registry`, then `apps/api`'s node fields, then `crates/core::discovery`. 2c and Phase 4 follow it. The phase keeps the number 5 — it is referenced from `CLAUDE.md`, `docs/ARCHITECTURE.md` §1 and ADR-0031, and renumbering four phases to express a priority the ordering-constraints section can state in a sentence is churn for nothing.
+
+**Consequences.**
+
+- The contract changes once, before anything is written against the parts of it that move. That is the same argument as Phase 1.5, applied a second time and for the same reason.
+- 2c's own gate, G2c, gates the 3.0 *announcement* rather than the tunnel, so deferring the site does not defer anything a user can reach.
+- Federation is where `apps/api` stops being "the control plane" and becomes "a node". Doing that while there is exactly one deployment, and no users on it, is as cheap as it will ever be.
+- The v2 shim keeps serving `nport.link` throughout, so this reordering costs no user anything. It does mean v2 stays in production longer, which is the cost being accepted — Phase 6 moves further out.
+- The registry holds no Cloudflare credentials and provisions nothing (ADR-0031), so this adds a deployable without adding a credential to protect. The staging pattern from ADR-0038 and ADR-0043 extends to it unchanged.
+
