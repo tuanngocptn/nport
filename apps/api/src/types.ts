@@ -12,7 +12,7 @@ interface Secrets {
   POW_SECRET: string
   /** Keys the source-identity HMAC. Raw IPs are never stored (rule 11). */
   IP_HASH_SECRET: string
-  /** Scoped to Account → Cloudflare Tunnel → Edit and Zone → DNS → Edit (`docs/OPERATIONS.md`). */
+  /** Scoped to `Cloudflare Tunnel Write` and `DNS Write`, and nothing else (`docs/OPERATIONS.md`). */
   CF_API_TOKEN: string
   CF_ACCOUNT_ID: string
   CF_ZONE_ID: string

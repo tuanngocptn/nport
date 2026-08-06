@@ -43,7 +43,7 @@ Staging runs a **1-hour lease** and a **16-bit proof-of-work floor** against pro
 
 | Secret | Scope | Rotatable without downtime |
 | --- | --- | --- |
-| `CF_API_TOKEN` | Account → Cloudflare Tunnel → Edit; Zone → DNS → Edit. **Made by hand**, delivered as `WORKER_CF_API_TOKEN` | yes, in the dashboard |
+| `CF_API_TOKEN` | `Cloudflare Tunnel Write` + `DNS Write`. **Made by hand** as `nport-worker`, delivered as `WORKER_CF_API_TOKEN` | yes, in the dashboard |
 | `CF_ACCOUNT_ID` | identifier, not a secret, but kept out of the repo | n/a |
 | `CF_ZONE_ID` | identifier | n/a |
 | `CF_DOMAIN` | e.g. `nport.link` | n/a |
@@ -86,7 +86,7 @@ Both tokens are valid during steps 2–4, so there is no gap. Rotate `POW_SECRET
 For a fresh deployment (also the basis of `docs/SELF_HOSTING.md`):
 
 1. Zone for the apex domain, nameservers delegated.
-2. API token with Account → Cloudflare Tunnel → Edit and Zone → DNS → Edit.
+2. The `nport-worker` token: `Cloudflare Tunnel Write` and `DNS Write`, and nothing else.
 3. `wrangler deploy` in `apps/api`; DO migrations apply automatically on first deploy.
 4. `terraform apply` — generates the runtime secrets; the deploy merges in `WORKER_CF_API_TOKEN` and syncs the set (ADR-0040, ADR-0043).
 5. Confirm `api.<domain>` resolves to the Worker and `GET /v1/health` returns 200.

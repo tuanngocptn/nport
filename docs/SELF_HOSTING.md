@@ -24,10 +24,13 @@ You become responsible for: your Cloudflare bill, your own abuse controls and ca
 
 Create a scoped token with exactly:
 
-| Permission | Scope |
+| Permission group | Covers |
 | --- | --- |
-| Cloudflare Tunnel → Edit | your account |
-| DNS → Edit | your zone |
+| `Cloudflare Tunnel Write` | your account |
+| `DNS Write` | your zone |
+
+The account-token form lists single named groups rather than a permission plus a level — `Write`
+is the edit level and implies read. Search for the name rather than browsing the categories.
 
 Make it under **Manage Account → Account API Tokens**, not My Profile. An account-owned token
 outlives the person who created it and cannot hold a user-scoped permission, and the control plane

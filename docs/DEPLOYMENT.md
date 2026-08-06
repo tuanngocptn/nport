@@ -59,59 +59,73 @@ endpoint (ADR-0043), so nothing here needs a user token.
 Workers are `nport-api` and `nport-web` in both (ADR-0038). The account is the isolation; a suffix
 would only make one environment read differently from the other.
 
+### How this form works
+
+The account-token form is not the user-token one, and three things differ enough to matter:
+
+- **Permissions are single named groups, not a permission plus a level.** There is no `Edit`
+  dropdown — the level is in the name. You want the **`… Write`** group in every case below;
+  `Write` implies `Read`.
+- **Type the name into "Search for permission groups…"** rather than hunting the category tree.
+  The categories get reorganised and a group is not always where you would guess.
+- **One policy is enough.** Leave the policy's resource selector on **Entire Account**. Each
+  environment is a dedicated account holding exactly one zone (ADR-0038), so "entire account" and
+  "that one zone" are the same reach — there is nothing else in the account to over-grant to.
+
+Never touch **Select all 273 permissions**.
+
 ### 2a. `nport-ci`
 
 The token Terraform and `wrangler deploy` act with.
 
-1. **Manage Account → Account API Tokens → Create Token → Create Custom Token.**
-2. **Token name:** `nport-ci`
-3. **Permissions** — five rows, `Edit` on every one:
+1. **Create Token**, and set **Token name** to `nport-ci`.
+2. Leave **Permission policies** on **Custom**, and the policy's resource on **Entire Account**.
+3. Search for and tick these five groups:
 
-   | Scope | Permission | Why |
-   | --- | --- | --- |
-   | Account | Workers Scripts | `wrangler deploy` uploads both Workers |
-   | Zone | Zone Settings | the TLS floor and always-HTTPS |
-   | Zone | DNS | `custom_domain: true` writes the hostname record |
-   | Zone | Workers Routes | `wrangler deploy` reconciles the zone's routes even when every route is a custom domain |
-   | Zone | Zone WAF | the edge rate-limit ruleset |
+   | Permission group | Why |
+   | --- | --- |
+   | `Workers Scripts Write` | `wrangler deploy` uploads both Workers |
+   | `Zone Settings Write` | the TLS floor and always-HTTPS |
+   | `DNS Write` | `custom_domain: true` writes the hostname record |
+   | `Workers Routes Write` | `wrangler deploy` reconciles the zone's routes even when every route is a custom domain |
+   | `Zone WAF Write` | the edge rate-limit ruleset |
 
-4. **Account Resources:** Include → this environment's account.
-5. **Zone Resources:** Include → Specific zone → `nport.online`.
-6. **Client IP Address Filtering** and **TTL:** leave both empty. GitHub's runner addresses are not
-   fixed, and an expiring deploy credential fails at the least convenient moment.
-7. Continue to summary → **Create Token** → copy it. Cloudflare shows it once.
-8. Save as the GitHub secret **`CLOUDFLARE_API_TOKEN`** (step 4).
+4. **Token expiration:** `No expiration`. An expiring deploy credential fails at the least convenient
+   moment, and nothing warns first.
+5. **Client IP address filtering:** leave empty. GitHub's runner addresses are not fixed.
+6. **Review token** → confirm the list is exactly those five → create → copy it. Cloudflare shows it
+   once.
+7. Save as the GitHub secret **`CLOUDFLARE_API_TOKEN`** (step 4).
 
-**Note what is not here: `Cloudflare Tunnel`.** Nothing this pipeline runs creates a tunnel — only
-the Worker does, with its own token. If you find yourself adding that row to make something pass,
+**Note what is not here: `Cloudflare Tunnel Write`.** Nothing this pipeline runs creates a tunnel —
+only the Worker does, with its own token. If you find yourself adding it to make something pass,
 stop: it means something in CI is reaching for authority the deploy is not meant to have (ADR-0043).
 
 ### 2b. `nport-worker`
 
 The token the control plane uses at runtime, and nothing else uses at all.
 
-1. Same page: **Create Token → Create Custom Token.**
-2. **Token name:** `nport-worker`
-3. **Permissions** — two rows, both `Edit`:
+1. **Create Token**, and set **Token name** to `nport-worker`.
+2. **Custom**, resource **Entire Account**, as above.
+3. Search for and tick these two groups:
 
-   | Scope | Permission | Why |
-   | --- | --- | --- |
-   | Account | Cloudflare Tunnel | create and delete the tunnel behind each subdomain |
-   | Zone | DNS | write and remove the `<tunnel>.cfargotunnel.com` CNAME |
+   | Permission group | Why |
+   | --- | --- |
+   | `Cloudflare Tunnel Write` | create and delete the tunnel behind each subdomain |
+   | `DNS Write` | write and remove the `<tunnel>.cfargotunnel.com` CNAME |
 
-4. **Account Resources:** Include → the same account.
-5. **Zone Resources:** Include → Specific zone → `nport.online`.
-6. **TTL:** leave empty. It expiring means every new tunnel fails while existing ones keep working —
-   a failure that looks like a Cloudflare outage rather than an expired credential.
-7. Create, copy, and save as the GitHub secret **`WORKER_CF_API_TOKEN`** (step 4).
+4. **Token expiration:** `No expiration`. Expiry here fails only *new* tunnels while existing ones
+   keep working — which reads as a Cloudflare outage rather than as a credential that ran out.
+5. **Client IP address filtering:** leave empty. The requests come from a Worker.
+6. **Review token** → confirm the list is exactly those two → create → copy.
+7. Save as the GitHub secret **`WORKER_CF_API_TOKEN`** (step 4).
 
-Those two permissions are the entire Cloudflare surface `apps/api` touches — three calls to
-provision a tunnel, four to tear one down (`apps/api/CLAUDE.md`). It never deploys anything and never
-reads a token.
+Those two are the entire Cloudflare surface `apps/api` touches — three calls to provision a tunnel,
+four to tear one down (`apps/api/CLAUDE.md`). It never deploys anything and never reads a token.
 
 ---
 
-Every row above is here because something failed without it. Nothing in this project uses KV, R2 or
+Every group above is here because something failed without it. Nothing in this project uses KV, R2 or
 Workers AI. If a deploy fails with a 403 naming a permission not in these tables, add it here rather
 than widening a token on a guess.
 

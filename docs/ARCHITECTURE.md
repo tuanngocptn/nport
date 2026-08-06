@@ -261,7 +261,7 @@ Generated names are `nport-<base32(8 random bytes)>`. v2 used `user-<random 0..9
 
 ### Secrets
 
-`apps/api` holds the only credentials: `CF_API_TOKEN` (scoped to Account → Cloudflare Tunnel → Edit and Zone → DNS → Edit), `CF_ACCOUNT_ID`, `CF_ZONE_ID`, `CF_DOMAIN`, plus the PoW and IP-hash secrets. Inventory and rotation in `docs/OPERATIONS.md`.
+`apps/api` holds the only credentials: `CF_API_TOKEN` (scoped to `Cloudflare Tunnel Write` and `DNS Write`, and nothing else), `CF_ACCOUNT_ID`, `CF_ZONE_ID`, `CF_DOMAIN`, plus the PoW and IP-hash secrets. Inventory and rotation in `docs/OPERATIONS.md`.
 
 **No secret ships in any client artifact.** v2 shipped its GA4 measurement ID *and API secret* in the published npm bundle.
 

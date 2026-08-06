@@ -17,8 +17,8 @@ IP_HASH_SECRET="local-development-ip-hash-secret-not-for-production"
 # `/v1/meta` cheerfully while being unable to provision anything is the worst kind of half-working.
 #
 # The placeholders below are enough to *start* the Worker, not to provision: every Cloudflare call
-# will be rejected upstream. Use a real scoped token (Account → Cloudflare Tunnel → Edit, Zone → DNS
-# → Edit) against a zone you own if you need the lifecycle end to end, and never a production one.
+# will be rejected upstream. Use a real scoped token (`Cloudflare Tunnel Write` and `DNS Write`)
+# against a zone you own if you need the lifecycle end to end, and never a production one.
 CF_API_TOKEN="local-development-not-a-real-token"
 CF_ACCOUNT_ID="0000000000000000000000000000000o"
 CF_ZONE_ID="0000000000000000000000000000000o"
