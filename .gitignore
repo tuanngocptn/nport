@@ -65,6 +65,9 @@ npm-debug.log*
 # `terraform.tfstate` should never appear: the backend is R2 (infra/terraform/README.md).
 # `.terraform.lock.hcl` is deliberately NOT here — it pins provider versions and hashes, and CI
 # reproducing a plan depends on it, the same argument as `rust-toolchain.toml` and the pnpm lockfile.
+#
+# `infra/terraform/bootstrap/terraform.tfstate` is covered by the `*.tfstate` rules below and must
+# stay uncommitted: it holds the R2 token that opens the state bucket.
 .terraform/
 *.tfstate
 *.tfstate.*

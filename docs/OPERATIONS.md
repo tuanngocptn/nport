@@ -32,7 +32,7 @@ A **separate Cloudflare account** on a separate domain (ADR-0038), so nothing in
 | Worker (API) | `nport-api-staging` → `api.nport.online` | `apps/api/wrangler.jsonc` § `env.staging` |
 | Worker (site) | `nport-web-staging` → `nport.online`, `www.nport.online` | `apps/web/wrangler.jsonc` § `env.staging` |
 | Edge rate limit | ruleset on `api.nport.online` | `infra/terraform` (same config as production) |
-| Terraform state | R2 bucket `nport-tfstate` | created once by hand — it holds its own state |
+| Terraform state | R2 bucket `nport-tfstate` | `infra/terraform/bootstrap`, run once per account (ADR-0041) |
 | Deploy | `.github/workflows/deploy-staging.yml` | gate → terraform → workers → verify |
 
 Staging runs a **1-hour lease** and a **16-bit proof-of-work floor** against production's 4 hours and 20 bits: it exists to be exercised, so a forgotten test tunnel expires within the hour and an end-to-end run does not spend seconds per create. `infra/terraform/README.md` § Bootstrap is the one-time setup. The Terraform is one configuration for both environments; only the account, the zone and the state key differ.

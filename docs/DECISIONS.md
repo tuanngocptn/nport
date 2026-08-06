@@ -796,3 +796,23 @@ GitHub Actions holds four values, none of which is a Worker secret: the Cloudfla
 - Rotation becomes `terraform apply -replace`, which is a command rather than a runbook.
 - `docs/OPERATIONS.md` § Secrets no longer says "never in CI" for the runtime set. It says what is true now: they live in Terraform state, and the state's credentials are the boundary.
 - The permission-group names are upstream strings this project does not control, so they are variables with preconditions that fail the plan with the API call that lists the real ones — rather than minting a token with no permissions, which fails much later and much less clearly.
+
+## ADR-0041 — A bootstrap root creates the state bucket, so only one credential is human-made
+
+**Status.** Accepted, 2026-08-06.
+
+**Context.** ADR-0040 moved every runtime secret into Terraform, leaving four manual steps: the Cloudflare account and zone, the CI API token, the R2 state bucket with its S3 keys, and the GitHub Environment. The bucket was the odd one out. It is not something a person needs to decide — it is a container with a name — and creating it by hand meant a dashboard visit, a second token creation flow, and two credentials copied out of a UI that shows them once.
+
+It stayed manual for a real reason: Terraform's state cannot live in a bucket Terraform has not created. `terraform init -backend=false` does not resolve it, because a configuration with a backend block refuses to apply until that backend is initialised.
+
+**Decision.** A second root, `infra/terraform/bootstrap`, with **no backend and local state**. It creates the R2 bucket and an API token scoped to R2 alone, and outputs the S3 key pair the main root's backend needs — the key id being the token's id and the secret the SHA-256 of its value, which is Cloudflare's own derivation for the R2 S3 API.
+
+The main root is unchanged. It still expects a bucket and credentials to exist; it simply no longer expects a person to have made them.
+
+**Consequences.**
+
+- One human-created credential remains: the Cloudflare API token Terraform authenticates with. Everything else is generated.
+- **This is a second directory, and it is not the split ADR-0038's environments were kept out of.** That split was per-environment, and would have drifted. This one is per-*account*, identical for staging and production, and run once.
+- Its state is local and disposable. Losing it does not break anything: the bucket and token still exist and nothing depends on the state, so Terraform merely stops tracking them. Re-running against a lost state tries to create an existing bucket and fails, which is recoverable with `terraform import` or by skipping the root entirely.
+- `prevent_destroy` on the bucket, because a `terraform destroy` that took it would leave the real infrastructure standing with nothing tracking it — unrecoverable without importing every resource by hand.
+- The R2 key derivation is the one part not verified against a live account. If the backend fails to authenticate, that is the first thing to doubt; the fallback is the dashboard's R2 token flow, which shows a pair directly. `docs/DEPLOYMENT.md` says so at the point of use.
