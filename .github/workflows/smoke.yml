@@ -87,6 +87,14 @@ jobs:
           else
             binary=target/release/nport
           fi
+          # `--expiry` abandons a tunnel with SIGKILL and waits for the server's own alarm to delete
+          # the DNS record — about two and a half minutes on top of the run, and one extra create.
+          # Nightly only: a per-deploy matrix would pay it three times for a property that does not
+          # change between commits.
+          expiry=""
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            expiry="--expiry"
+          fi
           node scripts/smoke-live.mjs \
             --backend "${{ inputs.backend || 'https://api.nport.online' }}" \
-            --binary "$binary"
+            --binary "$binary" $expiry

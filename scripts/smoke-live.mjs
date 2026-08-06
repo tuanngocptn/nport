@@ -46,6 +46,11 @@ import { platform } from "node:os"
 
 const BACKEND = argOf("backend") ?? "https://api.nport.online"
 const BINARY = argOf("binary") ?? null
+/**
+ * Also prove the server reclaims an abandoned lease. Costs one create and about three minutes, so it
+ * is opt-in rather than part of every deploy.
+ */
+const CHECK_EXPIRY = process.argv.includes("--expiry")
 const IS_WINDOWS = platform() === "win32"
 
 /** Distinct per run, so a stale tunnel serving an old body cannot pass as this one. */
@@ -155,6 +160,10 @@ function encodeFrame(text) {
 }
 
 async function startOrigin() {
+  // Upgraded sockets are detached from the server's own connection tracking, so `close()` waits for
+  // them forever — the run finished with "Detected unsettled top-level await" and never exited.
+  const upgraded = new Set()
+
   const server = createServer((request, response) => {
     if (request.url === "/" || request.url === "/index.html") {
       response.writeHead(200, { "content-type": "text/plain" })
@@ -197,11 +206,21 @@ async function startOrigin() {
     consume(Buffer.alloc(0))
     socket.on("data", consume)
     socket.on("error", () => socket.destroy())
+    upgraded.add(socket)
+    socket.on("close", () => upgraded.delete(socket))
   })
 
   // Port 0 asks the kernel for a free one, so parallel runs and a busy dev machine cannot collide.
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
-  return { server, port: server.address().port }
+  return {
+    server,
+    port: server.address().port,
+    close: async () => {
+      for (const socket of upgraded) socket.destroy()
+      server.closeAllConnections()
+      await new Promise((resolve) => server.close(resolve))
+    },
+  }
 }
 
 // ── the tunnel ────────────────────────────────────────────────────────────────────────
@@ -366,7 +385,7 @@ async function shutdown() {
         : Promise.race([new Promise((resolve) => child.once("exit", resolve)), sleep(5_000)]),
     ),
   )
-  await new Promise((resolve) => origin.server.close(resolve))
+  await origin.close()
 }
 
 // ── the run ───────────────────────────────────────────────────────────────────────────
@@ -408,8 +427,54 @@ try {
     `got ${echoes.length}: ${echoes.slice(0, 3).join(",")}…`,
   )
 
-  // ── teardown ────────────────────────────────────────────────────────────────────────
-  if (IS_WINDOWS) {
+  // ── the server reclaims an abandoned lease ──────────────────────────────────────────
+  //
+  // **`SIGKILL`, so the client never releases anything.** This is the crash, the closed laptop and
+  // the severed network — the case v2 got wrong (defect R6), where the four-hour limit was a
+  // client-side `setTimeout` and killing the client left the tunnel and its DNS record behind.
+  //
+  // The assertion is deliberately *not* "the URL stops serving": killing the connector does that
+  // instantly and proves nothing about the server. What only the server can do is delete the DNS
+  // record, so the check waits for the hostname to stop resolving. That is `HEARTBEAT_GRACE_SECONDS`
+  // after the last beat, driven by the lease's own alarm.
+  if (CHECK_EXPIRY) {
+    const host = new URL(url).hostname
+    console.log("\n  abandoning the tunnel (SIGKILL, no release)…")
+    tunnel.child.kill("SIGKILL")
+
+    const resolver = new Resolver()
+    resolver.setServers(["1.1.1.1", "8.8.8.8"])
+    const startedAt = Date.now()
+    let reclaimed = false
+    // **Two consecutive NXDOMAINs.** A single one could be a resolver hiccup, and this check's whole
+    // value is that the disappearance is the server's doing rather than the network's.
+    let consecutive = 0
+
+    while (!reclaimed && Date.now() - startedAt < 360_000) {
+      await sleep(5_000)
+      const waited = Math.round((Date.now() - startedAt) / 1000)
+      try {
+        await resolver.resolve4(host)
+        consecutive = 0
+        console.log(`    ${waited}s: still resolving`)
+      } catch (error) {
+        if (error instanceof Error && error.code === "ENOTFOUND") {
+          consecutive += 1
+          console.log(`    ${waited}s: NXDOMAIN (${consecutive}/2)`)
+          reclaimed = consecutive >= 2
+        } else {
+          consecutive = 0
+          console.log(`    ${waited}s: ${error instanceof Error ? error.code : error}`)
+        }
+      }
+    }
+
+    check(
+      reclaimed,
+      `the server reclaims an abandoned lease (${Math.round((Date.now() - startedAt) / 1000)}s)`,
+      "the hostname still resolves — the lease alarm did not tear it down",
+    )
+  } else if (IS_WINDOWS) {
     console.log("\n  graceful shutdown: skipped — Windows has no SIGINT to send a child")
     tunnel.child.kill()
   } else {

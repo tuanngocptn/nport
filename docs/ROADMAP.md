@@ -472,9 +472,50 @@ The spike's copies are gone rather than left to drift, which needed `nport-core`
 
 `nport 3000 -s test` works end-to-end against the deployed API on macOS, Linux, and Windows, including WebSocket, graceful Ctrl+C, and server-enforced expiry. It needs 2a and 2b only; **2c is not part of it**, which is the whole reason the gate sits here rather than after the website.
 
-**Partly met, 2026-08-06.** The first tunnel served real traffic: `nport 8099 -s demo-g2 --backend https://api.nport.online` provisioned a lease, opened four HA connections to Cloudflare's Hong Kong edge (`hkg09`, `hkg10`, `hkg01`, `hkg08`), and returned the origin's body **byte-identical** over HTTP/2 with a `cf-ray` header, 10/10 requests, and a 404 passed through as a 404. Ctrl+C drained and exited; teardown left the hostname at `NXDOMAIN`, so both the tunnel and the DNS record were removed. The per-source hourly cap then refused a reclaim with `CREATE_QUOTA_EXCEEDED`, which is `docs/ARCHITECTURE.md` §7 working rather than a fault.
+**Four of five criteria met, 2026-08-06.**
 
-What that leaves for the gate: **Linux and Windows**, **WebSocket**, and **server-enforced expiry**. All of it was macOS and plain HTTP. The connector, the saga, the compensations and the abuse controls are no longer theoretical, but three of the five G2 criteria are still unproven and the gate stays open until they are.
+The first tunnel served real traffic from a laptop: `nport 8099 --backend https://api.nport.online`
+provisioned a lease, opened four HA connections to Cloudflare's Hong Kong edge (`hkg09`, `hkg10`,
+`hkg01`, `hkg08`), and returned the origin's body **byte-identical** over HTTP/2 with a `cf-ray`
+header. Ctrl+C drained and exited; teardown left the hostname at `NXDOMAIN`, so both the tunnel and
+the DNS record were removed. The per-source hourly cap then refused a reclaim with
+`CREATE_QUOTA_EXCEEDED`, which is `docs/ARCHITECTURE.md` §7 working rather than a fault.
+
+`.github/workflows/smoke.yml` then made that repeatable and cross-platform. Every staging deploy now
+runs `scripts/smoke-live.mjs` on **ubuntu, macos and windows**, and each one provisions a real tunnel,
+checks a byte-identical body, a 404 passed through as a 404, ten concurrent requests, and **twenty
+WebSocket messages echoed in order**.
+
+| G2 criterion | State |
+| --- | --- |
+| macOS | ✅ locally and on `macos-latest` |
+| Linux | ✅ `ubuntu-latest` |
+| Windows | ✅ `windows-latest` |
+| WebSocket | ✅ 20 messages in order, on all three |
+| Graceful Ctrl+C | ✅ on POSIX. **Windows is not covered**: there is no `SIGINT` to send a child process, so the drain path cannot be exercised the way a user would exercise it |
+| Server-enforced expiry | ✅ an abandoned lease is reclaimed in ~120 s, matching `HEARTBEAT_GRACE_SECONDS` |
+
+Expiry is checked by `--expiry`, which is the interesting half of v2's defect R6: the client is
+`SIGKILL`ed so it never releases anything — the crash, the closed laptop, the severed network — and
+the assertion is that the **DNS record disappears**, since that is the one thing only the server can
+do. "The URL stops serving" would prove nothing: killing the connector does that instantly. The
+record held for 106 s, flapped while the deletion propagated across resolver PoPs, and was gone by
+137 s. It runs nightly rather than per deploy, because it costs an extra create and two and a half
+minutes for a property that does not change between commits.
+
+**What is left is Ctrl+C on Windows, and that is a limitation of the harness rather than of the
+product** — there is no `SIGINT` to send a child process there, so the drain path cannot be driven
+the way a user drives it. Everything else on this gate has now run against the live API on three
+operating systems: the connector, the provisioning saga, the compensations, the ownership-proof
+teardown, the server-authoritative expiry, and the abuse controls.
+
+Four defects surfaced getting here that nothing offline could have found — `fetch` called with the
+wrong receiver so *every* Cloudflare call raised `Illegal invocation`; the site's build script
+invoking itself until the runner died; staging's client-version floor refusing the only build that
+would ever point at it; and a Workers account with no `workers.dev` subdomain, which blocks all
+script uploads. Three more were in the harness rather than the product, and each looked like a
+product fault: negative DNS caching, a mistyped WebSocket GUID, and a frame decoder that assumed one
+TCP read is one frame.
 
 ### 2c · `apps/web`
 
