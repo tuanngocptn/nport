@@ -23,7 +23,7 @@ starts fighting an apply.
 | **Terraform** (`infra/terraform/`) | zone settings, the edge rate-limit ruleset | Wrangler cannot express them at all |
 | **Wrangler** (`apps/*/wrangler.jsonc`) | Worker scripts, routes, custom domains, DO migrations, `vars` | `custom_domain: true` creates the DNS record; a Terraform record for the same name would fight every deploy. The repo is the source of truth for both hostnames (`docs/OPERATIONS.md` § Inventory) |
 | **The control plane, at runtime** | one CNAME per live tunnel | There are as many as there are tunnels and none are known at plan time |
-| **Terraform** (`secrets.tf`) | the Worker's six runtime secrets | Generated, not typed — and the deploy syncs them with `wrangler secret bulk` (ADR-0040) |
+| **Terraform** (`secrets.tf`) | five of the Worker's six runtime secrets | Generated, not typed — and the deploy syncs them with `wrangler secret bulk` (ADR-0040). The sixth, `CF_API_TOKEN`, is made by hand: a configuration that can mint a Cloudflare token needs a CI credential that can mint any of them (ADR-0043) |
 | **The deploy workflow**, by raw API call | the account's workers.dev subdomain | A Workers account prerequisite with no provider v5 resource; `cloudflare_workers_script_subdomain` is per-script and needs the script to exist, which is the thing being blocked |
 
 Terraform only ever destroys what its own state created, so the runtime tunnel records are safe by
@@ -43,9 +43,9 @@ credentials would have to be duplicated there.
 
 ## Setting one up
 
-`docs/DEPLOYMENT.md` is the step-by-step. **One credential is human-made** — the Cloudflare API
-token. The account and zone need a person because delegation happens at your registrar; everything
-else, including the state bucket and all six Worker runtime secrets, the pipeline handles.
+`docs/DEPLOYMENT.md` is the step-by-step. **Two credentials are human-made** — one Cloudflare token
+for CI, one for the Worker itself. The account and zone need a person because delegation happens at
+your registrar; everything else the pipeline handles.
 
 ## What CI does with this
 

@@ -18,7 +18,7 @@ terraform {
       source  = "cloudflare/cloudflare"
       version = "~> 5.23"
     }
-    # Generates the HMAC keys. Kept in state like every other secret here (ADR-0040) rather than
+    # Generates the HMAC keys. Kept in state (ADR-0040) rather than
     # typed in by a person, so nobody has to invent entropy and nobody has to remember to rotate.
     random = {
       source  = "hashicorp/random"

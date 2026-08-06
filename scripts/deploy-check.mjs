@@ -123,20 +123,45 @@ function namesInTerraformOutput() {
   return [...block[1].matchAll(/^\s*([A-Z0-9_]+)\s*=/gm)].map((match) => match[1]).sort()
 }
 
+/**
+ * The secrets the deploy workflow merges in rather than reading from Terraform.
+ *
+ * `CF_API_TOKEN` is the Worker's own Cloudflare credential. It is created by hand and delivered as
+ * a GitHub secret so that nothing Terraform runs can mint Cloudflare authority (ADR-0043), which is
+ * what lets the CI token stay free of `User → API Tokens → Edit`.
+ *
+ * Listing it here is not enough on its own — a name in this array with nothing in the workflow to
+ * supply it would mean the Worker starts and refuses every request. So the workflow is checked too.
+ */
+const SUPPLIED_BY_WORKFLOW = ["CF_API_TOKEN"]
+
+function workflowSuppliesSecret(name) {
+  const source = readFileSync(join(ROOT, ".github/workflows/deploy.yml"), "utf8")
+  return source.includes(`secrets["${name}"]`)
+}
+
 {
   const required = namesInRequiredSecrets()
   const emitted = namesInTerraformOutput()
+  const provided = [...emitted, ...SUPPLIED_BY_WORKFLOW]
 
   if (required.length === 0 || emitted.length === 0) {
     console.error("  could not read one of the secret lists — the patterns in this check are stale")
     problems += 1
   }
-  for (const name of required.filter((n) => !emitted.includes(n))) {
-    console.error(`  env.ts requires \`${name}\` and infra/terraform/outputs.tf does not emit it`)
+  for (const name of required.filter((n) => !provided.includes(n))) {
+    console.error(`  env.ts requires \`${name}\` and nothing in the deploy provides it`)
     problems += 1
   }
-  for (const name of emitted.filter((n) => !required.includes(n))) {
-    console.error(`  infra/terraform/outputs.tf emits \`${name}\` and env.ts does not require it`)
+  for (const name of provided.filter((n) => !required.includes(n))) {
+    console.error(`  the deploy sets \`${name}\` and env.ts does not require it`)
+    problems += 1
+  }
+  for (const name of SUPPLIED_BY_WORKFLOW.filter((n) => !workflowSuppliesSecret(n))) {
+    console.error(
+      `  \`${name}\` is listed as workflow-supplied, but deploy.yml never writes it into the bulk` +
+        ` file — the Worker would deploy green and refuse every request`,
+    )
     problems += 1
   }
 }

@@ -794,6 +794,7 @@ GitHub Actions holds four values, none of which is a Worker secret: the Cloudfla
 
 - **The Terraform state is now the most sensitive object in the deployment**, and this is the real price. `random_password` keeps its result in state and `cloudflare_api_token` keeps the minted token there, because Terraform must know a value to detect drift. Anyone who can read the state can read every secret, so the R2 bucket and its two keys are the thing to protect — they are what ADR-0039 was protecting by spreading the risk instead.
 - ADR-0039's objection is not answered, it is accepted: CI *can* mint a Tunnel-Edit token, because it runs the apply. The mitigation is that staging and production are separate accounts (ADR-0038), so a compromised staging pipeline reaches only staging.
+- **Partly superseded by ADR-0043, 2026-08-06**, on the point below: Terraform no longer mints the Worker's Cloudflare token. It still owns the two generated HMAC keys and still syncs the whole set with `wrangler secret bulk`, which is the part of this decision that survives.
 - **Amended 2026-08-06, after the first apply.** The cost is larger than written above. The provider creates the Worker's token through `POST /user/tokens`, so the CI credential needs **User → API Tokens → Edit** — and a token holding that can mint *any* token the user could, including a full-access one. CI's authority is therefore not "can grant Tunnel-Edit" but "can grant anything". Accepted for staging on the same isolation argument, and flagged in `docs/DEPLOYMENT.md` as a decision to re-make rather than copy when production is set up. The alternative, had it been chosen, was to create that one token by hand and pass it as a fourth GitHub secret, leaving Terraform to generate only the two HMAC keys.
 - Rotation becomes `terraform apply -replace`, which is a command rather than a runbook.
 - `docs/OPERATIONS.md` § Secrets no longer says "never in CI" for the runtime set. It says what is true now: they live in Terraform state, and the state's credentials are the boundary.
@@ -838,3 +839,21 @@ The common factor is that an object store is a *thing that must already exist*. 
 - **One more vendor and one more credential.** GitHub holds three secrets instead of two, and the state — which since ADR-0040 holds every runtime secret — now sits with HashiCorp rather than in the same Cloudflare account as everything else. That is the real cost, and it is the argument someone may want to reverse later; ADR-0041 is kept for them.
 - Workspaces must be in **local execution mode**. HCP defaults to remote, where it runs the plan on its own infrastructure — which would mean duplicating the Cloudflare credentials there as workspace variables, exactly the spreading of secrets ADR-0040 removed. This is a per-workspace setting and the one manual step the change adds.
 - The CI Cloudflare token no longer needs R2 permissions.
+
+## ADR-0043 — Terraform generates secrets, but never a Cloudflare credential
+
+**Status.** Accepted, 2026-08-06. Supersedes ADR-0040 on the Worker's API token only.
+
+**Context.** ADR-0040 had Terraform create the Worker's Cloudflare token with `cloudflare_api_token`, so that no human typed a credential and rotation was `terraform apply -replace`. The first apply revealed the price. The provider creates tokens through `POST /user/tokens`, so the CI credential needed **User → API Tokens → Edit** — and a token holding that can mint *any* token its user could, including a full-access one. Cloudflare also refuses to grant permissions the creating token does not itself hold, so CI additionally had to carry **Cloudflare Tunnel → Edit** purely to hand it onward.
+
+The result was a CI credential whose authority was not "deploy this project" but "do anything to this Cloudflare account", in service of automating the creation of a token with two permissions.
+
+**Decision.** `infra/terraform/secrets.tf` generates only the two HMAC keys, which grant no authority anywhere. The Worker's Cloudflare token is created by hand once per account and delivered as the GitHub secret `WORKER_CF_API_TOKEN`; the deploy merges it into the bulk file before calling `wrangler secret bulk`.
+
+**Consequences.**
+
+- The CI token loses two rows and can no longer mint a credential or create a tunnel. Compromising the runner now costs a deploy of arbitrary Worker code and zone-settings changes — bad, but bounded, and no longer an escalation to the whole account.
+- One manual step per environment, and rotation of that one token becomes a dashboard task rather than a command. Everything else still rotates with `-replace`.
+- The Worker's token no longer lives in Terraform state, so the state's blast radius shrinks to two HMAC keys and three identifiers.
+- Two lists now have to agree that are not adjacent: `REQUIRED_SECRETS` in `apps/api/src/env.ts`, and what the deploy actually sets. `pnpm deploy:check` compares them and separately asserts that the workflow really writes the one name Terraform does not emit — a missing secret is otherwise a green deploy that refuses every request.
+- ADR-0040's own argument for automation stands and is simply outweighed here: the thing being automated was small, and the permission required to automate it was not.

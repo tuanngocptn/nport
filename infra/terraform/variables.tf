@@ -52,14 +52,4 @@ variable "api_rate_limit_timeout" {
   default     = 10
 }
 
-variable "tunnel_permission_group" {
-  description = "Account-scoped group granting tunnel create/delete. `docs/OPERATIONS.md`: Account → Cloudflare Tunnel → Edit."
-  type        = string
-  default     = "Cloudflare Tunnel Write"
-}
 
-variable "dns_permission_group" {
-  description = "Zone-scoped group granting DNS record create/delete. `docs/OPERATIONS.md`: Zone → DNS → Edit."
-  type        = string
-  default     = "DNS Write"
-}
