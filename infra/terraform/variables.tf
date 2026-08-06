@@ -47,9 +47,9 @@ variable "api_rate_limit_period" {
 }
 
 variable "api_rate_limit_timeout" {
-  description = "How long a blocked client stays blocked, in seconds."
+  description = "How long a blocked client stays blocked, in seconds. A plan may pin this: free refuses anything other than the period itself, which the API states as \"not entitled to use a mitigation timeout different from 10\"."
   type        = number
-  default     = 600
+  default     = 10
 }
 
 variable "tunnel_permission_group" {

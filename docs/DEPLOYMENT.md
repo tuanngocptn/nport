@@ -216,7 +216,7 @@ Then a deploy, which syncs the new value. There is no runbook to follow and no v
 | `terraform init` cannot reach the backend | `TF_API_TOKEN` missing or expired, or `TF_CLOUD_ORGANIZATION` naming an organization the token cannot see |
 | "organization must be set … TF_CLOUD_ORGANIZATION" | The caller passed no `tf_organization`. The job prints what it resolved before Terraform runs |
 | `POST /user/tokens: 403 … 9109` | The CI token lacks **User** → API Tokens → Edit. Account-scoped is not enough |
-| "not entitled to use the period N" | The zone's plan does not allow that rate-limit window. Free allows 10 seconds only; set `api_rate_limit_period` |
+| "not entitled to use the period N" / "…mitigation timeout different from N" | The zone's plan pins both. Free allows 10 for each; set `api_rate_limit_period` and `api_rate_limit_timeout` |
 | Plan runs on HCP instead of in CI, and cannot find credentials | The workspace is in remote execution mode; set it to Local (step 3) |
 | Deploy green, every request 500s | The secret sync did not run or did not carry all six; `wrangler secret list --env staging` |
 | `verify-deployment` reports a mismatch | The `env` block's `vars` are incomplete — wrangler does not inherit them |
