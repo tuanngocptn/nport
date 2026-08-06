@@ -1,6 +1,7 @@
 import { ERRORS, type ErrorCode, type ErrorDefinition, errorSlug } from "@nport/contract"
-import type { Metadata } from "next"
 import Link from "next/link"
+
+import { pageMetadata } from "../../lib/seo"
 
 /**
  * `/errors` — every code NPort can return or raise.
@@ -12,11 +13,12 @@ import Link from "next/link"
  * was before anything else.
  */
 
-export const metadata: Metadata = {
+export const metadata = pageMetadata({
+  path: "/errors",
   title: "Error codes — NPort",
   description:
     "Every error NPort can return or raise, with what causes it and what to do about it. Clients branch on the code, never on the message.",
-}
+})
 
 export default function ErrorsIndexPage() {
   // Widened deliberately: narrowed, every entry has a distinct literal type and the shared

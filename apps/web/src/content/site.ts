@@ -169,6 +169,81 @@ export const COMPARE: readonly CompareRow[] = [
   },
 ]
 
+export interface FaqEntry {
+  readonly question: string
+  readonly answer: string
+  readonly ships: Ships
+  readonly because?: string
+}
+
+/**
+ * The FAQ — rendered as a section **and** as `FAQPage` structured data, from this one list.
+ *
+ * That coupling is the point. v2 shipped a `FAQPage` block containing five questions and rendered none
+ * of them anywhere on the page, which is invalid by Google's own rule (the Q&A has to be visible on the
+ * source page) and is the exact failure `apps/web/CLAUDE.md` names when it says structured data "starts
+ * lying". Deriving both from one array means the markup cannot describe content the page does not show.
+ *
+ * Answers are plain prose, not markdown: `src/lib/seo.ts` puts them in JSON-LD verbatim, and a stray
+ * backtick would be rendered as a literal character by a crawler.
+ */
+export const FAQS: readonly FaqEntry[] = [
+  {
+    question: "What is NPort?",
+    answer:
+      "NPort gives your local development server a public HTTPS URL. It is a free, open-source alternative to ngrok, and it runs over Cloudflare's edge network rather than servers of its own.",
+    ships: "3.0",
+  },
+  {
+    question: "Do I need an account?",
+    answer:
+      "No. There is no signup, no API key and no dashboard, and there never will be — abuse control works without knowing who you are. Install it and run it.",
+    ships: "3.0",
+  },
+  {
+    question: "How do I install it?",
+    answer:
+      "Run npx nport 3000 to start a tunnel without installing anything. To keep it around, install it with npm i -g nport, or from Homebrew or Scoop.",
+    ships: "3.0",
+  },
+  {
+    question: "Is HTTPS automatic?",
+    answer:
+      "Yes. TLS is terminated at Cloudflare's edge, so every tunnel is HTTPS from the moment it is claimed and there are no certificates to manage.",
+    ships: "3.0",
+  },
+  {
+    question: "Does it support WebSockets?",
+    answer:
+      "Yes. WebSocket connections and Server-Sent Events pass through the tunnel alongside ordinary HTTP requests.",
+    ships: "3.0",
+  },
+  {
+    question: "How long does a tunnel last?",
+    answer:
+      // Deliberately not a number. `LEASE_TTL_SECONDS` is a server binding that differs between staging
+      // and production, the API publishes the live value at GET /v1/meta, and the server is the only
+      // authority on it (invariant 3). A duration typed into a static page is a client enforcing a
+      // limit it does not own, and it goes stale the first time the binding changes.
+      "As long as your client keeps renewing it. The server owns that limit and publishes the current one through its API; nport shows you the expiry it was given rather than deciding one itself.",
+    ships: "3.0",
+  },
+  {
+    question: "Can I run it on my own Cloudflare account?",
+    answer:
+      "Yes. Point NPort at your own account with --backend and the shared infrastructure drops out entirely: your tunnels, your zone, your logs.",
+    ships: "3.0",
+  },
+  {
+    question: "Can I inspect the requests going through the tunnel?",
+    answer:
+      "Yes — every request through the tunnel shows its method, status, timing, headers and body.",
+    ships: "phase-4",
+    because:
+      "Same deferral as the 'Live request inspector' feature above: the capture side exists in core::inspector, but the UI over it is Phase 4 and CLI traffic inspection is on docs/ROADMAP.md's Deferred list.",
+  },
+]
+
 /** Everything the page renders: the claims that are true now. */
 export function shippingFeatures(): readonly Feature[] {
   return FEATURES.filter((feature) => feature.ships === "3.0")
@@ -178,10 +253,16 @@ export function shippingCompareRows(): readonly CompareRow[] {
   return COMPARE.filter((row) => row.ships === "3.0")
 }
 
+export function shippingFaqs(): readonly FaqEntry[] {
+  return FAQS.filter((entry) => entry.ships === "3.0")
+}
+
 /** External destinations, in one place so `rel`/`target` cannot be forgotten per-link. */
 export const LINKS = {
   github: "https://github.com/tuanngocptn/nport",
   issues: "https://github.com/tuanngocptn/nport/issues",
   npm: "https://www.npmjs.com/package/nport",
   coffee: "https://www.buymeacoffee.com/tuanngocptn",
+  license: "https://github.com/tuanngocptn/nport/blob/main/LICENSE",
+  author: "https://github.com/tuanngocptn",
 } as const

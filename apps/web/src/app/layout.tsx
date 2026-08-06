@@ -1,11 +1,31 @@
 import type { Metadata } from "next"
 import type { ReactNode } from "react"
 
+import { SITE_DESCRIPTION, SITE_KEYWORDS, SITE_URL } from "../lib/seo"
+
 import "./globals.css"
 
+/**
+ * Only what is true of every route. The JSON-LD is per-page and lives in `page.tsx`.
+ *
+ * `metadataBase` belongs here and nowhere else: it is what resolves each page's relative canonical and
+ * OpenGraph URLs to absolute ones, and without it Next emits relative OG tags no crawler follows.
+ *
+ * **Deliberately no `alternates` and no `openGraph` here.** Next lets a page inherit whatever the layout
+ * declared, so a `canonical: "/"` at this level would put `<link rel="canonical" href="https://nport.link/">`
+ * on all 33 error pages and ask Google to drop every one of them — the pages every error message in the
+ * product links to. Each page states its own through `pageMetadata()` instead, which is a function a test
+ * can check rather than an inheritance rule someone has to remember.
+ *
+ * The `title` and `description` below are a fallback for a route that sets neither, not the home page's:
+ * `page.tsx` states its own.
+ */
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: "NPort",
-  description: "Tunnel localhost to a public URL over Cloudflare's edge. No account, no config.",
+  description: SITE_DESCRIPTION,
+  keywords: SITE_KEYWORDS,
+  applicationName: "NPort",
 }
 
 /**

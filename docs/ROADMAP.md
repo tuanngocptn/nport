@@ -17,7 +17,7 @@ its own, and a row that disagrees with its section is a bug in this table.
 | ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
 | ✅ | 2a · `apps/api` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
 | ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
-| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **In progress.** `/errors/[code]` live (33 generated pages) and the marketing page renders all seven sections plus `#compare`. JSON-LD, sitemap, MDX docs and the Playwright tier remain |
+| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **In progress.** `/errors/[code]` live (33 generated pages), the marketing page renders all seven sections plus `#compare` and `#faq`, and the SEO surface is complete (four JSON-LD blocks derived from the copy, 35-URL sitemap, robots, per-page canonical). The OpenGraph image, MDX docs and the Playwright tier remain |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
 | ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` — and now also waits on discovery, which its Nodes screen renders |
@@ -52,7 +52,7 @@ Building two apps against a shape that is about to change is the cost being avoi
 
 ## Current position
 
-**Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b code-complete, and staging is deployed.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented, tested in real `workerd`, and **running at `api.nport.online`**. 2c has not started.
+**Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b code-complete, and staging is deployed.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented, tested in real `workerd`, and **running at `api.nport.online`**. Federation is written but not deployed, and 2c is in progress: the site's pages, copy and SEO are built, with the OpenGraph image, MDX docs and Playwright tier left.
 
 **A port has been opened to the internet** (2026-08-06). The first tunnel provisioned, opened four HA connections to Cloudflare's edge, served a byte-identical body over HTTP/2, and tore down leaving NXDOMAIN — see Gate G2 below for exactly which criteria that did and did not cover. Getting there found four defects nothing offline could have found: `fetch` called with the wrong receiver, so *every* Cloudflare call raised `Illegal invocation`; the site's build script invoking itself until the runner died; staging's client-version floor refusing the only build that would ever point at it; and a Workers account with no `workers.dev` subdomain, which blocks all script uploads.
 
@@ -626,6 +626,15 @@ The approved design is `docs/mockup/NPort Site.dc.html` — read `docs/mockup/RE
 Transcribing it would have put false claims on a public page. Rewriting it would have lost the design. So `apps/web/src/content/site.ts` keeps every claim with a `ships` tag and a reason, renders only what is true at 3.0, and `site.test.ts` fails if that ever stops being true — Phase 4 becomes a status flip rather than an archaeology exercise. The mockup's own README rule 4 is what licenses this: "the design is not the authority on behaviour... those win and the design is wrong."
 
 The general lesson is worth more than the fix. **A design mockup is a claim about a finished product, and a site ships before the product is finished.** Anything transcribed from one needs a date attached, and the check has to be mechanical, because the copy reads as true right up until someone tries the feature.
+
+**The SEO surface is done**: the four JSON-LD blocks, `sitemap.xml`, `robots.txt`, and a canonical per page. It is the same finding one layer down — structured data is copy nobody reads, so parity with v2 meant *not* copying most of it.
+
+- v2's `SoftwareApplication` declared `softwareRequirements: "Node.js"`, false since ADR-0002 replaced the bundled binary with a native Rust connector, and `softwareVersion: "2.1.3"` with two hardcoded dates that had gone stale. All four fields are gone rather than corrected; `featureList` is now **derived from `src/content/site.ts`**, so the `ships` tags that keep the grid honest keep the markup honest too.
+- v2 shipped a **`FAQPage` block whose five questions appeared nowhere on the page**, which is invalid by Google's own rule that the Q&A be visible on the source page. `#faq` exists because that block does — an eighth section, not in the mockup, appended after the CTA rather than inserted into the fixed sequence.
+- v2's sitemap listed four `#fragment` URLs as separate documents. This one lists 35 real ones, and the 33 `/errors/<slug>` pages matter most: nothing on the site links to them, so a crawler that is not told about them never finds them at all.
+- A canonical URL set once in `layout.tsx` would have been inherited by every route and asked Google to drop all 33 of those pages. Each page states its own through `pageMetadata()`, and a test asserts it, because nothing renders a canonical tag and the failure is therefore silent.
+
+Also fixed while here: **four component comments cited the wrong `apps/web/CLAUDE.md` rule number** — off-by-ones from the previous commit. A cross-reference pointing at the wrong rule is worse than none, and unlike the checks above this one is not mechanisable, since every wrong number was still in range.
 
 **Gate G2c.** The site builds, deploys, and passes its own checks. It gates the 3.0 announcement, not the tunnel.
 

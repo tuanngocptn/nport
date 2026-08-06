@@ -20,7 +20,7 @@ export function Navbar() {
         </Link>
 
         {/* Hidden on small screens rather than collapsed into a menu: a menu needs client JS, and
-            every destination here is also reachable from the page itself (rule 4). */}
+            every destination here is also reachable from the page itself (rule 5). */}
         <ul className="hidden items-center gap-5 text-muted sm:flex">
           <li>
             <a href="#how" className="hover:text-text">

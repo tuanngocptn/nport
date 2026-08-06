@@ -5,6 +5,7 @@ import { notFound } from "next/navigation"
 
 import { codeFromSlug, errorPageParams } from "../../../lib/error-codes"
 import { inlineMarkdown } from "../../../lib/inline-markdown"
+import { pageMetadata } from "../../../lib/seo"
 
 /**
  * `/errors/<slug>` — the page every NPort error message points at.
@@ -48,17 +49,21 @@ interface PageProps {
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const code = codeFromSlug((await params).code)
+  const slug = (await params).code
+  const code = codeFromSlug(slug)
   if (!code) {
     return { title: "Unknown error code — NPort" }
   }
   const definition: ErrorDefinition = ERRORS[code]
-  return {
+  return pageMetadata({
+    // Its own canonical, not the layout's. Inheriting one would name the home page as the canonical
+    // version of all 33 of these — see `src/lib/seo.ts`.
+    path: `/errors/${slug}`,
     title: `${code} — NPort`,
     // The registry's own one-line cause, which is what a search result should show: someone arriving
     // here has already seen the message and wants to know what it means.
     description: `${definition.message} ${definition.cause}.`,
-  }
+  })
 }
 
 export default async function ErrorCodePage({ params }: PageProps) {

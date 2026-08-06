@@ -6,7 +6,7 @@ import { LINKS } from "../../content/site"
  * The design's heading is kept verbatim: "Free forever. Open source. No account." All three are true and
  * all three are invariants rather than marketing (invariant 1, the MIT licence, ADR-0007).
  *
- * **No version number and no install command per platform yet.** Rule 7 forbids hardcoding a version,
+ * **No version number and no install command per platform yet.** Rule 8 forbids hardcoding a version,
  * and Homebrew, Scoop and the npm packages are Phase 3 — so this offers the one install path that works
  * today and links to the repository for the rest. A download button for an artifact that does not exist
  * is the same class of claim as the features held back in `src/content/site.ts`.

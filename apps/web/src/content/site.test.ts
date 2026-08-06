@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest"
 
-import { COMPARE, FEATURES, LINKS, STEPS, shippingCompareRows, shippingFeatures } from "./site"
+import {
+  COMPARE,
+  FAQS,
+  FEATURES,
+  LINKS,
+  STEPS,
+  shippingCompareRows,
+  shippingFaqs,
+  shippingFeatures,
+} from "./site"
 
 /**
  * The marketing page must not claim something NPort does not do.
@@ -36,10 +45,18 @@ describe("the page renders only claims that are true", () => {
     expect(withheld.length).toBeGreaterThan(0)
   })
 
+  it("answers no question about something that does not work yet", () => {
+    // The FAQ is the one section whose copy is also structured data (`src/lib/seo.ts` builds `FAQPage`
+    // from it), so an over-promise here is published twice.
+    for (const entry of shippingFaqs()) {
+      expect(entry.ships, entry.question).toBe("3.0")
+    }
+  })
+
   it("makes every withheld claim say why, and where that is decided", () => {
     // Without this, "phase-4" is an assertion with no evidence — and the next person to read the list
     // cannot tell a deliberate deferral from a guess.
-    for (const item of [...FEATURES, ...COMPARE]) {
+    for (const item of [...FEATURES, ...COMPARE, ...FAQS]) {
       if (item.ships !== "3.0") {
         expect(item.because, "ships" in item ? JSON.stringify(item) : "").toBeTruthy()
         expect(item.because?.length ?? 0).toBeGreaterThan(20)
@@ -54,16 +71,26 @@ describe("the copy itself", () => {
     // reads as a broken page rather than as a cautious one.
     expect(shippingFeatures().length).toBeGreaterThanOrEqual(4)
     expect(shippingCompareRows().length).toBeGreaterThanOrEqual(5)
+    expect(shippingFaqs().length).toBeGreaterThanOrEqual(5)
     expect(STEPS).toHaveLength(3)
   })
 
+  it("writes FAQ answers as prose, not markdown", () => {
+    // These go into `FAQPage` JSON-LD verbatim (`src/lib/seo.ts`), and a crawler renders a backtick as a
+    // backtick. The steps and features may use it because `inlineMarkdown` renders those.
+    for (const entry of FAQS) {
+      expect(entry.answer, entry.question).not.toContain("`")
+    }
+  })
+
   it("hardcodes no version number or year", () => {
-    // Rule 7. A version in marketing copy is the thing that goes stale first, and a copyright year is
+    // Rule 8. A version in marketing copy is the thing that goes stale first, and a copyright year is
     // the classic one — both are derived or omitted, never typed.
     const prose = [
       ...FEATURES.map((f) => `${f.title} ${f.description}`),
       ...STEPS.map((s) => `${s.title} ${s.description}`),
       ...COMPARE.map((r) => `${r.feature} ${r.nport} ${r.ngrok}`),
+      ...FAQS.map((f) => `${f.question} ${f.answer}`),
     ].join(" ")
 
     expect(prose).not.toMatch(/\bv?\d+\.\d+\.\d+\b/)
@@ -71,7 +98,7 @@ describe("the copy itself", () => {
   })
 
   it("points every external link at https", () => {
-    // The components set `target="_blank" rel="noopener noreferrer"` per rule 9; this catches the other
+    // The components set `target="_blank" rel="noopener noreferrer"` per rule 10; this catches the other
     // half, which is that a link collected here is a real destination and not a placeholder.
     for (const [name, url] of Object.entries(LINKS)) {
       expect(url, name).toMatch(/^https:\/\//)

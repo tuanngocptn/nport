@@ -5,7 +5,7 @@ import { LINKS } from "../../content/site"
 /**
  * The footer. Design: `docs/mockup/NPort Site.dc.html`.
  *
- * No year, no version: rule 7 forbids hardcoding either, and a copyright year is the classic thing that
+ * No year, no version: rule 8 forbids hardcoding either, and a copyright year is the classic thing that
  * silently goes stale. The licence and the author are facts that do not move.
  */
 export function Footer() {
