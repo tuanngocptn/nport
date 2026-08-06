@@ -92,7 +92,7 @@ jobs:
       TF_WORKSPACE: nport-${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v7
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.14.9
           terraform_wrapper: false
@@ -197,7 +197,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: worker-secrets-${{ inputs.environment }}
           path: infra/terraform/worker-secrets.json
@@ -224,7 +224,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: worker-secrets-${{ inputs.environment }}
           path: /tmp/secrets
