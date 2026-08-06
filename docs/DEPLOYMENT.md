@@ -117,13 +117,22 @@ The token the control plane uses at runtime, and nothing else uses at all.
 
    | Permission group | Why |
    | --- | --- |
-   | Cloudflare Tunnel | create and delete the tunnel behind each subdomain |
+   | **`Argo Tunnel (Legacy)`** | create and delete the tunnel behind each subdomain |
+
+   **There is no group called "Cloudflare Tunnel".** Searching for that phrase finds this row only
+   because the words appear in its *description* — "Grants access to view Cloudflare Tunnels".
+   Cloudflare renamed the group to `Cloudflare Tunnel Write` in the API and left the dashboard label
+   as the old product name, so the two never look like the same thing. This is the one the control
+   plane needs; `Connectivity Directory`, which the same search returns, is not.
 
 3. **+ Add policy**, resource the zone `nport.online`, set to **Edit**:
 
    | Permission group | Why |
    | --- | --- |
-   | DNS | write and remove the `<tunnel>.cfargotunnel.com` CNAME |
+   | `DNS` | write and remove the `<tunnel>.cfargotunnel.com` CNAME |
+
+   A saved policy displays as `DNS Read, DNS Write` — `Edit` grants both, so that is what a correct
+   one looks like afterwards.
 
 4. **Token expiration:** `No expiration`. Expiry here fails only *new* tunnels while existing ones
    keep working — which reads as a Cloudflare outage rather than as a credential that ran out.
@@ -301,7 +310,7 @@ nothing until the next deploy.
 | `terraform init` cannot reach the backend | `TF_API_TOKEN` missing or expired, or `TF_CLOUD_ORGANIZATION` naming an organization the token cannot see |
 | "organization must be set … TF_CLOUD_ORGANIZATION" | The caller passed no `tf_organization`. The job prints what it resolved before Terraform runs |
 | `WORKER_CF_API_TOKEN is not set` | The step-2b token is missing from this GitHub Environment |
-| Deploy green, `POST /v1/tunnels` returns `PROVISION_FAILED` | `nport-worker` cannot create tunnels: its **Entire Account** policy is missing `Cloudflare Tunnel` → Edit. The Worker log names it — `cloudflare api error {operation: create-tunnel, status: 403, errors: ["[10000] Authentication error"]}` |
+| Deploy green, `POST /v1/tunnels` returns `PROVISION_FAILED` | `nport-worker` cannot create tunnels: its **Entire Account** policy is missing `Argo Tunnel (Legacy)` → Edit — the row is not called "Cloudflare Tunnel". The Worker log names it — `cloudflare api error {operation: create-tunnel, status: 403, errors: ["[10000] Authentication error"]}` |
 | Deploy green, teardown leaves the lease in `RELEASING` | Same token, other half: the **zone** policy is missing `DNS` → Edit |
 
 Neither is caught by any earlier step. `nport-worker` is not used until a tunnel is actually
