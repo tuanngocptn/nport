@@ -1,6 +1,5 @@
+import { ApiError } from "@nport/worker-kit"
 import type { MiddlewareHandler } from "hono"
-
-import { ApiError } from "../errors"
 import type { Env, Variables } from "../types"
 
 /**

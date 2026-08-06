@@ -54,6 +54,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0044 | Federation comes next, ahead of the website and the desktop app | Accepted |
 | 0045 | The subdomain mirror is hand-written logic over generated constants | Accepted |
 | 0046 | The registry gets its own OpenAPI document, and capacity is probed rather than claimed | Accepted |
+| 0047 | Worker plumbing shared in a package, rather than imported across deployables | Accepted |
 
 ---
 
@@ -951,3 +952,25 @@ The two capacity fields on `GET /v1/meta` are **optional**, and that is a compat
 - `nodeProofRecordName` puts the proof at `_nport-node.<domain>`, under a label no claim can reach — an underscore never passes `SUBDOMAIN_PATTERN` and `_` is a reserved prefix. The same reasoning `_acme-challenge` rests on, and there is a test asserting it rather than a comment.
 
 **Rejected.** *One document with per-operation `servers`* — legal OpenAPI, and it still titles one document "control-plane API" while describing a service that provisions nothing; a generated client would offer node registration against the node's own host. *A `service` discriminator on `RouteDefinition`* — same problem, plus every consumer then has to filter. *Trusting a node's declared capacity* — cheaper, and it rewards lying with traffic. *A registration bearer token* — one more secret for an operator to store and for us to rotate, replacing a proof that is already re-checked on every call. *Emitting a Rust type per document* — `nport_contract::registry::Node` and `nport_contract::api::MetaResponse` split one contract across two module paths for no gain, since `crates/core` uses both.
+
+## ADR-0047 — Worker plumbing shared in a package, rather than imported across deployables
+
+**Date** 2026-08-06 · **Status** Accepted
+
+**Context.** Phase 5 adds a second Worker. ADR-0031 said the registry's enrolment gate is "proof of work (reusing `apps/api/src/domain/pow.ts`)" — the right instinct, and a path that cannot be imported: `apps/registry` reaching into `apps/api/src` couples two independently deployable Workers, so a refactor inside one silently breaks the other's build, and neither app's `package.json` would record the dependency.
+
+Two things genuinely must not diverge. **Proof of work**, because the two services issue and verify challenges with the same algorithm — an implementation that drifted would verify something subtly different from what the sibling issues, and the failure would look like a client bug. And **the error envelope**, whose shape is fixed by `docs/ERRORS.md` and parsed by every client, including `crates/core`'s typed refusal reader. A second copy of that is how one service starts answering in a shape nothing is parsing for, which is ADR-0018's whole subject.
+
+**Decision.** `packages/worker-kit` — `ApiError`, `envelope`, `retryAfterSeconds`, and the proof-of-work issue/verify/solve functions, moved out of `apps/api` with their tests. Both Workers depend on it; neither depends on the other.
+
+The boundary is **no bindings, no `env`, no Hono**. That is what keeps the package testable under plain vitest rather than `workerd`, and it is the test for whether something belongs here: anything needing a binding stays in the app that owns the binding. So the middleware did *not* move — `requestId`, `rateLimit`, `clientGate` and `requireBindings` are typed against `apps/api`'s own `Env` and read its bindings, and generalising them over a type parameter to share four small functions would trade clarity for reuse nobody asked for.
+
+**Consequences.**
+
+- `apps/api/src/errors.ts` and `src/domain/pow.ts` are gone; imports point at `@nport/worker-kit`. 25 tests moved with them and run faster, since they never needed `workerd` in the first place — they touch no binding.
+- **Sharing the algorithm is not sharing the trust boundary.** Each Worker signs challenges with its own `POW_SECRET`, so a challenge issued by the registry is not solvable for a node and vice versa. Worth stating, because "shared proof of work" reads as if it were one pool of challenges.
+- `docs/ERRORS.md`'s generated `applies_to` named `apps/api/src/errors.ts`. Fixed in the generator, since the file is generated (invariant 6) — and it is a reminder that frontmatter is a path claim `verify-docs` does not check, because it only reads fenced layout blocks.
+- ADR-0031's text still names `apps/api/src/domain/pow.ts`. Left as written: accepted decisions are superseded, never edited, and this entry is the supersession.
+- One more package in the graph, and a real cost: `packages/worker-kit` is a third place a Worker change might need to land. Accepted because the alternative is two copies of the code that decides how every failure looks to every client.
+
+**Rejected.** *Importing across `apps/`* — couples two deployables and records the dependency nowhere. *Duplicating both modules* — the drift this repository has spent thirty-five defects learning to distrust, and the error envelope is the worst possible thing to have two of. *Putting them in `packages/contract`* — the contract is the API's authority, not a runtime library; giving it a crypto implementation and an exception class would make "the contract" mean two different things. *A broader `packages/shared`* — a name that invites everything and explains nothing; the next thing that wants sharing should have to argue for its own boundary, as this did.

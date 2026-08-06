@@ -80,7 +80,7 @@ describe("orphan removal", () => {
   it("leaves a tunnel that still has a live lease", async () => {
     // The case that matters most: reconciliation must never touch a working tunnel. Created through the
     // API, so the lease and the index are both real.
-    const { solveChallenge } = await import("../src/domain/pow")
+    const { solveChallenge } = await import("@nport/worker-kit")
     const { SELF } = await import("cloudflare:test")
     const headers = {
       "user-agent": "nport/3.0.0 (darwin; arm64)",

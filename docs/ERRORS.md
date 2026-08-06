@@ -1,7 +1,7 @@
 ---
 applies_to:
   - packages/contract/src/errors.ts
-  - apps/api/src/errors.ts
+  - packages/worker-kit/src/errors.ts
   - crates/cli/src/i18n/**
 ---
 

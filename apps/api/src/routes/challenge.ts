@@ -1,6 +1,5 @@
+import { issueChallenge } from "@nport/worker-kit"
 import { Hono } from "hono"
-
-import { issueChallenge } from "../domain/pow"
 import type { Env, Variables } from "../types"
 
 /**

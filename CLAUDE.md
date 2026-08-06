@@ -43,13 +43,13 @@ crates/protocol/   connector wire protocol     → crates/protocol/CLAUDE.md
 crates/contract/   Rust API mirror; generated.rs generated, subdomain.rs hand-written
 crates/xtask/      codegen, fixtures, verify-docs
 packages/contract/ zod + OpenAPI + errors — API AUTHORITY
+packages/worker-kit/     error envelope + proof of work, shared by api + registry
 packages/design-tokens/  tokens.css, shared by web + desktop
 packages/tsconfig/ shared tsconfig bases
 schema/            GENERATED: two OpenAPI docs, error registry, subdomain rules
 infra/terraform/   staging + prod infrastructure → docs/DEPLOYMENT.md
 docs/              contributor docs (user docs live in apps/web/src/content/docs)
-docs/mockup/       the approved UI design — check web and desktop against it. Reference only:
-                   never edited by hand, never imported, excluded from every check
+docs/mockup/       approved UI design — reference only: never edited, imported, or checked
 ```
 
 Dependency direction is one-way: `protocol → core → {cli, desktop}`, and `contract → core`. A `core → cli` edge is the most likely architectural regression — don't introduce one.

@@ -10,9 +10,8 @@
  */
 
 import { reset, SELF, env as testEnv } from "cloudflare:test"
+import { solveChallenge } from "@nport/worker-kit"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-
-import { solveChallenge } from "../src/domain/pow"
 import type { Env } from "../src/types"
 import { FakeCloudflare } from "./fake-cloudflare"
 

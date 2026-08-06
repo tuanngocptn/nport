@@ -6,8 +6,8 @@
  */
 
 import { SELF, env as testEnv } from "cloudflare:test"
+import { solveChallenge, verifyChallenge } from "@nport/worker-kit"
 import { describe, expect, it } from "vitest"
-import { solveChallenge, verifyChallenge } from "../src/domain/pow"
 import type { Env } from "../src/types"
 
 /**

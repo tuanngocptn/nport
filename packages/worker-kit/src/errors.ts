@@ -1,9 +1,13 @@
 /**
- * The one way this Worker fails.
+ * The one way **either** NPort Worker fails.
  *
- * **Never `throw new Error()`** (rule 2 in `apps/api/CLAUDE.md`). Throw [`ApiError`] with a code
- * from `@nport/contract`, and the error handler turns it into the documented envelope with the
- * right status.
+ * **Never `throw new Error()`** (rule 2 in `apps/api/CLAUDE.md`, and the same rule holds in
+ * `apps/registry`). Throw [`ApiError`] with a code from `@nport/contract`, and the app's error
+ * handler turns it into the documented envelope with the right status.
+ *
+ * Shared rather than copied (ADR-0047): the envelope's shape is fixed by `docs/ERRORS.md` and read by
+ * every client, so two implementations of it is two chances for one service to answer in a shape
+ * nobody is parsing for.
  *
  * v2 threw plain `Error`s whose messages carried a `PREFIX:` convention, returned them all as
  * HTTP 500, and the CLI matched substrings like `'currently in use'`. Every part of that is

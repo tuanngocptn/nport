@@ -10,7 +10,11 @@
  * not a resource an attacker can drain. That is the whole reason for the design; a table of
  * outstanding challenges would itself be the attack surface.
  *
- * Pure logic, heavily unit-tested, no bindings (`apps/api/CLAUDE.md` § Layout).
+ * Pure logic, heavily unit-tested, no bindings — which is what lets it live in a package rather than
+ * in one of the Workers. **Both Workers use this one implementation** (ADR-0047): `apps/api` gates
+ * `POST /v1/tunnels` with it and `apps/registry` gates `POST /v1/nodes`. The two sign with *different*
+ * secrets, so a challenge from one is not solvable for the other — sharing the algorithm is not
+ * sharing the trust boundary.
  */
 
 /** Fields a challenge commits to. Everything needed to verify it later, and nothing else. */

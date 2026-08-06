@@ -1,0 +1,10 @@
+{
+  "extends": "@nport/tsconfig/base.json",
+  "compilerOptions": {
+    // `crypto.subtle`, `btoa`, `Response` — this package runs inside a Worker, so it needs the
+    // Workers globals rather than Node's. It deliberately touches no binding and no `env`, which is
+    // what keeps it testable under plain vitest instead of `workerd`.
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src/**/*.ts"]
+}

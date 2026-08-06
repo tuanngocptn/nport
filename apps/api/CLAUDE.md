@@ -22,9 +22,8 @@ src/routes/legacy.ts    the v2 method-dispatch shim, and why it is weaker than /
 src/cloudflare/client.ts    the only place this Worker calls Cloudflare
 src/cloudflare/factory.ts   the only place a client is constructed
 src/cloudflare/dev-fake.ts  DEV ONLY: an in-memory Cloudflare, behind FAKE_CLOUDFLARE
-src/domain/             pow, ip-hash, owner-token, generated-name — pure logic, unit-tested
-                        (subdomain validation lives in packages/contract, not here)
-src/errors.ts           ErrorCode → HTTP status; codes imported from @nport/contract
+src/domain/             ip-hash, owner-token, generated-name — pure logic, unit-tested
+                        (subdomains → packages/contract; PoW + envelope → packages/worker-kit)
 src/env.ts              which bindings are required, and why
 test/                   workerd integration tests + test/fake-cloudflare.ts
 ```
@@ -44,7 +43,7 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 ## Rules
 
 1. **Every route is defined in `packages/contract` first.** Add the schema there, `pnpm codegen`, then implement. Never hand-write a validator.
-2. **Never `throw new Error()`.** Throw `ApiError(code)` with a code from the registry. The error-handler middleware maps it to a status and builds the envelope.
+2. **Never `throw new Error()`.** Throw `ApiError(code)` from `@nport/worker-kit` with a code from the registry. `app.onError` maps it to a status and builds the envelope. The envelope and proof of work are **shared with `apps/registry`** (ADR-0047) — a second copy of either is how one service starts answering in a shape no client parses for.
 3. **All Cloudflare API calls go through `src/cloudflare/client.ts`**, and every client is built by `src/cloudflare/factory.ts`. Never `fetch` the CF API directly — the client owns retry, backoff, idempotency, and error mapping — and never `new CloudflareClient` at a call site, or one caller ends up on the real API while the other is on the dev fake.
 4. **Anything that must be atomic lives in a Durable Object.** Never in KV, never in module scope.
 5. **Every mutation is idempotent.** DO alarms are at-least-once and clients retry.
@@ -52,16 +51,16 @@ pnpm wrangler secret put <NAME>       # runtime secrets, never via CI
 7. **Never delete a DNS record you cannot prove you own** — verify the CNAME target first (invariant 8).
 8. **Never surface an upstream Cloudflare error message.** Log it, return `UPSTREAM_CLOUDFLARE_ERROR` with a `requestId`.
 9. **No CORS headers, ever.** Their absence is an abuse control (`docs/API.md`).
-10. **`Retry-After` runs in both directions.** Outbound: a 429 or 503 that knows when it frees up must say so. `retryAfterSeconds` in `errors.ts` derives it from `details.retryAfter` (a duration) or `details.resetAt` (an instant), clamped to 1 s–1 h. A refusal carrying neither — `CONCURRENCY_LIMIT` — deliberately sends no header, because waiting is not the remedy. Inbound: `CloudflareClient` reads the header off a retryable upstream response, honours a delay under a second, and **stops retrying** when it is longer — spending the remaining subrequests on a service that just said "wait 30 s" is how a short rate-limit block becomes a long one.
+10. **`Retry-After` runs in both directions.** Outbound: a 429 or 503 that knows when it frees up must say so. `retryAfterSeconds` in `@nport/worker-kit` derives it from `details.retryAfter` (a duration) or `details.resetAt` (an instant), clamped to 1 s–1 h. A refusal carrying neither — `CONCURRENCY_LIMIT` — deliberately sends no header, because waiting is not the remedy. Inbound: `CloudflareClient` reads the header off a retryable upstream response, honours a delay under a second, and **stops retrying** when it is longer — spending the remaining subrequests on a service that just said "wait 30 s" is how a short rate-limit block becomes a long one.
 11. **No module-level mutable state.** Isolates are shared across callers.
 12. **Never log a token, an `ownerToken`, or a raw IP.** Source identity is `HMAC(ip, secret)` only.
 13. Watch the subrequest budget — 50 on the free plan, and a Durable Object hop counts. Provisioning makes **3** Cloudflare calls (`create-tunnel`, `tunnel-token`, `create-dns`), 4 when a DNS conflict forces an ownership check; teardown makes 4. `test/tunnels.test.ts` asserts both lists, so a new saga step shows up as a failing test rather than as a number in a comment. Any loop over CF calls needs an explicit bound.
 
 ## Common tasks
 
-**Add an endpoint** — `packages/contract` (schema + route) → `pnpm codegen` → `src/routes/` → `src/errors.ts` if new codes → test in `test/` → `docs/API.md` if the lifecycle changes.
+**Add an endpoint** — `packages/contract` (schema + route) → `pnpm codegen` → `src/routes/` → test in `test/` → `docs/API.md` if the lifecycle changes. A new *code* needs nothing here; the status travels with it from the registry.
 
-**Add an error code** — `packages/contract/src/errors.ts` → `pnpm codegen` (regenerates `docs/ERRORS.md`, `crates/contract`, and the website page) → translate it in `crates/cli/src/i18n.rs`, or add it to that file's `UNTRANSLATED` test list with the reason a user cannot act on it; a test enforces one or the other → assert the status mapping in a test.
+**Add an error code** — `packages/contract/src/errors.ts` → `pnpm codegen` (regenerates `docs/ERRORS.md`, `crates/contract`, and the website page) → translate it in `crates/cli/src/i18n.rs`, or add it to that file's `UNTRANSLATED` test list with the reason a user cannot act on it; a test enforces one or the other → assert the status mapping in a test. Nothing to change here: the status comes from the registry through `@nport/worker-kit`.
 
 **Change the provisioning saga** — `docs/ARCHITECTURE.md` §3a first, then `src/do/subdomain-lease.ts`. Every new step needs a journal entry, a compensation, and an integration test that kills the isolate mid-saga.
 

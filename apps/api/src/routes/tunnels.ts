@@ -16,15 +16,13 @@ import {
   deleteTunnelRequestSchema,
   heartbeatRequestSchema,
 } from "@nport/contract"
+import { ApiError, CHALLENGE_TTL_MS, verifyChallenge } from "@nport/worker-kit"
 import { Hono } from "hono"
-
 import type { Registry } from "../do/registry"
 import type { SourceQuota } from "../do/source-quota"
 import type { ClaimResult, SubdomainLease } from "../do/subdomain-lease"
 import { generateSubdomain } from "../domain/generated-name"
 import { hashOwnerToken, mintOwnerToken } from "../domain/owner-token"
-import { CHALLENGE_TTL_MS, verifyChallenge } from "../domain/pow"
-import { ApiError } from "../errors"
 import type { Env, Variables } from "../types"
 
 /**

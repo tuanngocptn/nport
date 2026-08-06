@@ -12,9 +12,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@nport/contract": "workspace:*",
-    "hono": "catalog:",
     "@hono/zod-validator": "catalog:",
+    "@nport/contract": "workspace:*",
+    "@nport/worker-kit": "workspace:*",
+    "hono": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

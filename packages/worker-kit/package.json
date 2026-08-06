@@ -1,0 +1,26 @@
+{
+  "name": "@nport/worker-kit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Plumbing every NPort Worker shares: the error envelope and stateless proof of work.",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./errors": "./src/errors.ts",
+    "./pow": "./src/pow.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nport/contract": "workspace:*"
+  },
+  "devDependencies": {
+    "@nport/tsconfig": "workspace:*",
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
