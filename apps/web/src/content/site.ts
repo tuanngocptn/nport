@@ -27,6 +27,26 @@
  * makes "do not lie in marketing" a check rather than a habit.
  */
 
+/**
+ * The hero, as data.
+ *
+ * Here rather than inside `sections/hero.tsx` because **the OpenGraph card renders the same words**
+ * (`src/app/opengraph-image.tsx`). A social card that disagreed with the page it links to is the same
+ * class of problem as structured data that does — invisible to anyone reading either one alone.
+ *
+ * `headline` is two lines because the design breaks it: the page renders a `<br />` between them, and the
+ * card renders them as separate rows. Joining them with a space is what a reader of the array gets.
+ */
+export const HERO = {
+  /** The design's, verbatim — it is true and it is good. */
+  headline: ["Your tunnels, your Cloudflare,", "your rules."],
+  supporting:
+    "Expose localhost over Cloudflare's edge with one command — custom subdomains, automatic HTTPS, and the option to run every tunnel on infrastructure you own. No account, ever.",
+  /** One string, because it appeared in two components before this and could have drifted in either. */
+  command: "npx nport 3000",
+  commandNote: "No signup. No config file. A public HTTPS URL in a couple of seconds.",
+} as const
+
 /** When a claim becomes true. The page renders `"3.0"` and nothing else. */
 export type Ships = "3.0" | "phase-4" | "deferred"
 

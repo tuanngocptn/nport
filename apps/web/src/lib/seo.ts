@@ -22,8 +22,8 @@ import { LINKS, STEPS, shippingFaqs, shippingFeatures } from "../content/site"
  *   used by any rich result, so they are omitted rather than wired to a build-time constant that would
  *   claim a content change on every unrelated rebuild.
  * - **`logo`, `image`, `screenshot`** — they pointed at `/assets/` files that do not exist in this app.
- *   A broken image URL is worse than an absent one; these come back with the OpenGraph image, which is
- *   its own 2c task.
+ *   They stay absent even now that `/opengraph-image` exists: `screenshot` means a picture of the software
+ *   running and `logo` means a mark, and a social card is neither. Present-and-wrong is worse than absent.
  */
 
 /**
@@ -63,9 +63,11 @@ export const SITE_KEYWORDS = [
  * page's title. Both are silent — nothing renders a canonical tag — so the safeguard has to be that every
  * page passes its own `path` and a test asserts the result contains it.
  *
- * **No image yet.** The OpenGraph image is a separate 2c task and this app has no `public/` directory to
- * serve one from. A card pointing at a missing file renders worse than a card with none, so `twitter.card`
- * stays `summary` rather than `summary_large_image`, which promises an image that is not there.
+ * **The image is not set here.** `src/app/opengraph-image.tsx` is a file convention: Next injects
+ * `og:image` and its dimensions into every page from that file alone, so setting `openGraph.images` would
+ * be a second source for one image. `twitter.card` is `summary_large_image` because there is now a
+ * 1200×630 card to justify it — it was `summary` while there was not, since a large-image card with no
+ * image renders worse than a small one.
  */
 export function pageMetadata({
   path,
@@ -88,7 +90,7 @@ export function pageMetadata({
       title,
       description,
     },
-    twitter: { card: "summary", title, description },
+    twitter: { card: "summary_large_image", title, description },
   }
 }
 

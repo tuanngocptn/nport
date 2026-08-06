@@ -17,7 +17,7 @@ its own, and a row that disagrees with its section is a bug in this table.
 | ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
 | ✅ | 2a · `apps/api` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
 | ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
-| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Nearly done.** `/errors/[code]` (33 generated pages), all seven sections plus `#compare` and `#faq`, the SEO surface, `/docs` in MDX with a generated CLI reference, and Playwright driving the built Worker (30 specs — which found defect 37, 33 pages that 404'd in production). The OpenGraph image, more doc pages and armed visual baselines remain |
+| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Nearly done.** `/errors/[code]` (33 generated pages), all seven sections plus `#compare` and `#faq`, the SEO surface with a build-time OpenGraph card, `/docs` in MDX with a generated CLI reference, and Playwright driving the built Worker (32 specs — which found defect 37, 33 pages that 404'd in production). More doc pages and armed visual baselines remain |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
 | ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` — and now also waits on discovery, which its Nodes screen renders |
@@ -664,7 +664,13 @@ Two things only reading the built output caught, both now tests: clap has not in
 
 Three decisions in it worth keeping. **`export const meta` rather than front-matter**, because it is a native MDX export that is typed by `src/mdx.d.ts` and needs no remark plugin — `@types/mdx` was installed and removed, since it types the default export and says in its own comment that it cannot type the named ones, which is the half that matters. **A registry rather than a directory scan**, because `generateStaticParams` runs at build time and a Worker has no filesystem — with `docs.test.ts` reading the directory and failing if the two disagree, since a hand-kept list is the shape defects 34, 35, 37 and 38 all had. And **`Docs` in the navbar**, which the mockup does not draw because it was drawn before there were docs: a docs site with no entry point from the home page is the discoverability half of the bug that left 33 error pages unreachable.
 
-**Still open in 2c:** the OpenGraph image, more doc pages (configuration, self-hosting, troubleshooting), and arming the visual baselines.
+**The OpenGraph card is done**, and it is a build-time PNG rather than a request-time one: the segment is static, so Next runs Satori during the build and the Worker serves 53 KB of bytes. Verified through the built Worker and by looking at the image, not by assuming — a 1200×630 PNG, with `og:image` injected into every page from the file convention alone.
+
+Two things it changed elsewhere. `twitter.card` moves from `summary` to `summary_large_image`, which was only ever `summary` because promising a large image with no image renders worse than not promising one. And `HERO` moves into `src/content/site.ts`: the card and the page now render the same headline and the same install command, where before the command was typed into two components and the headline into one. A social card that disagrees with its page is read by more people than the page and checked by nobody.
+
+**Satori has no CSS pipeline**, so the card cannot use Tailwind or a custom property, and rule 4's "no raw hex" cannot hold literally. It holds mechanically instead: `src/lib/og-colours.ts` copies three values and `og-colours.test.ts` parses `tokens.css` and fails if the copy drifts — the same arrangement `crates/contract/src/subdomain.rs` uses for the subdomain rules, and the reason `globals.css`'s two stray hex values were worth fixing rather than tolerating.
+
+**Still open in 2c:** more doc pages (configuration, self-hosting, troubleshooting), and arming the visual baselines.
 
 **Gate G2c.** The site builds, deploys, and passes its own checks. It gates the 3.0 announcement, not the tunnel.
 

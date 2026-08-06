@@ -115,6 +115,7 @@ Behaviour covered, because nothing else covers it:
 - `SoftwareApplication.featureList` names nothing `src/content/site.ts` holds back
 - each page declares **its own** canonical, not the home page's
 - `sitemap.xml` and `robots.txt` are served, the sitemap has no fragment URLs, and **every URL in it resolves**
+- `/opengraph-image` is a real 1200×630 PNG, checked by its signature and IHDR rather than its status code, and the metadata points at it
 - the sections appear in the order `apps/web/CLAUDE.md` rule 1 fixes, and no withheld claim reaches the document
 - the theme honours the OS preference and a stored `nport-theme`, and the script that sets it is inline, synchronous and in `<head>`
 

@@ -89,9 +89,13 @@ describe("SoftwareApplication", () => {
     }
   })
 
-  it("references no image while there is no image to reference", () => {
-    // v2's `logo`, `image` and `screenshot` pointed at `/assets/` paths this app does not serve. They
-    // return when the OpenGraph image does; until then a 404 in structured data is worse than a gap.
+  it("references no logo or screenshot, because neither exists", () => {
+    // v2's `logo`, `image` and `screenshot` pointed at `/assets/` paths this app does not serve.
+    //
+    // The OpenGraph card is **not** the thing to point them at, now that one exists: `screenshot` means a
+    // picture of the software running and `logo` means a mark, and the card is neither — it is type on a
+    // dark field. Filling these with it would be structured data that is present and wrong, which is
+    // worse than absent, and worse in the way nobody notices.
     const block = softwareApplicationJsonLd()
     for (const field of ["logo", "image", "screenshot"]) {
       expect(block, field).not.toHaveProperty(field)
@@ -166,11 +170,13 @@ describe("pageMetadata", () => {
     expect(error.openGraph?.url).toBe("/errors/subdomain-in-use")
   })
 
-  it("does not promise a large image card before there is an image", () => {
+  it("promises a large image card, and names no image itself", () => {
     const metadata = pageMetadata({ path: "/", title: "a", description: "b" })
     // @ts-expect-error `twitter` is a union and only the card variants carry `card`; the assertion is
     // the point of reading it.
-    expect(metadata.twitter?.card).toBe("summary")
+    expect(metadata.twitter?.card).toBe("summary_large_image")
+    // `src/app/opengraph-image.tsx` is a file convention — Next injects `og:image` from it. Setting
+    // `images` here as well would be two sources for one image, and the file would win silently.
     expect(metadata.openGraph).not.toHaveProperty("images")
   })
 

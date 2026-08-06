@@ -10,7 +10,7 @@ The public site at `nport.link`: marketing page, user documentation, and generat
 
 **The approved design is `docs/mockup/NPort Site.dc.html`.** Read `docs/mockup/README.md` before building or changing anything visual — that file is what UI, UX, and behaviour are checked against. It is reference only: never imported, never hand-edited, excluded from every check.
 
-**Status: 2c nearly done.** `/errors/[code]` (33 generated pages), the marketing page with `#compare` and `#faq`, the SEO surface, `/docs` in MDX including a **generated CLI reference**, and Playwright driving the built Worker (30 specs — how the 404 in the gotcha below was found). Left: the OpenGraph image, more doc pages, and arming the visual baselines (`docs/TESTING.md`).
+**Status: 2c nearly done.** `/errors/[code]` (33 generated pages), the marketing page with `#compare` and `#faq`, the SEO surface including a build-time OpenGraph card, `/docs` in MDX with a **generated CLI reference**, and Playwright driving the built Worker (32 specs — how the 404 in the gotcha below was found). Left: more doc pages, and arming the visual baselines (`docs/TESTING.md`).
 
 **The design's copy is not shippable as written, and that is recorded rather than worked around.** `docs/mockup` was drawn for the finished product, so its hero and four of its eight features advertise a desktop app (Phase 4), a request inspector (Phase 4), and request replay (**Deferred**). `src/content/site.ts` keeps every one of those claims with a `ships` tag and the reason it is held back; the page renders only what is true, and `site.test.ts` fails if it ever renders more. Phase 4 is a status flip. The mockup's own README rule 4 is what licenses this — the design is not the authority on behaviour.
 
@@ -26,7 +26,8 @@ src/content/docs.ts                   the docs registry: slugs, nav order, loade
 src/content/docs/*.mdx                USER docs, the only home for them; `export const meta`, no front-matter
 src/mdx-components.tsx mdx.d.ts       how MDX renders — the docs' entire stylesheet — and its types
 src/lib/error-codes.ts                slug ↔ code, in a lib so it is testable without a route
-src/lib/seo.ts                        the four JSON-LD blocks + per-page canonical/OG. json-ld.tsx emits them
+src/lib/seo.ts                        JSON-LD + per-page canonical/OG; json-ld.tsx emits, og-colours.ts checks
+src/app/opengraph-image.tsx           the social card, rendered at build time from site.ts's HERO
 src/lib/cli-reference.ts              reads schema/cli.json; src/components/cli-table.tsx renders it
 src/lib/inline-markdown.tsx           the two markdown constructs the registry's prose uses
 e2e/ playwright.config.ts             Playwright against the built Worker (ADR-0048)
@@ -34,7 +35,6 @@ open-next.config.ts next.config.ts postcss.config.mjs vitest.config.ts wrangler.
 
 # Planned and not yet written — parenthesised so the block cannot be read as a
 # description of the tree as it stands:
-(src/app/opengraph-image.tsx          the card image; until it exists, no og:image is claimed)
 (e2e/__screenshots__/linux/           visual baselines — not recorded yet, docs/TESTING.md)
 (public/.well-known/security.txt)
 ```
@@ -54,7 +54,7 @@ pnpm --filter @nport/web deploy       # normally CI does this
 ## Rules
 
 1. **Section order is fixed**, carried from v2 because it converts: navbar → hero → how-it-works → features → powered-by → CTA → footer. Reordering needs a reason beyond taste. **`#compare` is settled**: it sits between `powered-by` and the CTA, which is where the mockup puts it relative to features and download, keeps the v2 sequence intact, and is the strongest position for it — a reader who has just seen what NPort does and where it runs is the one asking how it differs. A build-order assertion is not automated; `sections/compare.tsx` carries the reasoning.
-2. **Never claim something NPort does not do yet.** Marketing copy lives in `src/content/site.ts` with a `ships` tag per claim, and only `"3.0"` renders. Anything else needs a `because` saying where the deferral is decided. `site.test.ts` enforces both, because the design over-promises by construction and a reviewer's memory is not a check.
+2. **Never claim something NPort does not do yet.** Marketing copy lives in `src/content/site.ts` with a `ships` tag per claim, and only `"3.0"` renders. Anything else needs a `because` saying where the deferral is decided. `site.test.ts` enforces both, because the design over-promises by construction and a reviewer's memory is not a check. **The hero is there too** — `opengraph-image.tsx` renders the same words, and a social card that disagrees with its page is read by more people than either.
 3. **All four JSON-LD blocks are required** — `WebSite`, `SoftwareApplication`, `HowTo`, `FAQPage`, built in `src/lib/seo.ts` and taking their claims **from `src/content/site.ts`, never restated**, so a Phase 4 flip updates the markup too. `FAQPage` is why `#faq` exists: Google requires the questions be visible on the page carrying the block, and v2 shipped five that were nowhere on it.
 4. **No raw hex colours in components.** Everything comes from `packages/design-tokens` via Tailwind utilities (ADR-0014).
 5. **Server-first.** `"use client"` needs a justification in review — the page's job is fast delivery, and v2 shipped its entire interaction budget in ~40 lines of vanilla JS.

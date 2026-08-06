@@ -117,3 +117,49 @@ test("the sitemap's own URLs resolve", async ({ request }) => {
   }
   expect(broken, `${broken.length} of ${paths.length} sitemap URLs do not resolve`).toEqual([])
 })
+
+test("the OpenGraph card is a real 1200x630 PNG the metadata points at", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/")
+
+  // Next injects `og:image` from the `opengraph-image.tsx` file convention, so this asserts two things at
+  // once: that the file was picked up, and that the URL it produced actually serves an image. A card that
+  // 404s is the failure mode nobody sees, because the only place it shows is somebody else's chat client.
+  const url = await page.locator('meta[property="og:image"]').getAttribute("content")
+  expect(url).toBeTruthy()
+  await expect(page.locator('meta[property="og:image:width"]')).toHaveAttribute("content", "1200")
+  await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute(
+    "content",
+    "summary_large_image",
+  )
+
+  // Fetched by path, because the metadata is absolute to nport.link and the server under test is not.
+  const response = await request.get(new URL(url ?? "").pathname)
+  expect(response.status()).toBe(200)
+  expect(response.headers()["content-type"]).toContain("image/png")
+
+  // The PNG signature and the IHDR dimensions — proof it is an image rather than an error page served
+  // with the wrong content type.
+  const bytes = await response.body()
+  expect([...bytes.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47])
+  expect(bytes.readUInt32BE(16)).toBe(1200)
+  expect(bytes.readUInt32BE(20)).toBe(630)
+})
+
+test("the card says what the page says", async ({ page, request }) => {
+  // Both render `HERO` from `src/content/site.ts`. Asserting the page's copy here is the cheap half; the
+  // card's text is inside a PNG and cannot be read back, so what is checkable is that the shared source is
+  // what the page shows — if someone hardcodes the hero again, this fails and the card silently stops
+  // matching.
+  await page.goto("/")
+  const { HERO } = await import("../src/content/site")
+  for (const line of HERO.headline) {
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(line)
+  }
+  await expect(page.locator("#top code")).toContainText(HERO.command)
+
+  const response = await request.get("/opengraph-image")
+  expect(response.status()).toBe(200)
+})

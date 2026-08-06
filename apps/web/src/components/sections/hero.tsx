@@ -13,29 +13,31 @@
  * Click anything."). There is no app to embed, so the slot holds the one command instead — which is
  * arguably the better hero for a CLI anyway.
  */
+import { HERO } from "../../content/site"
+
 export function Hero() {
   return (
     <section id="top" className="mx-auto max-w-5xl px-6 pt-20 pb-16 text-center">
+      {/* From `src/content/site.ts`, because `src/app/opengraph-image.tsx` renders the same words. */}
       <h1 className="font-display text-4xl leading-tight tracking-tight text-text sm:text-6xl">
-        Your tunnels, your Cloudflare,
-        <br />
-        your rules.
+        {HERO.headline.map((line, index) => (
+          <span key={line}>
+            {line}
+            {index < HERO.headline.length - 1 ? <br /> : null}
+          </span>
+        ))}
       </h1>
 
-      <p className="mx-auto mt-6 max-w-2xl text-lg text-muted">
-        Expose localhost over Cloudflare's edge with one command — custom subdomains, automatic
-        HTTPS, and the option to run every tunnel on infrastructure you own. No account, ever.
-      </p>
+      <p className="mx-auto mt-6 max-w-2xl text-lg text-muted">{HERO.supporting}</p>
 
       <div className="mx-auto mt-10 max-w-md">
         <pre className="overflow-x-auto rounded-lg border border-hair bg-card px-5 py-4 text-left font-mono text-sm text-text shadow-card">
           <code>
-            <span className="text-muted select-none">$ </span>npx nport 3000
+            <span className="text-muted select-none">$ </span>
+            {HERO.command}
           </code>
         </pre>
-        <p className="mt-3 text-sm text-muted">
-          No signup. No config file. A public HTTPS URL in a couple of seconds.
-        </p>
+        <p className="mt-3 text-sm text-muted">{HERO.commandNote}</p>
       </div>
     </section>
   )

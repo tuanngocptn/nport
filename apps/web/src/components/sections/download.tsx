@@ -1,4 +1,4 @@
-import { LINKS } from "../../content/site"
+import { HERO, LINKS } from "../../content/site"
 
 /**
  * `#download` — the CTA. Design: `docs/mockup/NPort Site.dc.html`.
@@ -25,7 +25,8 @@ export function Download() {
       <div className="mx-auto mt-8 max-w-md">
         <pre className="overflow-x-auto rounded-lg border border-hair bg-card px-5 py-4 text-left font-mono text-sm text-text shadow-card">
           <code>
-            <span className="text-muted select-none">$ </span>npx nport 3000
+            <span className="text-muted select-none">$ </span>
+            {HERO.command}
           </code>
         </pre>
       </div>
