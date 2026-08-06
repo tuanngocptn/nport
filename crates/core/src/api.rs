@@ -30,7 +30,7 @@ use std::time::Duration;
 
 use nport_contract::{
     ChallengeResponse, ClientKind, CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelRequest,
-    ErrorCode, ErrorEnvelope, HeartbeatRequest, HeartbeatResponse, MetaResponse,
+    ErrorCode, ErrorEnvelope, HeartbeatRequest, HeartbeatResponse, MetaResponse, NodeListResponse,
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::TcpStream;
@@ -194,6 +194,24 @@ impl Api {
     /// See [`ApiError`].
     pub async fn meta(&self) -> Result<MetaResponse, ApiError> {
         self.send("GET", "/v1/meta", None::<&()>).await
+    }
+
+    /// The node directory, from a **registry** rather than from a node.
+    ///
+    /// The odd one out: every other method here talks to a node, and this one talks to the directory
+    /// that lists nodes (ADR-0031). Pointing this same client at `registry.nport.link` is deliberate
+    /// reuse of the transport — the two services speak the same HTTP, carry the same error envelope,
+    /// and gate on the same client version, so a second client would be three hundred duplicated
+    /// lines and a second place for `connection: close` handling to be subtly wrong. It is **not** a
+    /// claim that they are one service: they hold different secrets and answer different paths, which
+    /// is why they have separate OpenAPI documents (ADR-0046).
+    ///
+    /// # Errors
+    ///
+    /// See [`ApiError`]. A registry that is unreachable is an ordinary failure here — the caller falls
+    /// back to its cached list, which is what makes a single directory not a single point of failure.
+    pub async fn nodes(&self) -> Result<NodeListResponse, ApiError> {
+        self.send("GET", "/v1/nodes", None::<&()>).await
     }
 
     /// Takes a challenge, solves it, and claims `subdomain` — or a generated name if `None`.

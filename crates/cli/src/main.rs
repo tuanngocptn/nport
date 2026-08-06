@@ -157,15 +157,32 @@ async fn run(args: Args) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // **`--backend` wins, and winning means skipping discovery** (ADR-0031). An explicit backend — from
+    // the flag or from `~/.nport/config.toml` — is a statement about which server to use, so asking a
+    // directory for one instead would be ignoring it. That is also what keeps every self-hosted
+    // deployment and `pnpm dev:cli` on exactly the path they were on before federation existed.
+    let backend = args.backend.or(configured.backend);
+    let registry = if backend.is_some() {
+        None
+    } else {
+        Some(
+            args.registry
+                .or(configured.registry)
+                .unwrap_or_else(|| nport_core::discovery::DEFAULT_REGISTRY.to_owned()),
+        )
+    };
+
     let config = TunnelConfig {
         local_port: port,
         // The **raw** request, not the normalized one. The server normalizes again and owns the value
         // that becomes a lease key; sending our version would put a second authority on the path.
         subdomain,
-        backend: args
-            .backend
-            .or(configured.backend)
-            .unwrap_or_else(|| nport_core::api::DEFAULT_BACKEND.to_owned()),
+        backend: backend.unwrap_or_else(|| nport_core::api::DEFAULT_BACKEND.to_owned()),
+        registry,
+        // `None` when there is no home directory to write to, which keeps the list in memory for that
+        // run rather than refusing to work. `core` resolves nothing itself.
+        nodes_cache: config::nodes_path(env),
+        node: args.node.or(configured.node),
         shutdown_grace: SHUTDOWN_GRACE,
     };
 

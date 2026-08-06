@@ -42,8 +42,20 @@ pub struct Args {
     pub subdomain: Option<String>,
 
     /// The control plane to use. For self-hosting and for `pnpm dev:api`.
+    // Setting this **skips node discovery entirely** (ADR-0031), which is what keeps every
+    // self-hosted deployment and `pnpm dev:cli` working exactly as they did before federation.
     #[arg(long, value_name = "URL")]
     pub backend: Option<String>,
+
+    /// The node directory to discover through. Ignored when `--backend` is given.
+    #[arg(long, value_name = "URL")]
+    pub registry: Option<String>,
+
+    /// Pin a specific node by id, instead of letting nport choose.
+    // `--node` and not `-n`: short flags are scarce and this is a rare option. `docs/FEATURES.md` §7
+    // notes the design's `-h <host>` is unavailable for the same class of reason — `-h` is `--help`.
+    #[arg(long, value_name = "ID")]
+    pub node: Option<String>,
 
     /// Interface language: `en`, `vi`, or `es`. Detected from the environment when omitted.
     #[arg(long, value_name = "LANG")]
@@ -116,6 +128,26 @@ mod tests {
         // A typo'd `--subdomian` must not quietly produce a generated name.
         let error = parse(&["3000", "--subdomian", "app"]).expect_err("unknown flag");
         assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+    }
+
+    /// `--node` and `--registry` parse, and neither steals a short flag.
+    #[test]
+    fn the_federation_flags_are_long_only() {
+        let args = Args::try_parse_from([
+            "nport",
+            "3000",
+            "--node",
+            "hk1",
+            "--registry",
+            "https://r.test",
+        ])
+        .expect("parses");
+        assert_eq!(args.node.as_deref(), Some("hk1"));
+        assert_eq!(args.registry.as_deref(), Some("https://r.test"));
+
+        // `-n` is deliberately not taken: short flags are scarce, this is a rare option, and the same
+        // reasoning is why `docs/FEATURES.md` §7 records that the design's `-h <host>` is unavailable.
+        assert!(Args::try_parse_from(["nport", "3000", "-n", "hk1"]).is_err());
     }
 
     #[test]

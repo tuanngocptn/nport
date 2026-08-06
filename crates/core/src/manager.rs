@@ -54,7 +54,26 @@ pub struct TunnelConfig {
     /// The requested subdomain, or `None` to have one generated.
     pub subdomain: Option<String>,
     /// The control-plane base URL. Overridable for self-hosting (`docs/SELF_HOSTING.md`).
+    ///
+    /// Used directly when [`Self::registry`] is `None`, and as nothing at all when it is `Some` — the
+    /// node comes from discovery then.
     pub backend: String,
+    /// The registry to discover a node through, or `None` to use [`Self::backend`] directly.
+    ///
+    /// **`None` is the switch that keeps `--backend` and every self-hosted deployment untouched**
+    /// (ADR-0031). Discovery is opt-in, and the opt-in is this field being set.
+    pub registry: Option<String>,
+    /// Where to cache the node list, or `None` to keep it in memory only.
+    ///
+    /// **This crate does not resolve a home directory**, deliberately: reading `HOME` from a library
+    /// is how a test writes to a developer's real `~/.nport`, which is what the first draft of the
+    /// failover tests did. `crates/cli` owns the environment and passes a path in.
+    pub nodes_cache: Option<std::path::PathBuf>,
+    /// A node id to pin, from `--node`. Ignored unless [`Self::registry`] is set.
+    ///
+    /// A pin that cannot be honoured is a hard failure rather than a silent fallback: the user named
+    /// one node, and quietly using another would be the wrong kind of helpful.
+    pub node: Option<String>,
     /// How long in-flight requests get to finish on shutdown. See [`DEFAULT_SHUTDOWN_GRACE`].
     pub shutdown_grace: Duration,
 }
@@ -67,6 +86,9 @@ impl TunnelConfig {
             local_port,
             subdomain,
             backend,
+            registry: None,
+            nodes_cache: None,
+            node: None,
             shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
         }
     }
@@ -466,6 +488,11 @@ mod tests {
             local_port: 3000,
             subdomain: Some("test".to_owned()),
             backend: "https://api.nport.link".to_owned(),
+            // Discovery off: these exercise a node directly, which is also every self-hosted
+            // deployment's path (`registry: None` is the switch, ADR-0031).
+            registry: None,
+            nodes_cache: None,
+            node: None,
             // Milliseconds, not the deployed 30 seconds: these tests assert the deadline is honoured,
             // and waiting half a minute to prove it would be its own kind of bug.
             shutdown_grace: Duration::from_millis(300),

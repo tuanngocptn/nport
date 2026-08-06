@@ -9,7 +9,7 @@ The Rust workspace: the connector, the tunnel manager, and the CLI. Style rules 
 | Crate | Lib name | Responsibility |
 | --- | --- | --- |
 | `protocol` | `nport_protocol` | Cloudflare connector wire protocol. See `crates/protocol/CLAUDE.md` |
-| `core` | `nport_core` | `TunnelManager`: provision → connect → proxy → teardown. Connection pool, reconnect, local proxy, event stream, optional inspector. **Headless.** |
+| `core` | `nport_core` | `TunnelManager`: discover → provision → connect → proxy → teardown. Connection pool, reconnect, local proxy, event stream, optional inspector. **Headless.** |
 | `cli` | bin `nport` | Argument parsing, terminal rendering, config file, i18n, signals |
 | `contract` | `nport_contract` | API types and `ErrorCode`, **generated** from `packages/contract` into `src/generated.rs` — never hand-edit that file. `src/lib.rs` and `src/subdomain.rs` are hand-written; see the crate README |
 | `xtask` | — | `cargo xtask codegen \| fixtures \| npm-packages \| verify-docs` |
@@ -56,6 +56,8 @@ cargo xtask codegen                     # must leave the tree clean
 6. No blocking I/O in `async fn`. No lock held across an `.await`.
 7. Every spawned task has a defined shutdown path.
 8. **Never derive `Debug` on anything holding a token or secret.** Use a redacting wrapper that zeroizes on drop.
+9. **`core` never reads the environment.** No `HOME`, no `std::env`. `crates/cli` resolves paths and passes them in — `TunnelConfig::nodes_cache` is the example, and the reason is concrete: a library reading `HOME` writes to a developer's real `~/.nport` from inside a test, which the first draft of the failover tests did.
+10. **Failover never happens after `POST /v1/tunnels` has been sent.** `discovery::may_try_another_node` is the whole decision: a node saying *it* cannot serve is a reason to move on; a node saying *you* may not is not, because per-source caps are per node and shopping around multiplies them.
 
 ## CLI-specific rules
 
@@ -74,9 +76,7 @@ The v2 CLI got several basics wrong; these are the corrections, and they are all
 
 **Add a CLI flag** — `crates/cli/src/args.rs` → thread it into the `TunnelConfig` in `core` if it affects behaviour → add i18n strings for all three languages → test the parse, including adjacent-flag cases like `-s -l vi` → `pnpm codegen` to refresh the generated flag reference on the site.
 
-**Add a `TunnelEvent`** — the enum in `core` → the exhaustive match in `event.rs`'s tests → render it in `crates/cli/src/render.rs` and add it to `renders_something_for_every_variant` → forward it in `apps/desktop` (its `src-tauri/src/events.rs` is Phase 4 and does not exist yet). **The compiler will not remind you**: `TunnelEvent` is `#[non_exhaustive]`, so a consumer in another crate needs a wildcard arm, and the CLI's is `_ => Vec::new()` — an unhandled variant renders as nothing. The `event.rs` test is the substitute, and it fails to compile rather than at runtime.
-
-**Add a language** — the language enum, the catalogue in `crates/cli`, and locale-detection tests. Open an issue first (`docs/CONTRIBUTING.md`). **Change the API client** — regenerate `crates/contract` from `packages/contract`; never hand-edit the generated types.
+**Add a `TunnelEvent`** — the enum in `core` → the exhaustive match in `event.rs`'s tests → render it in `crates/cli/src/render.rs` and add it to `renders_something_for_every_variant` → forward it in `apps/desktop` (its `src-tauri/src/events.rs` is Phase 4 and does not exist yet). **The compiler will not remind you**: `TunnelEvent` is `#[non_exhaustive]`, so a consumer in another crate needs a wildcard arm, and the CLI's is `_ => Vec::new()` — an unhandled variant renders as nothing. The `event.rs` test is the substitute, and it fails to compile rather than at runtime. **Add a language** — the language enum, the catalogue in `crates/cli`, and locale-detection tests. Open an issue first (`docs/CONTRIBUTING.md`). **Change the API client** — regenerate `crates/contract` from `packages/contract`; never hand-edit the generated types.
 
 ## Gotchas
 

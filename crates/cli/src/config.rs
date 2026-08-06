@@ -20,8 +20,12 @@ use serde::Deserialize;
 pub struct Config {
     /// Default subdomain, when `-s` is not given.
     pub subdomain: Option<String>,
-    /// Default control plane. For self-hosting (`docs/SELF_HOSTING.md`).
+    /// Default control plane. For self-hosting (`docs/SELF_HOSTING.md`). Skips discovery.
     pub backend: Option<String>,
+    /// Default node directory. `docs/FEATURES.md` §10's "Registry URL" setting.
+    pub registry: Option<String>,
+    /// Default node to pin.
+    pub node: Option<String>,
     /// Default interface language.
     pub lang: Option<String>,
     /// Default port, when none is given on the command line.
@@ -57,6 +61,17 @@ impl ConfigError {
 /// `$HOME` on Unix, `%USERPROFILE%` on Windows — read from the environment rather than through
 /// `std::env::home_dir`, whose behaviour has changed across releases in ways that would move a
 /// user's file out from under them.
+/// Where the discovered node list is cached: `~/.nport/nodes.json`.
+///
+/// Beside `config.toml`, and moved by the same `NPORT_HOME` override. **This is resolved here rather
+/// than in `crates/core`** — a library reading `HOME` is how a test ends up writing to a developer's
+/// real cache, which is exactly what the first draft of core's failover tests did. The CLI owns the
+/// environment; core takes a path.
+#[must_use]
+pub fn nodes_path(env: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    Some(path(env)?.with_file_name("nodes.json"))
+}
+
 #[must_use]
 pub fn path(env: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     let home = env("NPORT_HOME")

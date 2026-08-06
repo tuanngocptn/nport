@@ -15,6 +15,7 @@
 
 pub mod api;
 pub mod connector;
+pub mod discovery;
 pub mod event;
 pub mod exchange;
 pub mod inspector;

@@ -25,12 +25,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nport_contract::{ClientKind, ErrorCode};
+use nport_contract::{ClientKind, CreateTunnelResponse, ErrorCode};
 use nport_protocol::token::TunnelToken;
 use tokio::sync::{broadcast, oneshot};
 
 use crate::api::{Api, ApiError};
 use crate::connector::QuicConnector;
+use crate::discovery;
 use crate::event::{ShutdownReason, TunnelEvent};
 use crate::inspector::Observer;
 use crate::manager::{Connector, TunnelConfig, TunnelHandle, TunnelManager};
@@ -92,6 +93,64 @@ pub enum StartError {
     /// The Cloudflare edge could not be discovered.
     #[error("the Cloudflare edge could not be found")]
     Edge(#[from] crate::connector::SetupError),
+    /// No node could be found to provision against (ADR-0031).
+    #[error("no NPort node could be found")]
+    Discovery(#[from] crate::discovery::DiscoveryError),
+}
+
+/// Discovers a node and claims a lease on it, trying the next one only when it is safe to.
+///
+/// **The failover rule lives here, and it is the one thing in this file that can lose a user's
+/// tunnel.** `POST /v1/tunnels` is not idempotent, so this moves on to the next candidate *only* when
+/// [`may_try_another_node`] says the node answered and its answer proves nothing was created. A
+/// network failure mid-request is indistinguishable from one before it, so it ends the attempt rather
+/// than risking a second tunnel nobody holds the tokens for.
+///
+/// The loop is over *candidates*, not attempts: each node is tried once, in the order discovery
+/// ranked them, and a fresh challenge is taken per node because that is what `create_tunnel` does.
+async fn provision_via_registry(
+    config: &TunnelConfig,
+    client: ClientKind,
+    registry: &str,
+) -> Result<(Api, CreateTunnelResponse), StartError> {
+    let directory = Api::new(registry).map_err(StartError::Provision)?;
+    let candidates = discovery::select(
+        &directory,
+        config.nodes_cache.as_deref(),
+        config.node.as_deref(),
+    )
+    .await?;
+
+    // Carried so the *last* refusal is what the user sees. Reporting the first would name a node that
+    // may have been full while a later one was genuinely broken, and reporting a generic failure would
+    // throw away the only actionable thing in the sequence.
+    let mut last: Option<StartError> = None;
+
+    for candidate in candidates {
+        let api = match Api::new(&candidate.node.url) {
+            Ok(api) => api,
+            // A directory entry with an unusable URL. Nothing was sent, so moving on is safe.
+            Err(error) => {
+                last = Some(StartError::Provision(error));
+                continue;
+            }
+        };
+
+        match api.create_tunnel(config.subdomain.clone(), client).await {
+            Ok(lease) => return Ok((api, lease)),
+            Err(error) => {
+                let may_continue = discovery::may_try_another_node(&error);
+                last = Some(StartError::Provision(error));
+                if !may_continue {
+                    break;
+                }
+            }
+        }
+    }
+
+    Err(last.unwrap_or(StartError::Discovery(
+        discovery::DiscoveryError::NoNodeAvailable,
+    )))
 }
 
 impl StartError {
@@ -104,6 +163,7 @@ impl StartError {
             // A user seeing this is looking at a client/server version mismatch.
             Self::Token => ErrorCode::EdgeProtocolError,
             Self::Edge(_) => ErrorCode::EdgeDiscoveryFailed,
+            Self::Discovery(error) => error.code(),
         }
     }
 }
@@ -141,17 +201,27 @@ impl Tunnel {
         client: ClientKind,
         inspector: Option<Arc<dyn Observer>>,
     ) -> Result<Self, StartError> {
-        let api = Api::new(&config.backend).map_err(StartError::Provision)?;
+        // **`--backend` skips discovery entirely**, which is what keeps `pnpm dev:cli` and every
+        // self-hosted deployment working exactly as before (`docs/SELF_HOSTING.md`). `registry` being
+        // `Some` is the only thing that turns federation on, so the default path for a self-hoster is
+        // the one that asks no directory anything.
+        let (api, lease) = match config.registry.as_deref() {
+            None => {
+                let api = Api::new(&config.backend).map_err(StartError::Provision)?;
+                let lease = api
+                    .create_tunnel(config.subdomain.clone(), client)
+                    .await
+                    .map_err(StartError::Provision)?;
+                (api, lease)
+            }
+            Some(registry) => provision_via_registry(&config, client, registry).await?,
+        };
 
-        // **Before the claim, and failure here is not fatal.** The interval is the only thing read
-        // from it, and a tunnel that provisions fine should not be refused because a discovery
-        // endpoint hiccuped — so this is an `Option`, not a `?`.
+        // **After the claim now, and failure here is still not fatal.** The interval is the only thing
+        // read from it, and a tunnel that provisioned fine should not be refused because `/v1/meta`
+        // hiccuped — so this is an `Option`, not a `?`. It moved below the claim because the node is
+        // not known until the claim has happened on the federated path.
         let published = api.meta().await.ok().map(|meta| meta.heartbeat_interval_ms);
-
-        let lease = api
-            .create_tunnel(config.subdomain.clone(), client)
-            .await
-            .map_err(StartError::Provision)?;
 
         // Everything from here to a live connector can fail with the lease already claimed, and
         // **every one of those paths must release it**. Written as one closure rather than a `?` per
@@ -443,6 +513,11 @@ mod tests {
             local_port: 3000,
             subdomain: Some("myapp".to_owned()),
             backend,
+            // Discovery off: these exercise a node directly, which is also every self-hosted
+            // deployment's path (`registry: None` is the switch, ADR-0031).
+            registry: None,
+            nodes_cache: None,
+            node: None,
             // Milliseconds rather than the deployed 30 seconds: these assert the drain happens, and
             // waiting half a minute to prove it would be its own kind of bug.
             shutdown_grace: Duration::from_millis(300),
@@ -491,6 +566,273 @@ mod tests {
         });
 
         (format!("http://{addr}"), deletes)
+    }
+
+    /// A server that answers each path with a fixed response, and records the paths it was asked for.
+    ///
+    /// Deliberately not the `control_plane` helper above: these tests are about *which node gets
+    /// asked*, so the assertion is the recorded path list rather than a delete count.
+    async fn routed(
+        routes: Vec<(&'static str, &'static str)>,
+    ) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let recorded = Arc::clone(&seen);
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let routes = routes.clone();
+                let recorded = Arc::clone(&recorded);
+                tokio::spawn(async move {
+                    let mut head = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while !head.ends_with(b"\r\n\r\n") {
+                        match socket.read(&mut byte).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(_) => head.extend_from_slice(&byte),
+                        }
+                    }
+                    let request = String::from_utf8_lossy(&head).into_owned();
+                    let line = request.lines().next().unwrap_or_default().to_owned();
+                    recorded.lock().expect("lock").push(line.clone());
+
+                    // **Drain the declared body before answering.** Responding and closing while the
+                    // client is still writing its `POST` body resets the connection, and the client
+                    // reports that as `Unreachable` — which on this path is indistinguishable from a
+                    // node that died mid-request, so failover correctly refuses to continue and the
+                    // test fails for a reason that has nothing to do with the code. The first draft
+                    // did exactly that.
+                    let length = request
+                        .lines()
+                        .find_map(|header| {
+                            header
+                                .strip_prefix("content-length: ")
+                                .or_else(|| header.strip_prefix("Content-Length: "))
+                        })
+                        .and_then(|value| value.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
+                    let mut body = vec![0u8; length];
+                    if length > 0 && socket.read_exact(&mut body).await.is_err() {
+                        return;
+                    }
+
+                    let response = routes
+                        .iter()
+                        .find(|(pattern, _)| line.contains(*pattern))
+                        .map_or(
+                            "HTTP/1.1 404 Not Found\r\nconnection: close\r\ncontent-length: 0\r\n\r\n",
+                            |(_, response)| *response,
+                        );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+
+        (format!("http://{addr}"), seen)
+    }
+
+    fn json(status: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    fn leak(text: String) -> &'static str {
+        Box::leak(text.into_boxed_str())
+    }
+
+    const META: &str = r#"{"minClientVersion":"0.0.0","tunnelDurationMs":3600000,"heartbeatIntervalMs":30000,"powDifficulty":1,"maxConcurrentPerSource":3,"maxCreatesPerHourPerSource":20,"activeTunnels":1,"maxActiveTunnels":100}"#;
+
+    /// `/v1/meta` reporting plenty of room, so ranking puts this node first **deterministically**.
+    ///
+    /// The first draft relied on list order and failed only when the whole suite ran: ranking sorts by
+    /// measured latency, and two servers on loopback trade places run to run. Ranking on headroom is
+    /// the deterministic lever, and it makes the scenario a more honest one — see the test.
+    const META_ROOMY: &str = r#"{"minClientVersion":"0.0.0","tunnelDurationMs":3600000,"heartbeatIntervalMs":30000,"powDifficulty":1,"maxConcurrentPerSource":3,"maxCreatesPerHourPerSource":20,"activeTunnels":0,"maxActiveTunnels":1000}"#;
+
+    /// `/v1/meta` reporting one slot left, so this node ranks behind [`META_ROOMY`].
+    const META_TIGHT: &str = r#"{"minClientVersion":"0.0.0","tunnelDurationMs":3600000,"heartbeatIntervalMs":30000,"powDifficulty":1,"maxConcurrentPerSource":3,"maxCreatesPerHourPerSource":20,"activeTunnels":99,"maxActiveTunnels":100}"#;
+
+    /// A challenge at difficulty 1, so the solver finds a nonce immediately.
+    ///
+    /// Needed because `create_tunnel` fetches and solves one before it posts anything — which is also
+    /// why a node that only answers `/v1/tunnels` never gets a `POST` at all. The first draft of these
+    /// tests left it out and every one of them failed at the challenge step, which was the fake being
+    /// wrong rather than the code.
+    const CHALLENGE: &str =
+        r#"{"challenge":"test.challenge","difficulty":1,"expiresAt":4102444800000}"#;
+
+    /// A discovery cache path inside a scratch directory, so no test touches a real `~/.nport`.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("nport-failover-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        dir
+    }
+
+    /// **The rule that can lose a user's tunnel**, driven through the real provisioning path.
+    ///
+    /// A node answering `503 CAPACITY_EXHAUSTED` has told us it created nothing, so moving to the next
+    /// candidate is safe. `may_try_another_node`'s unit tests assert the predicate; this asserts the
+    /// loop actually uses it, which is the half `docs/ROADMAP.md`'s defect 25 is about.
+    ///
+    /// **The first node advertises the most room and then refuses**, which is not a contrived setup:
+    /// `MAX_ACTIVE_TUNNELS` is checked before the claim, so `apps/api`'s global cap is soft and a burst
+    /// can overshoot it between a probe and a create. Ranking on advertised headroom is also what makes
+    /// the order here deterministic — sorting on measured latency put two loopback servers in whichever
+    /// order the scheduler felt like, and the test passed alone and failed in the full suite.
+    #[tokio::test]
+    async fn a_full_node_is_skipped_and_the_next_one_serves() {
+        let (full, full_seen) = routed(vec![
+            ("/v1/challenge", leak(json("200 OK", CHALLENGE))),
+            ("/v1/meta", leak(json("200 OK", META_ROOMY))),
+            (
+                "/v1/tunnels",
+                leak(json(
+                    "503 Service Unavailable",
+                    r#"{"error":{"code":"CAPACITY_EXHAUSTED","message":"full","requestId":"r","docsUrl":"u"}}"#,
+                )),
+            ),
+        ])
+        .await;
+
+        let lease = r#"{"subdomain":"myapp","url":"https://myapp.nport.dev","tunnelId":"11111111-2222-3333-4444-555555555555","tunnelToken":"not-a-real-token","ownerToken":"o","expiresAt":1767225600000}"#;
+        let (spare, spare_seen) = routed(vec![
+            ("/v1/challenge", leak(json("200 OK", CHALLENGE))),
+            ("/v1/meta", leak(json("200 OK", META_TIGHT))),
+            ("/v1/tunnels", leak(json("201 Created", lease))),
+        ])
+        .await;
+
+        // The full node is listed first, so ranking cannot be what saves this.
+        let nodes = format!(
+            r#"{{"nodes":[{{"id":"aaa-full","url":"{full}","domain":"full.test","version":"3.0.0","status":"up","lastProbedAt":1}},{{"id":"bbb-spare","url":"{spare}","domain":"spare.test","version":"3.0.0","status":"up","lastProbedAt":1}}],"refreshAfterMs":300000}}"#
+        );
+        let (registry, _) = routed(vec![("/v1/nodes", leak(json("200 OK", &nodes)))]).await;
+
+        let mut config = config(String::new());
+        config.registry = Some(registry);
+        // **Never the real `~/.nport`.** `core` no longer resolves a home directory at all, so a test
+        // that forgot this would keep the list in memory rather than writing to a developer's cache.
+        config.nodes_cache = Some(discovery::cache_path(&scratch("capacity")));
+        // Provisioning succeeds and the token then fails to parse, which is where this stops — far
+        // enough to prove which node served.
+        let error = Tunnel::start(config, ClientKind::Cli, None).await.err();
+
+        assert!(
+            matches!(error, Some(StartError::Token)),
+            "should have got as far as parsing a token: {error:?}"
+        );
+        assert!(
+            full_seen
+                .lock()
+                .expect("lock")
+                .iter()
+                .any(|line| line.starts_with("POST /v1/tunnels")),
+            "the full node should have been tried first"
+        );
+        assert!(
+            spare_seen
+                .lock()
+                .expect("lock")
+                .iter()
+                .any(|line| line.starts_with("POST /v1/tunnels")),
+            "the spare node should have served after the refusal"
+        );
+    }
+
+    /// And the mirror image: a refusal about **the caller** must not be shopped around.
+    ///
+    /// Failing over on `CONCURRENCY_LIMIT` would multiply the per-source cap by the size of the
+    /// directory, since each node counts a source independently — `docs/ARCHITECTURE.md` §7's controls
+    /// defeated by the client politely trying again somewhere else.
+    #[tokio::test]
+    async fn a_cap_on_the_caller_is_not_shopped_to_another_node() {
+        let (first, _) = routed(vec![
+            ("/v1/challenge", leak(json("200 OK", CHALLENGE))),
+            ("/v1/meta", leak(json("200 OK", META))),
+            (
+                "/v1/tunnels",
+                leak(json(
+                    "429 Too Many Requests",
+                    r#"{"error":{"code":"CONCURRENCY_LIMIT","message":"too many","requestId":"r","docsUrl":"u"}}"#,
+                )),
+            ),
+        ])
+        .await;
+
+        let (second, second_seen) = routed(vec![
+            ("/v1/challenge", leak(json("200 OK", CHALLENGE))),
+            ("/v1/meta", leak(json("200 OK", META))),
+            (
+                "/v1/tunnels",
+                leak(json("201 Created", r#"{"subdomain":"x","url":"https://x.test","tunnelId":"11111111-2222-3333-4444-555555555555","tunnelToken":"t","ownerToken":"o","expiresAt":1}"#)),
+            ),
+        ])
+        .await;
+
+        let nodes = format!(
+            r#"{{"nodes":[{{"id":"aaa","url":"{first}","domain":"a.test","version":"3.0.0","status":"up","lastProbedAt":1}},{{"id":"bbb","url":"{second}","domain":"b.test","version":"3.0.0","status":"up","lastProbedAt":1}}],"refreshAfterMs":300000}}"#
+        );
+        let (registry, _) = routed(vec![("/v1/nodes", leak(json("200 OK", &nodes)))]).await;
+
+        let mut config = config(String::new());
+        config.registry = Some(registry);
+        config.nodes_cache = Some(discovery::cache_path(&scratch("concurrency")));
+        let error = Tunnel::start(config, ClientKind::Cli, None).await.err();
+
+        // The user's own cap, reported as such rather than worked around.
+        assert!(
+            matches!(
+                &error,
+                Some(StartError::Provision(api)) if api.code() == ErrorCode::ConcurrencyLimit
+            ),
+            "{error:?}"
+        );
+        assert!(
+            !second_seen
+                .lock()
+                .expect("lock")
+                .iter()
+                .any(|line| line.starts_with("POST /v1/tunnels")),
+            "the second node must not have been asked — that would double the cap"
+        );
+    }
+
+    /// `--backend` skips discovery entirely, which is every self-hoster's path.
+    #[tokio::test]
+    async fn an_explicit_backend_asks_no_registry() {
+        let (backend, seen) = routed(vec![
+            ("/v1/challenge", leak(json("200 OK", CHALLENGE))),
+            ("/v1/meta", leak(json("200 OK", META))),
+            (
+                "/v1/tunnels",
+                leak(json("201 Created", r#"{"subdomain":"x","url":"https://x.test","tunnelId":"11111111-2222-3333-4444-555555555555","tunnelToken":"t","ownerToken":"o","expiresAt":1}"#)),
+            ),
+        ])
+        .await;
+
+        let mut config = config(backend);
+        config.registry = None;
+        let _ = Tunnel::start(config, ClientKind::Cli, None).await;
+
+        let asked = seen.lock().expect("lock").clone();
+        assert!(
+            asked
+                .iter()
+                .any(|line| line.starts_with("POST /v1/tunnels")),
+            "{asked:?}"
+        );
+        assert!(
+            !asked.iter().any(|line| line.contains("/v1/nodes")),
+            "nothing should have asked for a node list: {asked:?}"
+        );
     }
 
     async fn collect(
