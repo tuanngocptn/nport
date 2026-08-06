@@ -301,7 +301,12 @@ nothing until the next deploy.
 | `terraform init` cannot reach the backend | `TF_API_TOKEN` missing or expired, or `TF_CLOUD_ORGANIZATION` naming an organization the token cannot see |
 | "organization must be set … TF_CLOUD_ORGANIZATION" | The caller passed no `tf_organization`. The job prints what it resolved before Terraform runs |
 | `WORKER_CF_API_TOKEN is not set` | The step-2b token is missing from this GitHub Environment |
-| Deploy green, `/v1/tunnels` returns `UPSTREAM_CLOUDFLARE_ERROR` | The step-2b token is wrong or lacks one of its two permissions. It is never used until a tunnel is provisioned, so nothing earlier can catch it |
+| Deploy green, `POST /v1/tunnels` returns `PROVISION_FAILED` | `nport-worker` cannot create tunnels: its **Entire Account** policy is missing `Cloudflare Tunnel` → Edit. The Worker log names it — `cloudflare api error {operation: create-tunnel, status: 403, errors: ["[10000] Authentication error"]}` |
+| Deploy green, teardown leaves the lease in `RELEASING` | Same token, other half: the **zone** policy is missing `DNS` → Edit |
+
+Neither is caught by any earlier step. `nport-worker` is not used until a tunnel is actually
+provisioned, so the pipeline is green with a token that does not work. `wrangler tail --env staging`
+is how you see the real Cloudflare error; the API never returns it (`docs/API.md`).
 | "not entitled to use the period N" / "…mitigation timeout different from N" | The zone's plan pins both. Free allows 10 for each; set `api_rate_limit_period` and `api_rate_limit_timeout` |
 | Plan runs on HCP instead of in CI, and cannot find credentials | The workspace is in remote execution mode; set it to Local (step 3) |
 | `wrangler deploy` fails on `/zones/…/workers/routes` with `code: 10000` | The token has no **Zone → Workers Routes**. "Authentication error" here means a missing permission, not a bad token |
