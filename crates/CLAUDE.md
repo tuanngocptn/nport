@@ -10,9 +10,9 @@ The Rust workspace: the connector, the tunnel manager, and the CLI. Style rules 
 | --- | --- | --- |
 | `protocol` | `nport_protocol` | Cloudflare connector wire protocol. See `crates/protocol/CLAUDE.md` |
 | `core` | `nport_core` | `TunnelManager`: discover → provision → connect → proxy → teardown. Connection pool, reconnect, local proxy, event stream, optional inspector. **Headless.** |
-| `cli` | bin `nport` | Argument parsing, terminal rendering, config file, i18n, signals |
+| `cli` | bin `nport`, lib `nport` | Argument parsing, terminal rendering, config file, i18n, signals. The lib exists so `xtask` can read `Args`'s clap definition — `main.rs` holds `main` and nothing else |
 | `contract` | `nport_contract` | API types and `ErrorCode`, **generated** from `packages/contract` into `src/generated.rs` — never hand-edit that file. `src/lib.rs` and `src/subdomain.rs` are hand-written; see the crate README |
-| `xtask` | — | `cargo xtask codegen \| fixtures \| npm-packages \| verify-docs` |
+| `xtask` | — | `cargo xtask codegen \| fixtures \| npm-packages \| verify-docs`. Depends on `nport` to generate `schema/cli.json`; outside the layering graph |
 
 ## Layering
 
@@ -74,7 +74,7 @@ The v2 CLI got several basics wrong; these are the corrections, and they are all
 
 ## Common tasks
 
-**Add a CLI flag** — `crates/cli/src/args.rs` → thread it into the `TunnelConfig` in `core` if it affects behaviour → add i18n strings for all three languages → test the parse, including adjacent-flag cases like `-s -l vi`. **No codegen step to run**: the flag reference on the site does not exist yet, and until it does, `--help` and the doc comments in `args.rs` are the only reference (defect 38).
+**Add a CLI flag** — `crates/cli/src/args.rs` → thread it into the `TunnelConfig` in `core` if it affects behaviour → add i18n strings for all three languages → test the parse, including adjacent-flag cases like `-s -l vi` → `cargo xtask codegen`, which regenerates `schema/cli.json` from the clap definition. CI fails on drift, so a flag added without it is caught.
 
 **Add a `TunnelEvent`** — the enum in `core` → the exhaustive match in `event.rs`'s tests → render it in `crates/cli/src/render.rs` and add it to `renders_something_for_every_variant` → forward it in `apps/desktop` (its `src-tauri/src/events.rs` is Phase 4 and does not exist yet). **The compiler will not remind you**: `TunnelEvent` is `#[non_exhaustive]`, so a consumer in another crate needs a wildcard arm, and the CLI's is `_ => Vec::new()` — an unhandled variant renders as nothing. The `event.rs` test is the substitute, and it fails to compile rather than at runtime. **Add a language** — the language enum, the catalogue in `crates/cli`, and locale-detection tests. Open an issue first (`docs/CONTRIBUTING.md`). **Change the API client** — regenerate `crates/contract` from `packages/contract`; never hand-edit the generated types.
 

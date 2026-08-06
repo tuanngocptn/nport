@@ -75,7 +75,9 @@ protocol → core → { cli, desktop }
 contract → core
 ```
 
-One-directional. **`crates/core` must never depend on `crates/cli`** — this is the most likely architectural regression in the repo. `core` is headless: no `println!`, no `eprintln!`, no `process::exit`, no TTY detection, no `dialoguer`. It emits `TunnelEvent`s; the CLI and the desktop app render them however they like.
+One-directional. **`crates/core` must never depend on `crates/cli`** — this is the most likely architectural regression in the repo.
+
+`crates/xtask` sits outside that graph and depends on `nport` on purpose: it generates `schema/cli.json` by walking `Args::command()`, which needs the type, which is why `crates/cli` has a `lib.rs` at all. A build tool reading the tree is not a consumer of it, and the direction that would matter is still `core → cli`. `core` is headless: no `println!`, no `eprintln!`, no `process::exit`, no TTY detection, no `dialoguer`. It emits `TunnelEvent`s; the CLI and the desktop app render them however they like.
 
 If you find yourself wanting to print from `core`, add an event variant instead.
 

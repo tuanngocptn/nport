@@ -67,6 +67,15 @@ pub fn run() -> Result<(), String> {
     std::fs::write(&target, out).map_err(|e| format!("writing {}: {e}", target.display()))?;
     rustfmt(&target)?;
     println!("wrote {}", target.display());
+
+    // The CLI reference goes the other way — read from Rust, written into `schema/` — so it is not part
+    // of the pipeline above and is emitted separately. `crates/xtask/src/cli_reference.rs` says why it is
+    // generated at all.
+    let reference = repo.join("schema/cli.json");
+    std::fs::write(&reference, crate::cli_reference::render()?)
+        .map_err(|e| format!("writing {}: {e}", reference.display()))?;
+    println!("wrote {}", reference.display());
+
     Ok(())
 }
 

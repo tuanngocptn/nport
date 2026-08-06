@@ -11,6 +11,7 @@
 
 use std::process::ExitCode;
 
+mod cli_reference;
 mod codegen;
 mod verify_docs;
 

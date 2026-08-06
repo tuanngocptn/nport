@@ -5712,6 +5712,8 @@ dependencies = [
 name = "xtask"
 version = "0.0.0"
 dependencies = [
+ "clap",
+ "nport",
  "serde_json",
 ]
 

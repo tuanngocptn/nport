@@ -125,6 +125,12 @@ zeroize = { version = "1.9", features = ["derive"] }
 nport-contract = { path = "crates/contract", version = "3.0.0-dev" }
 nport-core = { path = "crates/core", version = "3.0.0-dev" }
 nport-protocol = { path = "crates/protocol", version = "3.0.0-dev" }
+# The CLI, for `crates/xtask` only. It is here so `cargo xtask codegen` can read `Args`'s clap
+# definition and generate the flag reference from it rather than from a table someone retypes
+# (defect 38). `crates/cli` gained a `lib.rs` for this and nothing else — see its crate docs. This is
+# not an edge in the `protocol → core → {cli, desktop}` graph: `xtask` is a build tool, not a
+# consumer, and the direction that would be a regression is `core → cli`.
+nport = { path = "crates/cli", version = "3.0.0-dev" }
 
 [profile.release]
 lto = "thin"

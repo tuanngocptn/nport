@@ -1,0 +1,109 @@
+{
+  "$generated": "by `cargo xtask codegen` from crates/cli/src/args.rs — do not edit",
+  "about": "Expose localhost to a public *.nport.link URL. Free, no account needed.",
+  "flags": [
+    {
+      "builtin": false,
+      "help": "The local port to expose",
+      "id": "port",
+      "long": "port",
+      "required": false,
+      "short": "p",
+      "takesValue": true,
+      "valueName": "PORT"
+    },
+    {
+      "builtin": false,
+      "help": "The subdomain to claim. Omit to have one generated",
+      "id": "subdomain",
+      "long": "subdomain",
+      "required": false,
+      "short": "s",
+      "takesValue": true,
+      "valueName": "NAME"
+    },
+    {
+      "builtin": false,
+      "help": "The control plane to use. For self-hosting and for `pnpm dev:api`",
+      "id": "backend",
+      "long": "backend",
+      "required": false,
+      "short": null,
+      "takesValue": true,
+      "valueName": "URL"
+    },
+    {
+      "builtin": false,
+      "help": "The node directory to discover through. Ignored when `--backend` is given",
+      "id": "registry",
+      "long": "registry",
+      "required": false,
+      "short": null,
+      "takesValue": true,
+      "valueName": "URL"
+    },
+    {
+      "builtin": false,
+      "help": "Pin a specific node by id, instead of letting nport choose",
+      "id": "node",
+      "long": "node",
+      "required": false,
+      "short": null,
+      "takesValue": true,
+      "valueName": "ID"
+    },
+    {
+      "builtin": false,
+      "help": "Interface language: `en`, `vi`, or `es`. Detected from the environment when omitted",
+      "id": "lang",
+      "long": "lang",
+      "required": false,
+      "short": null,
+      "takesValue": true,
+      "valueName": "LANG"
+    },
+    {
+      "builtin": false,
+      "help": "Print the tunnel's URL and nothing else. For scripts",
+      "id": "quiet",
+      "long": "quiet",
+      "required": false,
+      "short": "q",
+      "takesValue": false,
+      "valueName": null
+    },
+    {
+      "builtin": true,
+      "help": "Print help",
+      "id": "help",
+      "long": "help",
+      "required": false,
+      "short": "h",
+      "takesValue": false,
+      "valueName": null
+    },
+    {
+      "builtin": true,
+      "help": "Print version",
+      "id": "version",
+      "long": "version",
+      "required": false,
+      "short": "V",
+      "takesValue": false,
+      "valueName": null
+    }
+  ],
+  "name": "nport",
+  "positionals": [
+    {
+      "builtin": false,
+      "help": "The local port to expose",
+      "id": "port_positional",
+      "long": null,
+      "required": false,
+      "short": null,
+      "takesValue": true,
+      "valueName": "PORT"
+    }
+  ]
+}

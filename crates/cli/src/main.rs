@@ -20,10 +20,9 @@
 
 #![forbid(unsafe_code)]
 
-mod args;
-mod config;
-mod i18n;
-mod render;
+// The modules live in `lib.rs` so `crates/xtask` can read `Args`'s clap definition and generate the
+// flag reference from it — see the crate docs there. This file holds `main` and the helpers only it uses.
+use nport::config;
 
 use std::process::ExitCode;
 use std::time::Duration;
@@ -36,9 +35,9 @@ use nport_core::manager::TunnelConfig;
 use nport_core::tunnel::Tunnel;
 use tokio::sync::broadcast::error::RecvError;
 
-use crate::args::Args;
-use crate::i18n::{Lang, Message};
-use crate::render::{Renderer, Stream, Verbosity};
+use nport::args::Args;
+use nport::i18n::{Lang, Message};
+use nport::render::{Renderer, Stream, Verbosity};
 
 /// How long the connections get to drain on Ctrl+C.
 ///

@@ -77,7 +77,7 @@ pnpm --filter @nport/web deploy       # normally CI does this
 
 **The mockup does not design the error pages.** It specifies the marketing site's five sections; these follow `packages/design-tokens` and nothing else. Anything the mockup *does* cover is checked against it (`docs/mockup/README.md`).
 
-**Update the CLI flag reference** — there isn't one yet. It is owed (defect 38) and belongs in the MDX docs, generated from `crates/cli`'s clap definition rather than retyped.
+**Update the CLI flag reference** — you don't. `schema/cli.json` is generated from `crates/cli`'s clap definition by `cargo xtask codegen`. The **page** that renders it is still owed and belongs with the MDX docs; read the JSON, never retype it.
 
 ## Gotchas
 
