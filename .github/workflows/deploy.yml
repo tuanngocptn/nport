@@ -28,10 +28,6 @@ permissions:
 
 env:
   COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
-  # `versions.tf` names neither, so one configuration serves both environments. `TF_WORKSPACE`
-  # selects which state HCP hands back; the workspace is created on first init if it is missing.
-  TF_CLOUD_ORGANIZATION: ${{ vars.TF_CLOUD_ORGANIZATION }}
-  TF_WORKSPACE: nport-${{ inputs.environment }}
   # Derived rather than passed, so the workflow cannot disagree with itself about where to look.
   # `api` matches `api_subdomain`'s default in infra/terraform/variables.tf; change one and the
   # verify job fails, which is the intended way to find out.
@@ -76,6 +72,16 @@ jobs:
     defaults:
       run:
         working-directory: infra/terraform
+    # **Declared on the job, not on the workflow.** An Environment's variables only resolve inside a
+    # job that declares `environment:`; at workflow level that context does not exist yet and
+    # `vars.TF_CLOUD_ORGANIZATION` silently evaluates to empty. Terraform then reports the
+    # organization as unset, which reads like a missing GitHub setting rather than a scoping mistake.
+    #
+    # `versions.tf` names neither the organization nor the workspace, so one configuration serves
+    # every environment; these two are what select the state HCP hands back.
+    env:
+      TF_CLOUD_ORGANIZATION: ${{ vars.TF_CLOUD_ORGANIZATION }}
+      TF_WORKSPACE: nport-${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v3
@@ -85,6 +91,18 @@ jobs:
           # Writes ~/.terraformrc so `terraform init` can reach app.terraform.io. This is the only
           # credential the state backend needs — there is no bucket and no derived key pair.
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      # Terraform's own message names the environment variable, not where it comes from. This names
+      # the setting to go and fix.
+      - name: The organization is configured
+        run: |
+          if [ -z "${TF_CLOUD_ORGANIZATION}" ]; then
+            echo "TF_CLOUD_ORGANIZATION is empty."
+            echo "Set it as a *variable* on the '${{ inputs.environment }}' GitHub Environment"
+            echo "(Settings → Environments → ${{ inputs.environment }} → Variables), not as a secret."
+            exit 1
+          fi
+          echo "organization: ${TF_CLOUD_ORGANIZATION}, workspace: ${TF_WORKSPACE}"
 
       - run: terraform fmt -check -diff
       - run: terraform init -input=false

@@ -90,7 +90,7 @@ set. One name, three uses, so they cannot disagree.
 | secret | `CLOUDFLARE_API_TOKEN` | step 2 |
 | secret | `CLOUDFLARE_ACCOUNT_ID` | this account's id |
 | secret | `TF_API_TOKEN` | step 3 |
-| variable | `TF_CLOUD_ORGANIZATION` | your HCP organization name |
+| variable | `TF_CLOUD_ORGANIZATION` | your HCP organization name — a **variable**, not a secret |
 
 **Three secrets, and none of them is a Worker secret.** Add **required reviewers** here if a deploy should
 pause for a human — that is the mechanism for production, rather than a separate workflow.
@@ -202,6 +202,7 @@ Then a deploy, which syncs the new value. There is no runbook to follow and no v
 | Apply fails at `cloudflare_api_token.worker` | The CI token lacks Tunnel Edit or DNS Edit — step 2's trap |
 | Apply fails at a permission-group lookup | Cloudflare renamed the group; the error carries the API call that lists the real names, then set `tunnel_permission_group` or `dns_permission_group` |
 | `terraform init` cannot reach the backend | `TF_API_TOKEN` missing or expired, or `TF_CLOUD_ORGANIZATION` naming an organization the token cannot see |
+| "organization must be set … TF_CLOUD_ORGANIZATION" | The variable is on the repository rather than the Environment, or is a secret rather than a variable. The job prints what it resolved before Terraform runs |
 | Plan runs on HCP instead of in CI, and cannot find credentials | The workspace is in remote execution mode; set it to Local (step 3) |
 | Deploy green, every request 500s | The secret sync did not run or did not carry all six; `wrangler secret list --env staging` |
 | `verify-deployment` reports a mismatch | The `env` block's `vars` are incomplete — wrangler does not inherit them |
