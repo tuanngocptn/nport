@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars and fill in for the environment you are pointing at. Not committed.
+#
+# These are the only two values that differ between staging and production. Everything else in this
+# configuration is identical for both, which is the point — see infra/terraform/README.md.
+#
+# staging     account_id = <staging account>,    zone_name = "nport.online"
+# production  account_id = <production account>, zone_name = "nport.link"
+
+account_id = "REPLACE_WITH_ACCOUNT_ID"
+zone_name  = "nport.online"

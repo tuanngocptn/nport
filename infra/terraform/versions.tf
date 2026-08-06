@@ -1,4 +1,9 @@
-# Terraform and provider pins for the staging account.
+# Terraform and provider pins.
+#
+# **One configuration, both environments.** Staging and production run the same infrastructure in
+# separate Cloudflare accounts (ADR-0038); the only things that differ are the inputs — the account,
+# the zone, and which state file the backend writes. Two directories would drift the first time
+# somebody changed one and not the other, and the drift would be invisible until a production apply.
 #
 # Pinned exactly, for the same reason `rust-toolchain.toml` pins a stable version rather than
 # `stable` (`docs/conventions/rust.md`): a provider that moves under a deploy is noise nobody needs
@@ -20,16 +25,18 @@ terraform {
   # The bucket itself is **not** managed here — it holds this state, and a resource cannot create the
   # store its own state lives in. `infra/terraform/README.md` § Bootstrap creates it once by hand.
   #
-  # Everything below is filled in by `-backend-config=backend.hcl`, because a backend block cannot
-  # take variables and the account id does not belong in the repository. The `skip_*` flags and
-  # `use_path_style` are what make the AWS backend talk to R2 rather than to S3; without them the
-  # SDK tries to resolve a region and validate credentials against endpoints that do not exist here.
+  # `bucket`, `endpoints` and **`key`** are all supplied by `-backend-config=backend.hcl`, because a
+  # backend block cannot take variables. `key` is what separates one environment's state from the
+  # other's, and it is deliberately not defaulted here: a default would be the wrong one for whichever
+  # environment forgot to override it, and the failure would be two environments sharing one state.
+  #
+  # The `skip_*` flags and `use_path_style` are what make the AWS backend talk to R2 rather than to
+  # S3; without them the SDK tries to resolve a region and validate credentials against endpoints
+  # that do not exist here.
   #
   # `use_lockfile` is S3-native locking (conditional writes), which R2 supports — so there is no
-  # DynamoDB table to run and no way for two CI runs to apply at once.
+  # DynamoDB table to run and no way for two runs to apply at once.
   backend "s3" {
-    key = "staging/terraform.tfstate"
-
     region                      = "auto"
     use_path_style              = true
     use_lockfile                = true

@@ -1,9 +1,0 @@
-# Copy to backend.hcl and fill in. Not committed: the account id is not repository content.
-#   terraform init -backend-config=backend.hcl
-#
-# The bucket is created once by hand — see infra/terraform/README.md § Bootstrap.
-bucket   = "nport-tfstate"
-endpoints = { s3 = "https://REPLACE_WITH_STAGING_ACCOUNT_ID.r2.cloudflarestorage.com" }
-
-# R2 S3 API credentials, NOT a Cloudflare API token. Export them instead of writing them here:
-#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY

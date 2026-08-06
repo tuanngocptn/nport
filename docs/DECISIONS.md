@@ -767,6 +767,8 @@ But a stack that CI applies is a stack CI can make emit anything it declares. If
 
 **Decision.** Terraform owns zone settings and the edge rate-limit ruleset. It does not create API tokens, and it does not manage Worker secrets. Both are bootstrap steps performed by a person, documented in `infra/terraform/README.md`.
 
+**One configuration serves both environments**, not a directory each. The resources are identical by design — the whole value of staging is that it is the same infrastructure — so the only per-environment inputs are `account_id`, `zone_name`, and the backend `key`. A directory per environment invites exactly the drift that makes a staging deploy stop predicting a production one. The same reasoning applies to `.github/workflows/deploy.yml`, which both environments call.
+
 Terraform also does not manage the Workers, their routes, or their custom domains: `custom_domain: true` in `wrangler.jsonc` creates the DNS record, and two tools on one record fight on every deploy. The zone is a `data` source rather than a resource, so `terraform destroy` cannot take the zone with it.
 
 **Consequences.**

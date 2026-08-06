@@ -1,5 +1,5 @@
 variable "account_id" {
-  description = "Cloudflare account for staging. A different account from production, not just a different zone (ADR-0038)."
+  description = "The Cloudflare account to apply to. Staging and production are separate accounts, not separate zones (ADR-0038)."
   type        = string
 
   validation {
@@ -9,7 +9,7 @@ variable "account_id" {
 }
 
 variable "zone_name" {
-  description = "The apex domain for staging, e.g. nport.online."
+  description = "The apex domain for this environment: nport.online for staging, nport.link for production."
   type        = string
 
   validation {

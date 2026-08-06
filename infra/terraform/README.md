@@ -1,8 +1,17 @@
 # Infrastructure
 
-Terraform for the Cloudflare resources that `wrangler` cannot express. One directory per
-environment; `staging/` is the only one that exists, and production follows it when G2 closes
-(`docs/ROADMAP.md`).
+Terraform for the Cloudflare resources that `wrangler` cannot express.
+
+**One configuration, every environment.** Staging and production get identical infrastructure in
+separate Cloudflare accounts (ADR-0038). Two directories would let them drift the first time
+somebody changed one and not the other, and the drift would be invisible until a production apply.
+What differs is three inputs, none of which live in the repository:
+
+| Input | Where it comes from |
+| --- | --- |
+| `account_id` | `CLOUDFLARE_ACCOUNT_ID`, per GitHub Environment |
+| `zone_name` | the workflow caller — `nport.online` for staging, `nport.link` for production |
+| backend `key` | `<environment>/terraform.tfstate`, so the two never share a state file |
 
 ## The boundary
 
@@ -60,28 +69,38 @@ forbidden to hold. Everything below is the irreducible manual part.
    `CF_ZONE_ID` and `CF_DOMAIN` are `terraform output` values, so nothing has to be copied out of a
    dashboard. They survive every subsequent deploy — this step is not repeated.
 
-6. **GitHub Environment `staging`**, holding:
+6. **A GitHub Environment named for this deployment** — `staging`, later `production` — holding:
 
    | Kind | Name |
    | --- | --- |
    | secret | `CLOUDFLARE_API_TOKEN` (step 3), `CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` (step 2) |
-   | variable | `STAGING_ZONE`, `STAGING_API_HOST`, `STAGING_SITE_HOST`, `TF_STATE_BUCKET` (all have defaults) |
+   | variable | `TF_STATE_BUCKET`, only if the bucket is not `nport-tfstate` |
 
-   Add required reviewers to the Environment if a deploy should pause for a human.
+   The zone is not a secret and is passed by the workflow caller, not stored here. The Environment's
+   *name* is what selects the wrangler `--env`, the Terraform state key and this secret set, so a
+   deploy cannot pick up one environment's account with another's zone.
+
+   Add required reviewers to the Environment if a deploy should pause for a human — that is the
+   mechanism to use for production rather than a different workflow.
 
 ## Running it locally
 
 ```bash
-cd infra/terraform/staging
-cp backend.hcl.example backend.hcl              # fill in the account id
-cp terraform.tfvars.example terraform.tfvars    # fill in the account id
+cd infra/terraform
+cp backend.hcl.example backend.hcl              # account id, and the `key` for this environment
+cp terraform.tfvars.example terraform.tfvars    # account id and zone
 
 export CLOUDFLARE_API_TOKEN=...                 # step 3's token
 export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...   # step 2's R2 keys
 
-terraform init -backend-config=backend.hcl
+terraform init -reconfigure -backend-config=backend.hcl
 terraform plan
 ```
+
+**`-reconfigure` is not optional when switching environments locally.** Without it Terraform sees a
+different backend and offers to *migrate* the state it already knows about into the new location —
+which would copy one environment's state over the other's. The flag tells it to forget what it had
+and read what the config says instead.
 
 `terraform validate` runs without credentials and without the backend
 (`terraform init -backend=false`), which is what the gate uses to check the configuration compiles
@@ -89,7 +108,13 @@ against the provider schema before any account is involved.
 
 ## What CI does with this
 
-`.github/workflows/deploy-staging.yml`: gate → terraform → API and site in parallel → verify. The
-apply step consumes the plan file the previous step wrote, so what lands is what was planned. The
-verify job asserts `GET /v1/meta` reports the *staging* limits rather than a 200 — a deploy that
-silently lost its `vars` returns 200 all day.
+`.github/workflows/deploy.yml` holds the whole pipeline — gate → terraform → API and site in
+parallel → verify — and takes two inputs, `environment` and `zone`. `deploy-staging.yml` is a
+nine-line caller; the production caller will be another. A fix to a deploy step therefore reaches
+both by construction, which is the same argument as the single Terraform root.
+
+The apply step consumes the plan file the previous step wrote, so what lands is what was planned.
+The verify job runs `scripts/verify-deployment.mjs`, which compares the live `/v1/meta` against the
+committed `wrangler.jsonc` for that environment rather than against numbers written in the workflow
+— so it needs no per-environment expectations, and a deploy that silently lost its `vars` fails
+instead of returning 200 all day.

@@ -1,0 +1,17 @@
+# Copy to backend.hcl, one per environment you run locally. Not committed: the endpoint is the
+# account id, and `key` is what keeps two environments from sharing one state file.
+#
+#   terraform init -reconfigure -backend-config=backend.hcl
+#
+# `-reconfigure` matters when switching between environments locally: without it Terraform offers to
+# *migrate* the state it already knows about into the new location, which would copy one
+# environment's state over the other's.
+
+bucket    = "nport-tfstate"
+endpoints = { s3 = "https://REPLACE_WITH_ACCOUNT_ID.r2.cloudflarestorage.com" }
+
+# staging/terraform.tfstate  or  production/terraform.tfstate — never the same value for both.
+key = "staging/terraform.tfstate"
+
+# R2 S3 API credentials, NOT a Cloudflare API token. Export rather than write them here:
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY

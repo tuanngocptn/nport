@@ -1,3 +1,0 @@
-# Copy to terraform.tfvars and fill in. Not committed.
-account_id = "REPLACE_WITH_STAGING_ACCOUNT_ID"
-zone_name  = "nport.online"

@@ -1,4 +1,7 @@
-# Staging infrastructure for the separate Cloudflare account (ADR-0038).
+# The Cloudflare resources wrangler cannot express, for whichever account the inputs name.
+#
+# Identical for staging and production by construction: same resources, same settings, same rule.
+# Only `account_id` and `zone_name` differ, and both arrive as variables (ADR-0038).
 #
 # ## What is deliberately absent
 #
@@ -16,10 +19,11 @@
 # `docs/OPERATIONS.md` § Secrets says the Worker's runtime credentials never pass through Actions. A
 # stack that could mint a Tunnel-Edit token would hand CI the authority that rule exists to withhold.
 
-# Scoped to the account on purpose. A token with access to more than one account would otherwise
-# match a zone of the same name elsewhere, and the first thing this stack does after finding a zone
-# is change its TLS floor — a lookup that can silently resolve to the wrong account is not one to
-# leave loose.
+# Scoped to the account on purpose, and it matters more now that one configuration serves both
+# environments. A token with access to more than one account would otherwise match a zone of the same
+# name elsewhere, and the first thing this stack does after finding a zone is change its TLS floor.
+# Pairing the zone with its account is what makes "wrong credentials" fail to plan rather than apply
+# staging's settings to production.
 data "cloudflare_zone" "staging" {
   filter = {
     name = var.zone_name
@@ -36,8 +40,8 @@ locals {
 # ── Zone settings ──────────────────────────────────────────────────────────────────────
 #
 # The connector dials the edge over QUIC and the CLI talks to the control plane over HTTPS; neither
-# has any reason to negotiate an obsolete TLS version. Set here rather than in the dashboard so the
-# staging account starts where production should end up, and so a drift shows in a plan.
+# has any reason to negotiate an obsolete TLS version. Set here rather than in the dashboard so both
+# accounts are configured the same way, and so a drift shows up in a plan.
 
 resource "cloudflare_zone_setting" "always_use_https" {
   zone_id    = data.cloudflare_zone.staging.zone_id

@@ -1,0 +1,185 @@
+name: Deploy
+
+# **One deploy definition for every environment.** Staging and production run the same
+# infrastructure in separate Cloudflare accounts (ADR-0038) and the same Workers from the same
+# `wrangler.jsonc`; what differs is the account, the zone, and which secrets the GitHub Environment
+# holds. A second copy of this file would drift the first time somebody fixed a step in one and not
+# the other — and the drift would surface as a production deploy behaving unlike every staging
+# deploy that had been proving it safe.
+#
+# Called by `deploy-staging.yml`, and by the production caller when G2 closes (`docs/ROADMAP.md`).
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: >-
+          The GitHub Environment, which is also the wrangler `--env` name and the Terraform state
+          prefix. One name, three uses, so they cannot disagree.
+        required: true
+        type: string
+      zone:
+        description: "Apex domain for this environment, e.g. nport.online."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+  # Derived rather than passed, so the workflow cannot disagree with itself about where to look.
+  # `api` matches `api_subdomain`'s default in infra/terraform/variables.tf; change one and the
+  # verify job fails, which is the intended way to find out.
+  API_HOST: api.${{ inputs.zone }}
+  SITE_HOST: ${{ inputs.zone }}
+
+jobs:
+  # ── Everything that can fail without an account ────────────────────────────────────────
+  #
+  # Deliberately first and deliberately complete. A deploy that fails after `wrangler deploy` has
+  # already run has changed the world; a deploy that fails here has not.
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      # Wrangler's `vars` are `notInheritable`, so an environment block missing a key deploys
+      # happily and answers with numbers nobody configured. Nothing in `wrangler deploy` warns.
+      - name: Environment shape
+        run: pnpm deploy:check
+
+      # Resolves the real config against the real schema without contacting Cloudflare.
+      - name: Dry-run the control plane
+        run: pnpm --filter @nport/api exec wrangler deploy --dry-run --env ${{ inputs.environment }}
+
+  # ── Infrastructure ─────────────────────────────────────────────────────────────────────
+  terraform:
+    name: Terraform
+    needs: gate
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.9
+          terraform_wrapper: false
+
+      # A backend block cannot take variables. `key` is what separates one environment's state from
+      # the other's — both environments sharing a state file would have each apply try to "correct"
+      # the other's account into this one's.
+      - name: Write the backend config
+        run: |
+          cat > backend.hcl <<EOF
+          bucket    = "${{ vars.TF_STATE_BUCKET || 'nport-tfstate' }}"
+          endpoints = { s3 = "https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com" }
+          key       = "${{ inputs.environment }}/terraform.tfstate"
+          EOF
+
+      - run: terraform fmt -check -diff
+      - run: terraform init -input=false -backend-config=backend.hcl
+      - run: terraform validate
+
+      - name: Plan
+        run: |
+          terraform plan -input=false -out=tfplan \
+            -var "account_id=${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" \
+            -var "zone_name=${{ inputs.zone }}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+      # Applies the plan file, not a fresh evaluation — so what lands is exactly what was planned,
+      # even if something changed underneath in between.
+      - name: Apply
+        run: terraform apply -input=false -auto-approve tfplan
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+  # ── The control plane ──────────────────────────────────────────────────────────────────
+  api:
+    name: Deploy API
+    needs: terraform
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # No secrets are set here, and that is the rule rather than an omission: `docs/OPERATIONS.md`
+      # § Secrets keeps the Worker's runtime credentials out of Actions entirely. They are put in
+      # place once with `wrangler secret put --env <name>` and survive every deploy after that.
+      - name: wrangler deploy
+        run: pnpm --filter @nport/api exec wrangler deploy --env ${{ inputs.environment }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ── The site ───────────────────────────────────────────────────────────────────────────
+  web:
+    name: Deploy site
+    needs: terraform
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # OpenNext builds and deploys with its own command; `wrangler deploy` on `.open-next/worker.js`
+      # would ship a Worker with no assets and still return 200 (`apps/web/CLAUDE.md` § Gotchas).
+      - name: Build and deploy
+        run: |
+          pnpm --filter @nport/web exec opennextjs-cloudflare build --env ${{ inputs.environment }}
+          pnpm --filter @nport/web exec opennextjs-cloudflare deploy --env ${{ inputs.environment }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  # ── Proof ──────────────────────────────────────────────────────────────────────────────
+  verify:
+    name: Verify
+    needs: [api, web]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      # Compares the live `/v1/meta` against the committed `wrangler.jsonc` for this environment,
+      # rather than against numbers written here. A 200 proves a Worker is running; this proves the
+      # *configured* Worker is running, which is the failure `notInheritable` actually produces.
+      - name: The deployed control plane matches the repository
+        run: node scripts/verify-deployment.mjs --host "$API_HOST" --env "${{ inputs.environment }}"
+
+      - name: The site answers
+        run: |
+          curl -fsS -o /dev/null -w "site: %{http_code}\n" "https://$SITE_HOST/"
