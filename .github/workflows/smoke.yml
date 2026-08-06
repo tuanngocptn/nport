@@ -62,6 +62,8 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      - uses: ./.github/actions/install-capnp
+
       # rust-toolchain.toml pins the exact version and rustup honours it, so nothing here names a
       # version — same as `ci.yml`. A second place naming one is a second place to forget to bump.
       - run: rustup show active-toolchain || rustup toolchain install

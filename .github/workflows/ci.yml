@@ -47,16 +47,7 @@ jobs:
           || fromJSON('["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v7
-      # `crates/protocol/build.rs` runs capnpc, which shells out to the capnp compiler.
-      # Not a cargo dependency, so it has to be installed per platform.
-      - name: Install the Cap'n Proto compiler
-        shell: bash
-        run: |
-          case "${{ runner.os }}" in
-            Linux)   sudo apt-get update && sudo apt-get install -y capnproto ;;
-            macOS)   brew install capnp ;;
-            Windows) choco install capnproto --no-progress -y ;;
-          esac
+      - uses: ./.github/actions/install-capnp
       # `apps/desktop/src-tauri` is a workspace member, so a root `cargo clippy` builds it
       # on every platform. macOS and Windows have their WebView in the OS; Linux does not,
       # and the failure is a `pkg-config` error from `gobject-sys` several hundred lines

@@ -1,0 +1,18 @@
+name: Install the Cap'n Proto compiler
+description: >-
+  `crates/protocol/build.rs` runs capnpc, which shells out to the `capnp` binary. It is not a cargo
+  dependency, so every workflow that builds the protocol crate has to install it per platform.
+
+# Extracted because two workflows need it and the failure when one of them forgets is not obviously
+# about a missing tool: cargo reports "failed to run custom build command for nport-protocol", and
+# the sentence naming capnp is inside the build script's own error several lines further down.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        case "${{ runner.os }}" in
+          Linux)   sudo apt-get update && sudo apt-get install -y capnproto ;;
+          macOS)   brew install capnp ;;
+          Windows) choco install capnproto --no-progress -y ;;
+        esac
