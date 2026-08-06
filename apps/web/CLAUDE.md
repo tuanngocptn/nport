@@ -77,7 +77,7 @@ pnpm --filter @nport/web deploy       # normally CI does this
 
 **The mockup does not design the error pages.** It specifies the marketing site's five sections; these follow `packages/design-tokens` and nothing else. Anything the mockup *does* cover is checked against it (`docs/mockup/README.md`).
 
-**Update the CLI flag reference** — also generated. Change the CLI, run `pnpm codegen`.
+**Update the CLI flag reference** — there isn't one yet. It is owed (defect 38) and belongs in the MDX docs, generated from `crates/cli`'s clap definition rather than retyped.
 
 ## Gotchas
 

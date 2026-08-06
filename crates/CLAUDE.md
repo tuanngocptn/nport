@@ -74,7 +74,7 @@ The v2 CLI got several basics wrong; these are the corrections, and they are all
 
 ## Common tasks
 
-**Add a CLI flag** — `crates/cli/src/args.rs` → thread it into the `TunnelConfig` in `core` if it affects behaviour → add i18n strings for all three languages → test the parse, including adjacent-flag cases like `-s -l vi` → `pnpm codegen` to refresh the generated flag reference on the site.
+**Add a CLI flag** — `crates/cli/src/args.rs` → thread it into the `TunnelConfig` in `core` if it affects behaviour → add i18n strings for all three languages → test the parse, including adjacent-flag cases like `-s -l vi`. **No codegen step to run**: the flag reference on the site does not exist yet, and until it does, `--help` and the doc comments in `args.rs` are the only reference (defect 38).
 
 **Add a `TunnelEvent`** — the enum in `core` → the exhaustive match in `event.rs`'s tests → render it in `crates/cli/src/render.rs` and add it to `renders_something_for_every_variant` → forward it in `apps/desktop` (its `src-tauri/src/events.rs` is Phase 4 and does not exist yet). **The compiler will not remind you**: `TunnelEvent` is `#[non_exhaustive]`, so a consumer in another crate needs a wildcard arm, and the CLI's is `_ => Vec::new()` — an unhandled variant renders as nothing. The `event.rs` test is the substitute, and it fails to compile rather than at runtime. **Add a language** — the language enum, the catalogue in `crates/cli`, and locale-detection tests. Open an issue first (`docs/CONTRIBUTING.md`). **Change the API client** — regenerate `crates/contract` from `packages/contract`; never hand-edit the generated types.
 
