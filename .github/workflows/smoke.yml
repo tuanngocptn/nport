@@ -1,0 +1,90 @@
+name: Smoke
+
+# **The only test that opens a port on the internet.**
+#
+# Everything else in CI runs against a fake: `pnpm test` drives `apps/api` in real `workerd` with
+# `test/fake-cloudflare.ts`, and `pnpm smoke` drives the CLI against `wrangler dev` with a credential
+# the edge refuses on purpose. Both stop at the same boundary — no tunnel has carried a byte.
+#
+# This one provisions a real lease on the deployed control plane, dials Cloudflare's edge over QUIC,
+# and serves real requests from a local origin. It is the mechanism behind Gate G2's cross-platform
+# criterion (`docs/ROADMAP.md`), which is why the matrix is the point of the file rather than a
+# detail of it: the failure it exists to catch is one that only appears on an OS nobody develops on.
+#
+# It costs one create per OS per run against the environment's per-source hourly cap. Runners have
+# distinct addresses so they do not compete with each other, but a human debugging from one machine
+# can still lock themselves out — `apps/api/wrangler.jsonc` § staging says why the staging cap is
+# higher than production's.
+
+on:
+  # Nightly, because an edge change breaks installed clients and the point is to hear it from a cron
+  # job rather than from an issue. 03:20 UTC is off the hour: every scheduled workflow on GitHub
+  # fires at :00, and the queue at that minute is worth avoiding.
+  schedule:
+    - cron: "20 3 * * *"
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: "Control plane to test against"
+        required: false
+        default: https://api.nport.online
+        type: string
+  # Callable from the deploy pipeline, so a deploy can prove a tunnel rather than prove a 200.
+  workflow_call:
+    inputs:
+      backend:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never two matrices at once: they share the environment's tunnel cap and its per-source quota,
+  # and a nightly overlapping a dispatch would fail for a reason that has nothing to do with the code.
+  group: smoke-${{ inputs.backend || 'https://api.nport.online' }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    # One OS failing must not cancel the others. Which platforms fail is the diagnosis — "Windows
+    # only" and "everywhere" are different bugs, and fail-fast throws that away.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      # rust-toolchain.toml pins the exact version and rustup honours it, so nothing here names a
+      # version — same as `ci.yml`. A second place naming one is a second place to forget to bump.
+      - run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: smoke-${{ matrix.os }}
+
+      # Release, not debug. The debug binary is ~39 MB and slower to start, and the thing being
+      # proved is the artifact users get.
+      - name: Build the CLI
+        run: cargo build --release -p nport
+
+      - name: A real tunnel carries real traffic
+        shell: bash
+        run: |
+          # An `if`, not `[ … ] && assign`: Actions runs bash with `-e`, so a false test as the last
+          # command of a line exits 1 — and this test is false on two of the three platforms.
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            binary=target/release/nport.exe
+          else
+            binary=target/release/nport
+          fi
+          node scripts/smoke-live.mjs \
+            --backend "${{ inputs.backend || 'https://api.nport.online' }}" \
+            --binary "$binary"

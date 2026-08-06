@@ -146,7 +146,12 @@
         "POW_DIFFICULTY_BITS": 16,
         "POW_MAX_DIFFICULTY_BITS": 22,
         "MAX_CONCURRENT_PER_SOURCE": 3,
-        "MAX_CREATES_PER_HOUR_PER_SOURCE": 20
+        // **Higher than production on purpose.** The cap exists to stop one source minting
+        // tunnels in bulk; on staging that traffic shape is exactly what we want, since the
+        // live smoke test costs one create per run per OS and a failed run costs one too.
+        // Twenty is roughly an afternoon of debugging from a single address — it locked the
+        // maintainer out of the environment on its first day.
+        "MAX_CREATES_PER_HOUR_PER_SOURCE": 60
       }
     }
   }

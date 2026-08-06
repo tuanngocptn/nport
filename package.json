@@ -27,6 +27,7 @@
     "dev:desktop": "pnpm --filter @nport/desktop dev",
     "dev:cli": "cargo run -p nport -- 3000 --backend http://localhost:8787",
     "smoke": "node scripts/smoke.mjs",
+    "smoke:live": "node scripts/smoke-live.mjs",
     "prepare": "lefthook install",
     "deploy:check": "node scripts/deploy-check.mjs"
   },
