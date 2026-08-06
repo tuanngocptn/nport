@@ -23,6 +23,7 @@ import type { SourceQuota } from "../do/source-quota"
 import type { ClaimResult, SubdomainLease } from "../do/subdomain-lease"
 import { generateSubdomain } from "../domain/generated-name"
 import { hashOwnerToken, mintOwnerToken } from "../domain/owner-token"
+import { zoneSuffix } from "../env"
 import type { Env, Variables } from "../types"
 
 /**
@@ -132,7 +133,7 @@ export const tunnelsRoute = new Hono<App>()
       const requested = request.subdomain
       let chosen: string | undefined
       if (requested !== undefined) {
-        const check = checkSubdomain(requested)
+        const check = checkSubdomain(requested, zoneSuffix(env))
         if (!check.ok) {
           if (check.reason === "reserved" || check.reason === "reserved-prefix") {
             throw new ApiError("SUBDOMAIN_RESERVED")
@@ -246,7 +247,7 @@ export const tunnelsRoute = new Hono<App>()
       }
     }),
     async (context) => {
-      const subdomain = pathSubdomain(context.req.param("subdomain"))
+      const subdomain = pathSubdomain(context.req.param("subdomain"), zoneSuffix(context.env))
       const { ownerToken } = context.req.valid("json")
 
       const result = await leaseStub(context.env, subdomain).heartbeat(
@@ -275,7 +276,7 @@ export const tunnelsRoute = new Hono<App>()
       }
     }),
     async (context) => {
-      const subdomain = pathSubdomain(context.req.param("subdomain"))
+      const subdomain = pathSubdomain(context.req.param("subdomain"), zoneSuffix(context.env))
       const { ownerToken } = context.req.valid("json")
 
       const result = await leaseStub(context.env, subdomain).release(
@@ -295,7 +296,7 @@ export const tunnelsRoute = new Hono<App>()
    * client version. Whether a name is taken is public information regardless — DNS answers it.
    */
   .get("/:subdomain", async (context) => {
-    const subdomain = pathSubdomain(context.req.param("subdomain"))
+    const subdomain = pathSubdomain(context.req.param("subdomain"), zoneSuffix(context.env))
 
     const result = await leaseStub(context.env, subdomain).status()
     if (!result.ok) {
@@ -311,8 +312,8 @@ export const tunnelsRoute = new Hono<App>()
  * every generated `nport-…` tunnel unable to report its status, heartbeat, or delete itself, because
  * `nport-` is a reserved prefix.
  */
-function pathSubdomain(raw: string): string {
-  const check = checkSubdomainShape(raw)
+function pathSubdomain(raw: string, zone: string): string {
+  const check = checkSubdomainShape(raw, zone)
   if (!check.ok) {
     // 400 rather than 404: a name that could never have been issued is a malformed request, not a
     // missing thing. It also means a junk path never becomes a Durable Object.

@@ -253,7 +253,7 @@ A real deny list, not v2's single `['api']` entry — infrastructure (`api`, `ww
 
 ### Subdomain validation
 
-Normalize, then validate. Normalize: trim, NFKC, lowercase, strip a pasted `.nport.link` suffix. Validate: `^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])?$`, 3–63 characters, reject `xn--` and `--` at positions 3–4, reject reserved names and confusable/brand-impersonation patterns.
+Normalize, then validate. Normalize: trim, NFKC, lowercase, strip a pasted hostname's suffix — **the node's own domain**, from `CF_DOMAIN`, not a hardcoded `.nport.link`: every node serves a different zone (ADR-0031), and a node that normalized against ours refused the URLs it had just handed out (`docs/ROADMAP.md`, defect 36). Validate: `^[a-z0-9]([a-z0-9-]{1,61}[a-z0-9])?$`, 3–63 characters, reject `xn--` and `--` at positions 3–4, reject reserved names and confusable/brand-impersonation patterns.
 
 v2 had **no validation at all** and interpolated the raw value into hostnames and into Cloudflare API query strings unencoded, so `a.b.c`, `*`, and values containing `&` or `#` all passed. Mirror the validator in Rust for instant local feedback, and test both against one shared fixture set so they cannot diverge.
 

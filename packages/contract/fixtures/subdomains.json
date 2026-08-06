@@ -1,5 +1,5 @@
 {
-  "$comment": "Shared normalization and validation cases. Exercised by packages/contract/src/subdomain.test.ts AND by crates/contract's Rust mirror, so the two implementations cannot disagree. Add a case here first, then make both sides pass. docs/ARCHITECTURE.md §7.",
+  "$comment": "Shared normalization and validation cases. Exercised by packages/contract/src/subdomain.test.ts AND by crates/contract/src/subdomain.rs's tests, so the two implementations cannot disagree. Add a case here first, then make both sides pass. Cases in `normalize`, `valid` and `invalid` use the default zone suffix; `normalizeInZone` carries a per-case suffix, because every node has its own domain (ADR-0031). docs/ARCHITECTURE.md \u00a77.",
   "normalize": [
     {
       "input": "myapp",
@@ -37,7 +37,7 @@
       "why": "a trailing dot is a legal FQDN and meaningless here"
     },
     {
-      "input": "ｍｙａｐｐ",
+      "input": "\uff4d\uff59\uff41\uff50\uff50",
       "output": "myapp",
       "why": "NFKC folds full-width forms; without it this is a visually identical second claim"
     },
@@ -156,7 +156,7 @@
     {
       "input": "ab--cd",
       "reason": "double-hyphen-prefix",
-      "why": "positions 3–4 are the RFC 5890 tagged-label space"
+      "why": "positions 3\u20134 are the RFC 5890 tagged-label space"
     },
     {
       "input": "api",
@@ -171,12 +171,12 @@
     {
       "input": "_dmarc",
       "reason": "invalid-characters",
-      "why": "underscore can never pass the pattern, so this is the honest reason — but the name stays in RESERVED_PREFIXES so the sweeper does not delete the real DNS record"
+      "why": "underscore can never pass the pattern, so this is the honest reason \u2014 but the name stays in RESERVED_PREFIXES so the sweeper does not delete the real DNS record"
     },
     {
       "input": "_acme-challenge",
       "reason": "invalid-characters",
-      "why": "underscore can never pass the pattern, so this is the honest reason — but the name stays in RESERVED_PREFIXES so the sweeper does not delete the real DNS record"
+      "why": "underscore can never pass the pattern, so this is the honest reason \u2014 but the name stays in RESERVED_PREFIXES so the sweeper does not delete the real DNS record"
     },
     {
       "input": "login",
@@ -204,9 +204,35 @@
       "why": "the generated-name space; a user claim could collide with one we hand out"
     },
     {
-      "input": "абв",
+      "input": "\u0430\u0431\u0432",
       "reason": "invalid-characters",
       "why": "non-ASCII that NFKC does not fold to anything legal. Here to pin the two languages to the same REASON and not merely to the same refusal: every length check runs before the charset check, so whichever unit a language counts in decides what the user is told"
+    }
+  ],
+  "normalizeInZone": [
+    {
+      "input": "myapp.nport.dev",
+      "zoneSuffix": ".nport.dev",
+      "output": "myapp",
+      "why": "a node on its own domain accepts back the hostname it handed out \u2014 defect 36, where a node built URLs from CF_DOMAIN and normalized against a hardcoded .nport.link, so every deployment but one refused its own URLs"
+    },
+    {
+      "input": "myapp.nport.link",
+      "zoneSuffix": ".nport.dev",
+      "output": "myapp.nport.link",
+      "why": "another zone's hostname is NOT stripped, and must not be: silently claiming `myapp` here would hand back a URL on a domain the user did not ask for. It then fails validation as invalid-characters, which is the honest answer"
+    },
+    {
+      "input": "MyApp.Tunnels.Example.COM",
+      "zoneSuffix": ".tunnels.example.com",
+      "output": "myapp",
+      "why": "a self-hoster's longer domain, and case-insensitively \u2014 the suffix strip runs after lowercasing"
+    },
+    {
+      "input": "myapp.tunnels.example.com.tunnels.example.com..",
+      "zoneSuffix": ".tunnels.example.com",
+      "output": "myapp",
+      "why": "the repeated-suffix and trailing-dot rules hold for any zone, not just the default one. Also past the old fixed 95-character input bound, which is why that bound is now derived from the suffix"
     }
   ]
 }

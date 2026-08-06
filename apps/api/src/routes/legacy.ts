@@ -41,6 +41,7 @@ import { Hono } from "hono"
 import type { ClaimResult } from "../do/subdomain-lease"
 import { generateSubdomain } from "../domain/generated-name"
 import { hashOwnerToken, mintOwnerToken } from "../domain/owner-token"
+import { zoneSuffix } from "../env"
 import type { Env, Variables } from "../types"
 
 type App = { Bindings: Env; Variables: Variables }
@@ -100,7 +101,7 @@ export const legacyRoute = new Hono<App>()
     const requested = typeof body.subdomain === "string" ? body.subdomain : undefined
     let chosen: string | undefined
     if (requested !== undefined && requested.length > 0) {
-      const check = checkSubdomain(requested)
+      const check = checkSubdomain(requested, zoneSuffix(env))
       if (!check.ok) {
         // `SUBDOMAIN_PROTECTED:` is what v2 emitted for a reserved name, and what its CLI matches to
         // suggest alternatives. Reused for every rejection here because v2 had no other vocabulary for
@@ -203,7 +204,7 @@ export const legacyRoute = new Hono<App>()
       return context.json(payload, status as 400)
     }
 
-    const check = checkSubdomainShape(raw)
+    const check = checkSubdomainShape(raw, zoneSuffix(context.env))
     if (!check.ok) {
       const { body: payload, status } = legacyError("Invalid subdomain", 400)
       return context.json(payload, status as 400)

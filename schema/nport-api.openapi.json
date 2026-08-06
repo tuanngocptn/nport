@@ -600,7 +600,7 @@
           "subdomain": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 95,
+            "maxLength": 329,
             "description": "Desired subdomain. Normalized server-side; omit to have one generated."
           },
           "challenge": {

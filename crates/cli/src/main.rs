@@ -29,7 +29,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::Parser as _;
-use nport_contract::subdomain::check_subdomain;
+use nport_contract::subdomain::{RejectionReason, check_subdomain};
 use nport_contract::{ClientKind, ErrorCode};
 use nport_core::event::{ShutdownReason, TunnelEvent};
 use nport_core::manager::TunnelConfig;
@@ -135,7 +135,7 @@ async fn run(args: Args) -> ExitCode {
     // Ahead of the port probe because this opens no socket, so `-s my_app` reports the name rather
     // than whichever of the two problems happened to be checked first.
     if let Some(requested) = subdomain.as_deref() {
-        if let Err(reason) = check_subdomain(requested) {
+        if let Some(reason) = local_verdict(requested) {
             // Sentence, code, then the specific reason in parentheses — the shape the config and port
             // failures already use. The reason is the contract's own spelling, so this line reads the
             // same whether the refusal came from here or from the server's `details.reason`.
@@ -280,6 +280,43 @@ fn show(renderer: &Renderer, event: &TunnelEvent, port: u16) {
     }
 }
 
+/// What the client can say about a requested name **on its own**, or `None` to let the server decide.
+///
+/// The pre-check exists to save a round trip on an obvious mistake (`crates/CLAUDE.md` CLI rule 6's
+/// sibling), and it can only do that for things that are wrong regardless of which node serves them:
+/// too short, an underscore, a reserved name.
+///
+/// **A hostname is not one of those.** Every node has its own domain (ADR-0031), and the client does
+/// not know which node it will use until discovery has run — so `myapp.nport.dev` is a perfectly good
+/// claim at one node and meaningless at another. Refusing it here would be the client overruling a
+/// server it has not asked yet, which is what it did before `docs/ROADMAP.md`'s defect 36: a user whose
+/// tunnel was on any domain but `nport.link` could not paste their own URL back into `-s`.
+///
+/// So a name that looks like a hostname and does not normalize against *our* default zone is deferred.
+/// One validator with one deferral rule, rather than a second lenient copy of the rules — this
+/// repository has been bitten by two parsers for one format before (`docs/ROADMAP.md`, defect 17).
+fn local_verdict(requested: &str) -> Option<RejectionReason> {
+    match check_subdomain(requested) {
+        Ok(_) => None,
+        // The only reason a dotted name produces: the dots survive normalization and fail the charset
+        // rule. Any other reason is zone-independent and worth reporting now.
+        Err(RejectionReason::InvalidCharacters) if looks_like_a_hostname(requested) => None,
+        Err(reason) => Some(reason),
+    }
+}
+
+/// Whether a name looks like a hostname rather than a typo — dotted, with plausible labels.
+///
+/// Deliberately loose: it decides only whether to *defer*, and the server is authoritative either way.
+/// Being too generous costs a round trip on a bad name; being too strict costs a user their own URL.
+fn looks_like_a_hostname(requested: &str) -> bool {
+    let trimmed = requested.trim().trim_end_matches('.');
+    trimmed.contains('.')
+        && trimmed.split('.').all(|label| {
+            !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        })
+}
+
 /// Is anything listening on `port`?
 ///
 /// A TCP connect, not a bind: binding would report "free" for exactly the port that *is* serving,
@@ -326,6 +363,57 @@ mod tests {
                 "--lang {flag} should have been honoured: {line}"
             );
         }
+    }
+
+    /// The client refuses what it can judge and defers what it cannot.
+    ///
+    /// Defect 36: every node has its own domain, so a hostname is only meaningful once a node is
+    /// known. Refusing one here meant a user whose tunnel was on `nport.dev` could not paste their own
+    /// URL into `-s` — the client overruling a server it had not asked.
+    #[test]
+    fn a_hostname_is_deferred_to_the_server_and_a_typo_is_not() {
+        use nport_contract::subdomain::RejectionReason;
+
+        // Zone-independent mistakes: still refused instantly, which is the whole point of the check.
+        assert_eq!(
+            local_verdict("my_app"),
+            Some(RejectionReason::InvalidCharacters)
+        );
+        assert_eq!(local_verdict("ab"), Some(RejectionReason::TooShort));
+        assert_eq!(local_verdict("api"), Some(RejectionReason::Reserved));
+        assert_eq!(
+            local_verdict("nport-abc12345"),
+            Some(RejectionReason::ReservedPrefix)
+        );
+
+        // Our own zone: normalizes locally, so it is accepted without deferring.
+        assert_eq!(local_verdict("myapp.nport.link"), None);
+        // **Another node's zone**: the client cannot know, so it says nothing and lets the server rule.
+        assert_eq!(local_verdict("myapp.nport.dev"), None);
+        assert_eq!(local_verdict("myapp.tunnels.example.com"), None);
+
+        // A dotted name that is *not* hostname-shaped is still a typo worth reporting.
+        assert_eq!(
+            local_verdict("my app.nport.dev"),
+            Some(RejectionReason::InvalidCharacters)
+        );
+        assert_eq!(
+            local_verdict("my_app.nport.dev"),
+            Some(RejectionReason::InvalidCharacters)
+        );
+    }
+
+    #[test]
+    fn hostname_shaped_means_dotted_with_plausible_labels() {
+        assert!(looks_like_a_hostname("myapp.nport.dev"));
+        assert!(looks_like_a_hostname("a.b.c"));
+        // A trailing dot is a legal FQDN.
+        assert!(looks_like_a_hostname("myapp.nport.dev."));
+        assert!(!looks_like_a_hostname("myapp"));
+        assert!(!looks_like_a_hostname("my app.dev"));
+        assert!(!looks_like_a_hostname("my_app.dev"));
+        // Empty labels are not a hostname, and deferring on them would defer on `..`.
+        assert!(!looks_like_a_hostname("myapp..dev"));
     }
 
     #[tokio::test]

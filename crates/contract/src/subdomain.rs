@@ -26,8 +26,7 @@
 use icu_normalizer::ComposingNormalizerBorrowed;
 
 use crate::{
-    MAX_SUBDOMAIN_INPUT_LENGTH, MAX_SUBDOMAIN_LENGTH, MIN_SUBDOMAIN_LENGTH, RESERVED_PREFIXES,
-    RESERVED_SUBDOMAINS, ZONE_SUFFIX,
+    MAX_SUBDOMAIN_LENGTH, MIN_SUBDOMAIN_LENGTH, RESERVED_PREFIXES, RESERVED_SUBDOMAINS, ZONE_SUFFIX,
 };
 
 /// NFKC, with ICU's compiled data. `const`, so there is no initialisation to pay for or to race on.
@@ -46,7 +45,7 @@ pub enum RejectionReason {
     /// Shorter than [`MIN_SUBDOMAIN_LENGTH`].
     TooShort,
     /// Longer than [`MAX_SUBDOMAIN_LENGTH`], or the raw input was longer than
-    /// [`MAX_SUBDOMAIN_INPUT_LENGTH`].
+    /// [`max_normalizable_length`] for the zone in play.
     TooLong,
     /// Something outside `a-z`, `0-9` and `-`.
     InvalidCharacters,
@@ -101,6 +100,16 @@ impl std::fmt::Display for RejectionReason {
 /// subslices, so the obvious spelling here is already the fast one.
 #[must_use]
 pub fn normalize_subdomain(input: &str) -> String {
+    normalize_subdomain_in(input, ZONE_SUFFIX)
+}
+
+/// [`normalize_subdomain`], against a specific zone.
+///
+/// **Every node has its own domain** (ADR-0031), so the suffix is a parameter and `ZONE_SUFFIX` is only
+/// the default. A node passes its own `CF_DOMAIN`; without this, a node on any other domain handed out
+/// a URL it then refused to accept back — `docs/ROADMAP.md`, defect 36.
+#[must_use]
+pub fn normalize_subdomain_in(input: &str, zone_suffix: &str) -> String {
     let folded = NFKC.normalize(input.trim()).to_lowercase();
 
     let mut value: &str = &folded;
@@ -109,7 +118,7 @@ pub fn normalize_subdomain(input: &str) -> String {
         // suffix removal, because either can expose the other: `myapp.nport.link.` needs the dot gone
         // to see the suffix, and `myapp.nport.link.nport.link` needs it again in between.
         value = value.trim_end_matches('.');
-        match value.strip_suffix(ZONE_SUFFIX) {
+        match value.strip_suffix(zone_suffix) {
             Some(shorter) => value = shorter,
             None => break,
         }
@@ -171,14 +180,33 @@ pub fn validate_subdomain(subdomain: &str) -> Result<(), RejectionReason> {
 /// server normalizes it again, normalization is idempotent, and keeping one authority for the value
 /// that becomes a lease key is worth more than saving the server the work.
 pub fn check_subdomain(input: &str) -> Result<String, RejectionReason> {
-    if wire_length(input) > MAX_SUBDOMAIN_INPUT_LENGTH {
+    check_subdomain_in(input, ZONE_SUFFIX)
+}
+
+/// [`check_subdomain`], against a specific zone.
+///
+/// # Errors
+///
+/// See [`RejectionReason`].
+pub fn check_subdomain_in(input: &str, zone_suffix: &str) -> Result<String, RejectionReason> {
+    if wire_length(input) > max_normalizable_length(zone_suffix) {
         // Refused before normalization rather than after, and `too-long` is already the honest
         // reason: nothing this long can normalize to a legal name.
         return Err(RejectionReason::TooLong);
     }
-    let normalized = normalize_subdomain(input);
+    let normalized = normalize_subdomain_in(input, zone_suffix);
     validate_subdomain(&normalized)?;
     Ok(normalized)
+}
+
+/// The raw-input bound for a **known** zone suffix, mirroring `maxNormalizableLength`.
+///
+/// Tighter than the generated [`MAX_SUBDOMAIN_INPUT_LENGTH`], which is the *schema's* bound and has to
+/// be generous because a static schema cannot know which node will validate with it. A self-hoster on
+/// `.tunnels.example.com` must not be told their name is too long by a bound sized for `.nport.link`.
+#[must_use]
+pub fn max_normalizable_length(zone_suffix: &str) -> usize {
+    MAX_SUBDOMAIN_LENGTH + 2 * zone_suffix.len() + 10
 }
 
 /// Length as the **server** counts it: UTF-16 code units, which is what JavaScript's
@@ -221,7 +249,7 @@ fn is_dns_label(subdomain: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{NPORT_OWNED_PREFIXES, REJECTION_REASONS};
+    use crate::{MAX_SUBDOMAIN_INPUT_LENGTH, NPORT_OWNED_PREFIXES, REJECTION_REASONS};
 
     /// The shared cases, read at compile time so editing the fixture rebuilds this test.
     const FIXTURES: &str = include_str!("../../../packages/contract/fixtures/subdomains.json");
@@ -231,6 +259,18 @@ mod tests {
         normalize: Vec<NormalizeCase>,
         valid: Vec<ValidCase>,
         invalid: Vec<InvalidCase>,
+        #[serde(rename = "normalizeInZone")]
+        normalize_in_zone: Vec<ZoneCase>,
+    }
+
+    /// A case with its own zone suffix, because every node has its own domain (ADR-0031).
+    #[derive(serde::Deserialize)]
+    struct ZoneCase {
+        input: String,
+        #[serde(rename = "zoneSuffix")]
+        zone_suffix: String,
+        output: String,
+        why: String,
     }
 
     #[derive(serde::Deserialize)]
@@ -271,6 +311,67 @@ mod tests {
                 case.why
             );
         }
+    }
+
+    /// The per-zone cases, which is where defect 36 lived.
+    ///
+    /// A node builds tunnel URLs from its own domain, so normalizing against a hardcoded `.nport.link`
+    /// meant every deployment but one handed out URLs it then refused to accept back.
+    #[test]
+    fn normalization_in_a_nodes_own_zone_matches_the_shared_fixtures() {
+        let cases = fixtures().normalize_in_zone;
+        assert!(!cases.is_empty(), "the fixture file has no per-zone cases");
+        for case in cases {
+            assert_eq!(
+                normalize_subdomain_in(&case.input, &case.zone_suffix),
+                case.output,
+                "{:?} in {:?} ({})",
+                case.input,
+                case.zone_suffix,
+                case.why
+            );
+        }
+    }
+
+    /// Idempotent in any zone, not just the default one.
+    ///
+    /// The lease key is the normalized name, so a second pass that differed would let two callers hold
+    /// one subdomain — and that has to hold for a self-hoster's zone as much as for ours.
+    #[test]
+    fn normalizing_twice_in_any_zone_is_normalizing_once() {
+        for case in fixtures().normalize_in_zone {
+            let once = normalize_subdomain_in(&case.input, &case.zone_suffix);
+            assert_eq!(
+                normalize_subdomain_in(&once, &case.zone_suffix),
+                once,
+                "{:?}",
+                case.input
+            );
+        }
+    }
+
+    /// The input bound grows with the suffix, so a long zone is not a "too long" name.
+    #[test]
+    fn the_input_bound_follows_the_zone_rather_than_ours() {
+        // A full-length name plus a 20-character suffix pasted twice: 103 characters, past the fixed
+        // 95 the bound used to be. The number matters — the first draft of this test used `myapp` and
+        // came to 45, so it asserted nothing and failed on its own arithmetic rather than on the code.
+        let long_zone = ".tunnels.example.com";
+        let name = "a".repeat(MAX_SUBDOMAIN_LENGTH);
+        let pasted = format!("{name}{long_zone}{long_zone}");
+        assert!(
+            pasted.len() > max_normalizable_length(ZONE_SUFFIX),
+            "{} should exceed the default zone's bound of {}",
+            pasted.len(),
+            max_normalizable_length(ZONE_SUFFIX)
+        );
+        assert_eq!(check_subdomain_in(&pasted, long_zone), Ok(name));
+        // And the bound still exists: nothing this long can be a name.
+        let absurd = "a".repeat(max_normalizable_length(long_zone) + 1);
+        assert_eq!(
+            check_subdomain_in(&absurd, long_zone),
+            Err(RejectionReason::TooLong)
+        );
     }
 
     #[test]

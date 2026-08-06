@@ -173,10 +173,23 @@ describe("POST /v1/tunnels", () => {
     expect(response.headers.get("cache-control")).toBe("no-store")
   })
 
-  it("normalizes the requested name, so MyApp and myapp.nport.link are one claim", async () => {
-    const response = await createTunnel("MyApp.nport.link")
+  it("normalizes the requested name, so MyApp and MyApp.<this node's domain> are one claim", async () => {
+    // **This node's own domain**, not a hardcoded `.nport.link`. Every node has its own (ADR-0031), and
+    // this test used to assert `.nport.link` was stripped on a node whose `CF_DOMAIN` is `nport.test` —
+    // encoding the assumption that there is only one zone in the world.
+    const response = await createTunnel(`MyApp.${env.CF_DOMAIN}`)
     expect(response.status).toBe(201)
     expect(((await response.json()) as CreatedTunnel).subdomain).toBe("myapp")
+  })
+
+  it("does not treat another zone's hostname as a claim", async () => {
+    // Deliberate, and the other half of the change above: a hostname on a domain this node does not
+    // serve is not a request it can honour. Silently claiming `elsewhere` on *our* domain would hand
+    // back a URL on a domain the user did not ask for, which is worse than refusing.
+    const response = await createTunnel("elsewhere.someone-elses-zone.test")
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { error: { code: string } }
+    expect(body.error.code).toBe("INVALID_SUBDOMAIN")
   })
 
   it("generates an unguessable name when none is asked for", async () => {
@@ -618,5 +631,34 @@ describe("GET /v1/meta capacity", () => {
     // Back down again. A count that only ever rose would report a node as full forever, which is a
     // node quietly removing itself from every client's selection.
     expect((await meta()).activeTunnels).toBe(before.activeTunnels)
+  })
+})
+
+describe("a node accepts back the URL it handed out", () => {
+  /**
+   * **The bug federation introduced.** `apps/api` builds a tunnel's URL from `CF_DOMAIN`, but
+   * `checkSubdomain` normalizes against the hardcoded `.nport.link` — so a node on any other domain
+   * hands out a URL it then refuses. Pasting your own tunnel's hostname back into `-s` is the exact
+   * case the zone-suffix strip exists for.
+   */
+  it("takes its own hostname as a claim for the name inside it", async () => {
+    const created = (await (await createTunnel("pasted")).json()) as CreatedTunnel
+    expect(created.url).toBe(`https://pasted.${env.CF_DOMAIN}`)
+
+    await SELF.fetch(`https://api.nport.link/v1/tunnels/pasted`, {
+      method: "DELETE",
+      headers: { "user-agent": UA, "content-type": "application/json" },
+      body: JSON.stringify({ ownerToken: created.ownerToken }),
+    })
+
+    // The hostname this node just issued, pasted back as the requested subdomain.
+    const again = await post("/v1/tunnels", {
+      subdomain: `pasted.${env.CF_DOMAIN}`,
+      ...(await solvedChallenge()),
+      client: "cli",
+    })
+    const body = (await again.json()) as { subdomain?: string; error?: { code: string } }
+    expect(again.status, JSON.stringify(body)).toBe(201)
+    expect(body.subdomain).toBe("pasted")
   })
 })

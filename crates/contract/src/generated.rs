@@ -591,7 +591,7 @@ pub const MIN_SUBDOMAIN_LENGTH: usize = 3;
 /// The DNS label limit.
 pub const MAX_SUBDOMAIN_LENGTH: usize = 63;
 /// The longest **raw input** normalization will look at, before the zone suffix is stripped.
-pub const MAX_SUBDOMAIN_INPUT_LENGTH: usize = 95;
+pub const MAX_SUBDOMAIN_INPUT_LENGTH: usize = 329;
 /// Stripped during normalization, so pasting a whole hostname works.
 pub const ZONE_SUFFIX: &str = ".nport.link";
 

@@ -18,6 +18,19 @@ import {
  * `crates/contract` runs the same file. A case added only here would not constrain Rust, and the
  * two validators silently disagreeing is exactly the failure the shared fixture prevents.
  */
+describe("normalizeSubdomain, in a node's own zone", () => {
+  it.each(fixtures.normalizeInZone)("$why", ({ input, zoneSuffix, output }) => {
+    expect(normalizeSubdomain(input, zoneSuffix)).toBe(output)
+  })
+
+  it("is idempotent in any zone, which is what makes the lease key sound", () => {
+    for (const { input, zoneSuffix } of fixtures.normalizeInZone) {
+      const once = normalizeSubdomain(input, zoneSuffix)
+      expect(normalizeSubdomain(once, zoneSuffix), input).toBe(once)
+    }
+  })
+})
+
 describe("normalizeSubdomain", () => {
   for (const { input, output, why } of fixtures.normalize) {
     it(`${JSON.stringify(input)} → ${JSON.stringify(output)} (${why})`, () => {

@@ -40,11 +40,10 @@ no client has ever discovered one. G5 wants two nodes on two Cloudflare accounts
 listed, with a client failing over when the first is stopped mid-run — which means a second account, a
 second domain, and `registry.nport.link` existing. `docs/DEPLOYMENT.md` owns that.
 
-**One client-side gap is still open and is not on G5's path**: `ZONE_SUFFIX` is the single constant
-`.nport.link` while every node has its own domain, so a user whose tunnel is on `nport.dev` cannot paste
-`myapp.nport.dev` back into `-s`. Cheap to fix — normalization is one function per language over a
-generated constant (ADR-0045) — and it needs a decision about where the client learns its node's domain
-from, which is why it did not ride along with discovery.
+**The zone-suffix gap is closed** (defect 36): the suffix is a parameter, a node passes its own
+`CF_DOMAIN`, and the client defers a hostname it cannot normalize rather than refusing it. The decision
+that had been blocking it turned out not to be needed — the client does not have to learn its node's
+domain, it only has to stop pretending it already knows.
 
 Why this rather than the site or the desktop app: v2 still serves `nport.link`, so nothing downstream
 of v3 is urgent, and federation is what turns `apps/api` from "the control plane" into "a node" —
@@ -383,7 +382,21 @@ Three things worth knowing before this deploys:
 
     `verify-docs` now checks both directions, which is a fourth check in a module whose docblock said three. An index row with no ADR behind it matters as much as the reverse: it promises a decision nobody wrote.
 
-The shape is nearly the same each time: **a check separated from the state change it guards** — by an `await` in the first two, by a key two requests could share in the next two, by a failure path in the fifth, and in the sixth by a `select!` arm that was never written. In every case a comment nearby asserted the invariant the code failed to enforce, which is the most reliable place to look. The passing suite caught none of them; each was found by reading, then reproduced with a test written afterwards. Every prediction that one more existed has been correct — assume a thirty-sixth.
+36. **A node handed out URLs it then refused to accept back.** `apps/api` builds a tunnel's URL from `CF_DOMAIN` — that is how `https://myapp.nport.dev` gets returned — while `checkSubdomain` normalized against the hardcoded `ZONE_SUFFIX`, `.nport.link`. So on any deployment except the public one, pasting your own tunnel's hostname into `-s` came back `INVALID_SUBDOMAIN` with the reason `invalid-characters`. Pasting a hostname is the single case the suffix strip exists for, and it worked on exactly one zone.
+
+    Latent for the whole of Phase 2 and reachable by every self-hoster, which is a population `docs/SELF_HOSTING.md` has documented since Phase 0. Federation is what made it urgent rather than what caused it: ADR-0031 gives every node its own domain, so "one zone" stopped being an approximation and became wrong.
+
+    The zone is now a parameter, defaulting to `ZONE_SUFFIX`, and a node passes `.${CF_DOMAIN}` through one `zoneSuffix(env)` helper rather than at five call sites — a missing dot would silently strip `myappnport.link` and nothing else. The reconciliation sweeper deliberately keeps the default: its input is a bare name extracted from a Cloudflare tunnel name, never a hostname, so there is no suffix to strip and parameterizing it would have been motion without meaning.
+
+    **Three things this turned up that the fix itself did not need.**
+
+    First, **the client had the same bug and could not have the same fix.** The CLI's pre-check runs before discovery, so it does not know which node it will use — meaning it cannot know the zone. Refusing a hostname there was the client overruling a server it had not asked yet. It now *defers*: a name that looks like a hostname and does not normalize against the default zone is passed through for the server to judge, while every zone-independent mistake (`my_app`, `ab`, `api`) is still refused instantly. One validator plus one deferral rule, rather than a second lenient copy of the rules — this repository has been bitten by two parsers for one format before (the seventeenth).
+
+    Second, **the bound above normalization had the bug too, with a different error code.** `requestedSubdomainSchema` is a static zod object shared by every node, so it cannot know a zone either — and it was sized for `.nport.link`. A self-hoster on a longer domain pasting a hostname twice would have been refused as `INVALID_REQUEST` one layer *up*, which looks nothing like the same defect. Two bounds now exist with deliberately different names: `MAX_INPUT_LENGTH` guards the request boundary and is generous because the zone is unknown there, and `maxNormalizableLength(zone)` is exact and runs where the zone is known. Two bounds called almost the same thing would have been the real trap.
+
+    Third, **a swallowed error cost twenty minutes and is the reusable lesson.** `MAX_INPUT_LENGTH` referenced a constant declared below it — a temporal dead zone, so the module threw `ReferenceError` on import. `pnpm codegen` failed with exactly that message, and I had run it as `pnpm codegen >/dev/null 2>&1` and read the *unchanged* generated file as evidence the change had not taken effect. **Redirecting a generator's stderr turns a loud failure into a confusing one**; the tests that would have caught it reported "no tests" rather than a failure, which reads like a config problem rather than a broken import.
+
+The shape is nearly the same each time: **a check separated from the state change it guards** — by an `await` in the first two, by a key two requests could share in the next two, by a failure path in the fifth, and in the sixth by a `select!` arm that was never written. In every case a comment nearby asserted the invariant the code failed to enforce, which is the most reliable place to look. The passing suite caught none of them; each was found by reading, then reproduced with a test written afterwards. Every prediction that one more existed has been correct — assume a thirty-seventh.
 
 **Where to look has shifted, and the thirty-fourth is why.** "Look where nothing is claimed" found the data-path defects and then stopped paying: 34 and 35 were both in places where something *was* claimed, loudly, and the claim was about work done somewhere else — "mirrored in Rust", "a one-line entry in the index". A rule with no enforcement is visible to anyone who reads it. **A rule that delegates its enforcement is invisible, because the sentence looks complete.** So the question to carry into the next pass is not "what is unclaimed" but "which claims are about a file other than the one making them" — and for each, go and look at that other file rather than trusting the cross-reference. Both of the last two took under a minute to confirm once asked that way.
 

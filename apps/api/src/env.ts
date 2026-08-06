@@ -90,3 +90,19 @@ export function missingBindings(env: Partial<Env>): string[] {
 
   return missing
 }
+
+/**
+ * This node's zone suffix, for normalization.
+ *
+ * **`CF_DOMAIN` and not the contract's default.** Every node has its own domain (ADR-0031), and a node
+ * builds tunnel URLs from `CF_DOMAIN` already — so normalizing against a hardcoded `.nport.link` meant
+ * a node on any other domain **handed out a URL it then refused to accept back**. Pasting your own
+ * tunnel's hostname into `-s` is the exact case the suffix strip exists for, and it worked on exactly
+ * one deployment.
+ *
+ * One function rather than `.${env.CF_DOMAIN}` at each of the five call sites, because a missing dot
+ * is a silent bug: `nport.link` without it would strip `myappnport.link` and nothing else.
+ */
+export function zoneSuffix(env: Pick<Env, "CF_DOMAIN">): string {
+  return `.${env.CF_DOMAIN}`
+}

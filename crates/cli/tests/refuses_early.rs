@@ -137,6 +137,23 @@ fn a_pasted_hostname_is_accepted_as_the_name_inside_it() {
     assert!(stderr.contains("LOCAL_PORT_CLOSED"), "{stderr}");
 }
 
+/// A hostname on **another node's** domain reaches the next gate rather than being refused.
+///
+/// Defect 36's client half. The CLI cannot know which node it will use until discovery runs, so a
+/// hostname it cannot normalize is the server's call — and before this, a user whose tunnel lived on
+/// any domain but `nport.link` could not paste their own URL back into `-s`.
+#[test]
+fn a_hostname_on_another_zone_is_left_for_the_server_to_judge() {
+    let output = nport(&["1", "-s", "myapp.nport.dev"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stderr.contains("INVALID_SUBDOMAIN"),
+        "the client must not overrule a server it has not asked: {stderr}"
+    );
+    assert!(stderr.contains("LOCAL_PORT_CLOSED"), "{stderr}");
+}
+
 /// `--help` still answers before any of this, which is CLI rule 2.
 #[test]
 fn help_answers_even_with_an_illegal_subdomain() {

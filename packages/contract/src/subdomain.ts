@@ -22,6 +22,28 @@ export const MIN_LENGTH = 3
 export const MAX_LENGTH = 63
 
 /**
+ * The zone every tunnel lives under, **for this repository's own deployment**.
+ *
+ * The default, not a fact: ADR-0031 gives every node its own domain, so a node passes its own
+ * `CF_DOMAIN` and only the public `nport.link` deployment uses this value. It stays exported because
+ * the client has to guess *something* before it has discovered a node.
+ */
+export const ZONE_SUFFIX = ".nport.link"
+
+/**
+ * The longest zone suffix the **schema** bound makes room for.
+ *
+ * `requestedSubdomainSchema` is static — one zod object, shared by every node — so it cannot know the
+ * domain of the node that will validate with it. Sizing it for `.nport.link` meant a self-hoster on a
+ * longer domain could have a legitimate paste refused as `INVALID_REQUEST` one layer *above*
+ * normalization, which is the same mistake as defect 36 with a different error code.
+ *
+ * 128 is far more than any sane tunnel zone and far less than a megabyte, which is all the outer bound
+ * is for. The exact per-zone bound is [`maxNormalizableLength`], applied where the zone is known.
+ */
+export const MAX_ZONE_SUFFIX_LENGTH = 128
+
+/**
  * The longest **raw input** any entry point here will look at, before normalization.
  *
  * A normalized name is at most `MAX_LENGTH`, but input is not normalized yet: `.nport.link` is
@@ -35,13 +57,19 @@ export const MAX_LENGTH = 63
  * and it passed whatever arrived straight into normalization. A bound that only one of two callers
  * applies is a bound one caller forgot.
  */
-export const MAX_INPUT_LENGTH = MAX_LENGTH + 32
+export const MAX_INPUT_LENGTH = MAX_LENGTH + 2 * MAX_ZONE_SUFFIX_LENGTH + 10
 
 /**
- * The zone every tunnel lives under. Stripped during normalization so pasting a whole URL
- * works — people copy `myapp.nport.link` out of their terminal and expect it to mean `myapp`.
+ * The raw-input bound for a **known** zone suffix, used by the normalizing entry points.
+ *
+ * Tighter than [`MAX_INPUT_LENGTH`] and deliberately a different thing: that one guards the request
+ * boundary where the zone is unknown, this one runs where a node has said which zone it serves. Named
+ * apart because two bounds called almost the same thing is a trap — the outer one is generous on
+ * purpose and the inner one is not.
  */
-export const ZONE_SUFFIX = ".nport.link"
+export function maxNormalizableLength(zoneSuffix: string): number {
+  return MAX_LENGTH + 2 * zoneSuffix.length + 10
+}
 
 /**
  * A valid DNS label, lowercase only: starts and ends alphanumeric, hyphens allowed inside.
@@ -203,7 +231,7 @@ export type SubdomainCheck =
  * this to hold — `myapp.nport.link.` is a legal FQDN, and stripping dots only at the end left it
  * as `myapp.nport.link`, a second normalization away from `myapp`.
  */
-export function normalizeSubdomain(input: string): string {
+export function normalizeSubdomain(input: string, zoneSuffix: string = ZONE_SUFFIX): string {
   const value = input.trim().normalize("NFKC").toLowerCase()
 
   // **Walked with an index rather than re-sliced, because slicing here was quadratic.** Each
@@ -223,8 +251,8 @@ export function normalizeSubdomain(input: string): string {
 
   trimDots()
   // `startsWith` with an offset compares in place — no substring is created to throw away.
-  while (end >= ZONE_SUFFIX.length && value.startsWith(ZONE_SUFFIX, end - ZONE_SUFFIX.length)) {
-    end -= ZONE_SUFFIX.length
+  while (end >= zoneSuffix.length && value.startsWith(zoneSuffix, end - zoneSuffix.length)) {
+    end -= zoneSuffix.length
     trimDots()
   }
   return value.slice(0, end)
@@ -293,13 +321,13 @@ export function validateSubdomain(subdomain: string): SubdomainCheck {
 }
 
 /** Normalize then validate — the entry point for a **claim**. */
-export function checkSubdomain(input: string): SubdomainCheck {
-  if (input.length > MAX_INPUT_LENGTH) {
+export function checkSubdomain(input: string, zoneSuffix: string = ZONE_SUFFIX): SubdomainCheck {
+  if (input.length > maxNormalizableLength(zoneSuffix)) {
     // Refused before normalization, not after. `too-long` is already the honest reason, and no new
     // code is needed: anything this long cannot normalize to a legal name anyway.
     return { ok: false, reason: "too-long" }
   }
-  return validateSubdomain(normalizeSubdomain(input))
+  return validateSubdomain(normalizeSubdomain(input, zoneSuffix))
 }
 
 /**
@@ -308,11 +336,14 @@ export function checkSubdomain(input: string): SubdomainCheck {
  * Used by the `:subdomain` path parameter on status, heartbeat, and delete. See
  * [`validateSubdomainShape`] for why those cannot use [`checkSubdomain`].
  */
-export function checkSubdomainShape(input: string): SubdomainCheck {
-  if (input.length > MAX_INPUT_LENGTH) {
+export function checkSubdomainShape(
+  input: string,
+  zoneSuffix: string = ZONE_SUFFIX,
+): SubdomainCheck {
+  if (input.length > maxNormalizableLength(zoneSuffix)) {
     return { ok: false, reason: "too-long" }
   }
-  return validateSubdomainShape(normalizeSubdomain(input))
+  return validateSubdomainShape(normalizeSubdomain(input, zoneSuffix))
 }
 
 /**
@@ -324,13 +355,13 @@ export function checkSubdomainShape(input: string): SubdomainCheck {
  * **Not the sweeper's question.** Cleanup wants [`isProtectedFromCleanup`] — see there for the
  * difference, and for the bug that came of treating them as one.
  */
-export function isReserved(subdomain: string): boolean {
-  if (subdomain.length > MAX_INPUT_LENGTH) {
+export function isReserved(subdomain: string, zoneSuffix: string = ZONE_SUFFIX): boolean {
+  if (subdomain.length > maxNormalizableLength(zoneSuffix)) {
     // Nothing this long is one of our names, and the sweeper's input comes from Cloudflare rather
     // than from a request — but the bound is free and this is the third entry point.
     return false
   }
-  const normalized = normalizeSubdomain(subdomain)
+  const normalized = normalizeSubdomain(subdomain, zoneSuffix)
   return (
     RESERVED_SUBDOMAINS.includes(normalized) ||
     RESERVED_PREFIXES.some((prefix) => normalized.startsWith(prefix))
@@ -351,10 +382,13 @@ export function isReserved(subdomain: string): boolean {
  * `apps/api/test/reconcile.test.ts` pin both halves: `nport-` and `smoke-` are reaped, `api`,
  * `www` and `_dmarc` are not.
  */
-export function isProtectedFromCleanup(subdomain: string): boolean {
-  if (!isReserved(subdomain)) {
+export function isProtectedFromCleanup(
+  subdomain: string,
+  zoneSuffix: string = ZONE_SUFFIX,
+): boolean {
+  if (!isReserved(subdomain, zoneSuffix)) {
     return false
   }
-  const normalized = normalizeSubdomain(subdomain)
+  const normalized = normalizeSubdomain(subdomain, zoneSuffix)
   return !NPORT_OWNED_PREFIXES.some((prefix) => normalized.startsWith(prefix))
 }
