@@ -8,12 +8,13 @@ NPort tunnels HTTP/HTTPS from localhost to a public `*.nport.link` URL over Clou
 
 **Status: staging is live and real tunnels serve traffic on macOS, Linux and Windows** (2026-08-06), with WebSocket and server-enforced expiry, verified per deploy by `.github/workflows/smoke.yml`. Gate G2 is five of six: the gap is graceful Ctrl+C on Windows, where there is no `SIGINT` to send a child process. **Phase 5 (federation) is the active phase** — its contract step is done, `apps/registry` is not written. `apps/web` and `apps/desktop` are still booting scaffolds. `docs/ROADMAP.md`.
 
-## The four apps
+## The five apps
 
 | Path | Name | Runtime | Deploys to | Purpose |
 | --- | --- | --- | --- | --- |
 | `apps/web` | `@nport/web` | Next.js + OpenNext | Worker `nport-web` → nport.link | Marketing site + user docs |
-| `apps/api` | `@nport/api` | Hono on Workers | Worker `nport-api` → api.nport.link | Control plane: provisions tunnels |
+| `apps/api` | `@nport/api` | Hono on Workers | Worker `nport-api` → api.nport.link | A **node**: provisions tunnels |
+| `apps/registry` | `@nport/registry` | Hono on Workers | Worker `nport-registry` → registry.nport.link | The node directory. No credentials |
 | `apps/desktop` | `@nport/desktop` | Tauri v2 (Rust + React) | signed installers | GUI + local traffic inspector |
 | `crates/cli` | `nport` | native Rust binary | npm, crates.io, Homebrew, Scoop, Releases | The CLI everyone uses |
 
@@ -33,8 +34,8 @@ Do not violate these without adding an ADR to `docs/DECISIONS.md` first.
 ## Repo map
 
 ```
-apps/api/          Hono control plane, one Cloudflare account + zone → apps/api/CLAUDE.md
-(apps/registry/    the node directory — Phase 5, **next**: ADR-0031 + ADR-0044, not yet written)
+apps/api/          a node: one Cloudflare account + zone   → apps/api/CLAUDE.md
+apps/registry/     the node directory, no credentials      → apps/registry/CLAUDE.md
 apps/web/          Next.js site + user docs    → apps/web/CLAUDE.md
 apps/desktop/      Tauri app                   → apps/desktop/CLAUDE.md
 crates/cli/        the `nport` binary          → crates/CLAUDE.md
@@ -43,7 +44,7 @@ crates/protocol/   connector wire protocol     → crates/protocol/CLAUDE.md
 crates/contract/   Rust API mirror; generated.rs generated, subdomain.rs hand-written
 crates/xtask/      codegen, fixtures, verify-docs
 packages/contract/ zod + OpenAPI + errors — API AUTHORITY
-packages/worker-kit/     error envelope + proof of work, shared by api + registry
+packages/worker-kit/     envelope, proof of work, source identity — shared by both Workers
 packages/design-tokens/  tokens.css, shared by web + desktop
 packages/tsconfig/ shared tsconfig bases
 schema/            GENERATED: two OpenAPI docs, error registry, subdomain rules
@@ -78,19 +79,18 @@ pnpm codegen       cargo xtask codegen   # regenerate; must leave the tree clean
 | Running the whole thing locally | `docs/CONTRIBUTING.md` § Dev loop |
 | Anything touching the connector wire format | `docs/PROTOCOL.md` → `crates/protocol/CLAUDE.md` |
 | Add or change an API endpoint | `docs/API.md` → `packages/contract/` → `apps/api/CLAUDE.md` |
+| The node directory, or federation | ADR-0031 → ADR-0046 → `apps/registry/CLAUDE.md` |
 | Add or change an error | `docs/ERRORS.md` → `packages/contract/src/errors.ts`, then regenerate |
 | CLI flags, output, i18n | `crates/CLAUDE.md` → `crates/cli/src/` |
 | Tunnel lifecycle logic | `docs/ARCHITECTURE.md` §3 → `crates/core/src/tunnel.rs` |
-| Website content, SEO, styling | `docs/mockup/README.md` → `apps/web/CLAUDE.md` → `packages/design-tokens/` |
-| Desktop UI or IPC | `docs/mockup/README.md` → `apps/desktop/CLAUDE.md` |
+| Any UI — site or desktop | `docs/mockup/README.md` → that app's `CLAUDE.md` → `packages/design-tokens/` |
 | Storage, leases, expiry, abuse | `docs/ARCHITECTURE.md` §4–§7 → `apps/api/src/do/` |
 | Scaling past one Cloudflare account | ADR-0031 → `docs/ARCHITECTURE.md` §1 → `docs/ROADMAP.md` Phase 5 |
-| "Why is it built this way?" | `docs/DECISIONS.md` |
+| Why it is built this way, or what v2 got wrong | `docs/DECISIONS.md` (ADR-0001), `docs/ARCHITECTURE.md` §8 |
 | Tests | `docs/TESTING.md` |
 | Releasing or publishing | `docs/RELEASE.md` |
 | Production incident, secrets, DNS | `docs/OPERATIONS.md` |
 | What to build next | `docs/ROADMAP.md` |
-| What v2 did and why it was wrong | `docs/DECISIONS.md` ADR-0001, `docs/ARCHITECTURE.md` §8 |
 
 ## Documentation rules
 

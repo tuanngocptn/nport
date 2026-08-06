@@ -1,7 +1,6 @@
+import { sourceHash } from "@nport/worker-kit"
 import { describe, expect, it } from "vitest"
-
 import { generateSubdomain } from "./generated-name"
-import { sourceHash } from "./ip-hash"
 import { hashesMatch, hashOwnerToken, mintOwnerToken, OWNER_TOKEN_HASH_BYTES } from "./owner-token"
 
 describe("mintOwnerToken", () => {

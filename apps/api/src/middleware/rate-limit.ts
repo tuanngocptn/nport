@@ -1,6 +1,5 @@
-import { ApiError } from "@nport/worker-kit"
+import { ApiError, sourceHash } from "@nport/worker-kit"
 import type { MiddlewareHandler } from "hono"
-import { sourceHash } from "../domain/ip-hash"
 import type { Env, Variables } from "../types"
 
 /**

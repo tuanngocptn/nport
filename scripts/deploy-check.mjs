@@ -21,7 +21,7 @@
  * Run by `pnpm deploy:check`, and by the deploy workflow before it touches an account.
  */
 
-import { readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { loadWranglerConfig, ROOT } from "./lib/wrangler-config.mjs"
@@ -65,7 +65,31 @@ function compare(label, top, env, envName) {
   }
 }
 
-for (const relative of ["apps/api/wrangler.jsonc", "apps/web/wrangler.jsonc"]) {
+/**
+ * Every deployable Worker, **discovered rather than listed**.
+ *
+ * This was a two-entry array, which made it the shape `docs/ROADMAP.md`'s defects 22, 25 and 29 are
+ * all about: a hand-kept list standing behind a guarantee, correct until somebody adds an app. Adding
+ * `apps/registry` would have silently left it unchecked, and the failure mode is precisely the one
+ * this script exists to catch — an environment missing a var, deploying happily, answering with
+ * numbers nobody configured.
+ */
+function wranglerConfigs() {
+  return readdirSync(join(ROOT, "apps"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `apps/${entry.name}/wrangler.jsonc`)
+    .filter((relative) => existsSync(join(ROOT, relative)))
+    .sort()
+}
+
+const configs = wranglerConfigs()
+if (configs.length === 0) {
+  console.error("  no apps/*/wrangler.jsonc found — this check is looking in the wrong place")
+  problems += 1
+}
+console.log(`checking ${configs.length} wrangler config(s): ${configs.join(", ")}`)
+
+for (const relative of configs) {
   const config = loadWranglerConfig(relative)
   const top = shapeOf(config)
 

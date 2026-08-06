@@ -1,0 +1,29 @@
+{
+  "name": "@nport/registry",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "NPort node directory: lists nodes, accepts registrations, probes what it lists.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "catalog:",
+    "@nport/contract": "workspace:*",
+    "@nport/worker-kit": "workspace:*",
+    "hono": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "@nport/tsconfig": "workspace:*",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

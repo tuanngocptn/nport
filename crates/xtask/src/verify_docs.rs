@@ -21,16 +21,35 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// Files whose fenced blocks are treated as repository layout.
-const LAYOUT_DOCS: [&str; 7] = [
-    "CLAUDE.md",
-    "crates/CLAUDE.md",
-    "crates/protocol/CLAUDE.md",
-    "apps/api/CLAUDE.md",
-    "apps/web/CLAUDE.md",
-    "apps/desktop/CLAUDE.md",
-    "docs/ARCHITECTURE.md",
-];
+/// Files whose fenced blocks are treated as repository layout, beyond every `CLAUDE.md`.
+///
+/// Only one, and it earns its place: `docs/ARCHITECTURE.md` carries a layout block and is not a
+/// `CLAUDE.md`. Anything else added here should be asked the same question — is it *discoverable*
+/// instead?
+const EXTRA_LAYOUT_DOCS: [&str; 1] = ["docs/ARCHITECTURE.md"];
+
+/// Every doc whose fenced blocks are checked as repository layout.
+///
+/// **Discovered, not listed.** This was a seven-entry const, and defect 22 in `docs/ROADMAP.md` is
+/// what it cost: the list omitted `apps/web/CLAUDE.md` and `apps/desktop/CLAUDE.md`, and eleven dead
+/// paths had rotted behind the gap. Adding `apps/registry/CLAUDE.md` would have been the same story a
+/// second time — the file would simply not have been checked, and nothing would have said so.
+///
+/// A `CLAUDE.md` with no layout block contributes nothing, so scanning them all costs only the read.
+/// That is the whole argument the old comment made against discovery ("only some files have one") and
+/// it was the wrong way round: a file without a block is free, and a file missing from a list is a
+/// silent hole.
+fn layout_docs(repo: &Path) -> Result<Vec<String>, String> {
+    let mut docs: BTreeSet<String> = markdown_files(repo)?
+        .iter()
+        .filter(|path| path.file_name().is_some_and(|name| name == "CLAUDE.md"))
+        .map(|path| repo_relative(repo, path))
+        .collect();
+    for extra in EXTRA_LAYOUT_DOCS {
+        docs.insert(extra.to_owned());
+    }
+    Ok(docs.into_iter().collect())
+}
 
 /// Directory names never walked when collecting markdown to check.
 ///
@@ -77,8 +96,8 @@ pub fn run() -> Result<(), String> {
 fn check_layout_paths(repo: &Path) -> Result<Vec<String>, String> {
     let mut problems = Vec::new();
 
-    for doc in LAYOUT_DOCS {
-        let path = repo.join(doc);
+    for doc in layout_docs(repo)? {
+        let path = repo.join(&doc);
         let Ok(text) = std::fs::read_to_string(&path) else {
             problems.push(format!("{doc}: listed in verify-docs but does not exist"));
             continue;
@@ -652,6 +671,56 @@ mod tests {
                 .any(|p| p == ".github/pull_request_template.md"),
             "the walk should still reach .github, which merely starts with `.git`"
         );
+    }
+
+    /// Layout checking reaches every `CLAUDE.md`, not a list of them.
+    ///
+    /// Defect 22 was this list omitting two files, with eleven dead paths rotted in behind the gap.
+    /// Asserting discovery rather than the const is what stops a third app being added and silently
+    /// going unchecked — so this drives `layout_docs` against a tree whose files are named nothing
+    /// like the old seven entries.
+    #[test]
+    fn layout_checking_covers_every_claude_md() {
+        let root = std::env::temp_dir().join("nport-verify-docs-layout-discovery");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("apps/brand-new")).expect("mkdir");
+        std::fs::create_dir_all(root.join("node_modules/dep")).expect("mkdir");
+        std::fs::write(root.join("CLAUDE.md"), "root").expect("write");
+        std::fs::write(root.join("apps/brand-new/CLAUDE.md"), "app").expect("write");
+        std::fs::write(root.join("node_modules/dep/CLAUDE.md"), "dep").expect("write");
+
+        let docs = layout_docs(&root).expect("discover");
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(docs.contains(&"CLAUDE.md".to_owned()), "{docs:?}");
+        assert!(
+            docs.contains(&"apps/brand-new/CLAUDE.md".to_owned()),
+            "a new app's guide must be checked without anyone editing this file: {docs:?}"
+        );
+        assert!(
+            !docs.iter().any(|doc| doc.contains("node_modules")),
+            "{docs:?}"
+        );
+    }
+
+    /// The repository's own set, so the discovery cannot quietly find nothing.
+    #[test]
+    fn the_repositorys_layout_docs_include_every_app() {
+        let repo = crate::codegen::repo_root().expect("repo root");
+        let docs = layout_docs(&repo).expect("discover");
+
+        for expected in [
+            "CLAUDE.md",
+            "crates/CLAUDE.md",
+            "apps/api/CLAUDE.md",
+            "apps/registry/CLAUDE.md",
+            "docs/ARCHITECTURE.md",
+        ] {
+            assert!(
+                docs.contains(&expected.to_owned()),
+                "{expected} missing: {docs:?}"
+            );
+        }
     }
 
     /// Both directions of the decision-index check, against a tree built for it.

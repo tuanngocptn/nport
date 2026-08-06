@@ -288,7 +288,7 @@ describe("the request-rate limiter", () => {
  * reaches storage: the only handle anything has is this hash.
  */
 async function quotaFor(ip: string) {
-  const { sourceHash } = await import("../src/domain/ip-hash")
+  const { sourceHash } = await import("@nport/worker-kit")
   const hash = await sourceHash(String(env.IP_HASH_SECRET), ip, undefined)
   return env.SOURCE_QUOTA.get(env.SOURCE_QUOTA.idFromName(hash))
 }
