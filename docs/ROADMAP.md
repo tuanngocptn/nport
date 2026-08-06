@@ -4,6 +4,26 @@ Phases and gates. **Individual work items are GitHub Issues labelled `phase-N`, 
 
 A gate is a hard stop: every criterion must pass before the next phase starts. Gates exist because the alternative — discovering the data plane doesn't work after building three apps on top of it — is how rewrites die.
 
+## Status at a glance
+
+**✅ done · 🟡 partly · ⬜ not started.** One row per phase and gate, so the state of the project is
+readable without scrolling. Each row's detail is in its own section below; nothing here is a fact of
+its own, and a row that disagrees with its section is a bug in this table.
+
+| | Phase | Gate | Where it stands |
+| --- | --- | --- | --- |
+| ✅ | 0 · Docs and skeleton | **G0** ✅ | Lint, typecheck, tests, clippy, fmt and both codegen steps green locally and in CI |
+| ✅ | 1 · Protocol spike | **G1** 🟡 | 3 of 5 criteria met outright. Criterion 1 wants a dashboard check, 5 wants five more golden fixtures — both need access, neither is a protocol risk |
+| ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
+| ✅ | 2a · `apps/api` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
+| ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
+| ⬜ | 2c · `apps/web` | **G2c** ⬜ | Not started. Was gated on G2, which is now closed — this is the next large block of work |
+| 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
+| 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
+| ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` |
+| ⬜ | 5 · Federation | — | ADR-0031. `apps/registry` is not written |
+| ⬜ | 6 · v2 sunset | — | Waits on 3.0 being `latest` |
+
 ## Current position
 
 **Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b code-complete, and staging is deployed.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented, tested in real `workerd`, and **running at `api.nport.online`**. 2c has not started.
@@ -24,7 +44,13 @@ G1 criteria 2, 3, and 4 met; 5 is partial; 1 is unverified for want of dashboard
 
 The two gaps are both "needs access I do not have" rather than "needs design": criterion 1 wants the Cloudflare dashboard, criterion 5 wants cloudflared installed. Neither blocks Phase 1.5, and neither is a protocol risk — the behaviour they would confirm is already exercised.
 
-## The critical path — open a port to the internet
+## The critical path — open a port to the internet ✅
+
+**Walked, 2026-08-06.** All five steps below are done or answered; a port is open and a real tunnel
+carries traffic on three operating systems. The section is kept rather than deleted because each step
+records what it was there to find out, and two of those answers are load-bearing — see steps 2 and 5.
+
+The paragraph that follows was written when none of it had happened.
 
 **This is the only work that matters until Gate G2 closes.** `docs/FEATURES.md` describes a much larger product; almost none of it is on this path, and the mapping below says where each part goes instead. The ordering is deliberate: the one thing NPort must do is turn `nport 3000` into a URL that serves a local port, and that has never once happened with this code.
 
@@ -41,8 +67,8 @@ That moves the boundary a long way: everything except a valid credential is now 
 3. ~~**Run `nport 3000 -s test` against it.**~~ **Done 2026-08-06 on macOS**, HTTP only. Every step in the list below ran: proof of work, claim, provision, edge discovery, QUIC handshake, `registerConnection`, requests served from the origin, Ctrl+C, drain, delete.
 
    **Run `nport 3000 -s test` against it.** One command exercises the whole system in order: proof of work, claim, provision, edge discovery, QUIC handshake, `registerConnection`, an HTTP request served from the origin, the heartbeat, Ctrl+C, the drain, and the delete. Anything that breaks, breaks here.
-4. **Repeat on macOS, Linux, and Windows**, plus WebSocket and server-enforced expiry. That is Gate G2.
-5. **Close the two G1 leftovers while a live tunnel exists** — criterion 1 wants the dashboard to say `healthy`, criterion 5 wants the remaining five golden fixtures, and both need exactly the access that step 1 creates.
+4. ~~**Repeat on macOS, Linux, and Windows**, plus WebSocket and server-enforced expiry.~~ **Done 2026-08-06** via `.github/workflows/smoke.yml`, which runs on every staging deploy. Graceful Ctrl+C on Windows is the one thing still uncovered, and the reason is the harness: there is no `SIGINT` to send a child process there.
+5. 🟡 **Close the two G1 leftovers while a live tunnel exists** — criterion 1 wants the dashboard to say `healthy`, criterion 5 wants the remaining five golden fixtures, and both need exactly the access that step 1 creates.
 
 Not on this path, and not started until G2 closes: the website (2c), the desktop app (Phase 4), and everything in `docs/FEATURES.md` §§1, 3 and 5–14. Two client-side gaps in `docs/FEATURES.md` §4 are real but still not on it — **arbitrary forward targets** and **edge basic auth** — see the mapping below for why each waits.
 
@@ -78,7 +104,7 @@ Two items in §4 are genuinely new client-side scope:
 
 Four things `docs/FEATURES.md` leaves open are already settled in code, and the answers belong here rather than being re-derived: the inspector ring is **1000 exchanges with a 32 KiB body preview** (`core::inspector`); the CLI config file is **`~/.nport/config.toml`**, not `.json`; the CLI ships **three** languages, `en`/`vi`/`es`, where the design shows two; and **SSE already passes through**, because `core::exchange` streams rather than buffering — the same property that makes gRPC and long downloads work.
 
-## Phase 0 — Docs and skeleton
+## Phase 0 — Docs and skeleton ✅
 
 Documentation set, directory skeleton, then workspace configs and green CI on an essentially empty tree.
 
@@ -94,7 +120,7 @@ Five crate stubs exist so `cargo` has something to check: `nport` (bin), `nport-
 
 **Gate G0.** `pnpm install && pnpm lint && pnpm test && cargo clippy && cargo test` all pass on the skeleton, and CI is green. The TypeScript half passes locally; the Rust half is unverified until a toolchain runs it — first push, or `rustup` locally.
 
-## Phase 1 — Protocol spike ⛔ blocks everything
+## Phase 1 — Protocol spike ✅ (blocked everything, now unblocked)
 
 The highest-risk work, done first and alone. A throwaway `crates/protocol/examples/spike.rs` — no `TunnelManager`, no CLI, no abstraction. Just prove the protocol works from Rust.
 
@@ -130,7 +156,7 @@ The two left are deliberately unequal. **Q2's remaining half** — whether the e
 
 **If G1 fails, take the ADR-0017 ladder** — HTTP/2 transport first, then the `CloudflaredConnector` shim. Do not extend the timebox by pressing on; the ladder exists precisely so that a failure here costs a transport, not the release.
 
-## Phase 1.5 — Contract freeze
+## Phase 1.5 — Contract freeze ✅
 
 Short, and the real serializing dependency. Until it exists, Phase 2's tracks cannot parallelize. After it, they barely interact.
 
@@ -144,9 +170,9 @@ Short, and the real serializing dependency. Until it exists, Phase 2's tracks ca
 
 The tag waited on two things, both now satisfied: a remote, and the contract having met **real** Durable Objects rather than only a type-checker. Phase 2a exercised all six routes and all thirty codes end to end before `contract-v1` was cut. Two additions landed in between, both purely additive — `validateSubdomainShape` and `checkSubdomainShape`, which let a path parameter refer to a generated `nport-` name that the claim validator must still reject.
 
-## Phase 2 — Three parallel tracks
+## Phase 2 — Three parallel tracks 🟡
 
-### 2a · `apps/api`
+### 2a · `apps/api` ✅
 
 **Feature-complete, undeployed.** Everything 2a set out to build exists and is tested in real `workerd` against a fake Cloudflare. What remains is not code: the Cloudflare API paths have never met the live API, and the zone-level rate limit is a dashboard setting.
 
@@ -344,7 +370,7 @@ What that pass did produce is a **budget test**. `apps/api/CLAUDE.md` and `docs/
 
 One flaky test came out of the same work, worth recording for what it was asserting: the "refuses an unsolved challenge" case used a hardcoded `nonce: "0"`, which satisfies the 4-bit difficulty these tests run at one time in sixteen. A 6%-flaky test claiming proof of work is enforced is the worst possible thing to be flaky about. It now searches for a nonce verified *not* to satisfy the difficulty.
 
-### 2b · `crates/core` + `crates/cli`
+### 2b · `crates/core` + `crates/cli` ✅
 
 **Code-complete, never run against a live edge or a live control plane.** Everything below is built and tested; what remains is step 3 of the critical path, which is not code.
 
@@ -517,7 +543,7 @@ script uploads. Three more were in the harness rather than the product, and each
 product fault: negative DNS caching, a mistyped WebSocket GUID, and a frame decoder that assumed one
 TCP read is one frame.
 
-### 2c · `apps/web`
+### 2c · `apps/web` ⬜
 
 **Starts after G2 closes**, not alongside 2a and 2b. The tracks are still technically parallel — 2c consumes the contract and touches nothing the tunnel needs — but a site that markets a tunnel nobody has yet opened is the wrong thing to be building, and reviewing the design surfaced enough open questions in it to make the sequencing worth stating rather than assuming.
 
@@ -527,7 +553,7 @@ The approved design is `docs/mockup/NPort Site.dc.html` — read `docs/mockup/RE
 
 **Gate G2c.** The site builds, deploys, and passes its own checks. It gates the 3.0 announcement, not the tunnel.
 
-## Phase 3 — Release pipeline and beta
+## Phase 3 — Release pipeline and beta 🟡
 
 Cross-compile matrix on native runners (`cross` only for the two musl targets); the nine npm packages; `cargo publish`; Homebrew tap; Scoop manifest; GitHub Releases with provenance attestation; `smoke.yml`; **`protocol-canary.yml`**.
 
@@ -535,7 +561,7 @@ Publish `3.0.0-beta.N` and iterate on real user reports.
 
 **Gate G3.** Seven consecutive green nightly smoke runs across six OS targets before `3.0.0` is tagged `latest` on npm.
 
-## Phase 4 — `apps/desktop`
+## Phase 4 — `apps/desktop` ⬜
 
 Deliberately last: it consumes a *stable* `crates/core`, and building it earlier would churn core's API for a GUI that no one is using yet.
 
@@ -543,7 +569,7 @@ Tunnel list and one-click start; tray integration; the traffic inspector over `c
 
 **The scope is `docs/FEATURES.md` §§5–10, §12 and §14, plus the Nodes screen in §3** — the mapping table above — against the design in `docs/mockup/NPort Desktop.dc.html`. Two things to settle before components are written, both recorded in `apps/desktop/CLAUDE.md`: the design draws seven surfaces where the planned layout has four views, and every surface in the token sheet is a `backdrop-filter` glass layer, which is the property that degrades worst on WebKitGTK. §8 is excluded, per the mapping table. §12 is design work that has not been done at all — the mockup is macOS Tahoe only.
 
-## Phase 5 — Federation: a registry and many nodes
+## Phase 5 — Federation: a registry and many nodes ⬜
 
 **Unblocks at G2, not before — well ahead of Phases 3 and 4, and parallel with them.** ADR-0031. Today's control plane is one Worker on one account and one zone, and three ceilings bind at once — DNS records per zone, tunnels per account, and the per-account API rate limit. A zone cannot span accounts, so each shard needs its own domain as well as its own account.
 
@@ -560,7 +586,7 @@ Tunnel list and one-click start; tray integration; the traffic inspector over `c
 
 **Gate G5.** Two nodes on two Cloudflare accounts and two domains, both listed; a client discovers, picks, provisions, and fails over to the second when the first is stopped mid-run.
 
-## Phase 6 — v2 sunset
+## Phase 6 — v2 sunset ⬜
 
 Keep the legacy shim alive for installed 2.x clients. Then, in order: `npm deprecate nport@2` with a pointer to the 3.x migration note; announce a date; after that date return `426 CLIENT_TOO_OLD`; eventually remove the shim.
 
