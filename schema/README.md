@@ -6,7 +6,7 @@ Four describe the contract: they come from `packages/contract` and feed `cargo x
 
 | File | Holds | Exists because |
 | --- | --- | --- |
-| `nport-node.openapi.json` | the OpenAPI description of a **node's** API | the request and response shapes, also rendered on the website |
+| `nport-node.openapi.json` | the OpenAPI description of a **node's** API | the request and response shapes, also rendered on the website. Includes `SHARED_ROUTES` — what the gateway answers itself — which is why `GET /v1/health` appears in both documents |
 | `nport-registry.openapi.json` | the OpenAPI description of the **registry's** API | a separate service, **now behind the same hostname** ([ADR-0049](../docs/DECISIONS.md)). Both documents carry the same `servers` entry, so the split no longer rests on the host — it rests on the two path spaces being disjoint and each document's components being reachable from its own routes. A client generated from a merged document would call `/v1/nodes` on a node-only deployment, where nothing answers it |
 | `errors.json` | each code's status, retryability, slug and `details` keys | **JSON Schema cannot express them.** The document can say `code` is one of 33 strings; it cannot say `SUBDOMAIN_IN_USE` is a 409 not worth retrying, which is exactly what the Rust client branches on |
 | `subdomain.json` | the length bounds, the zone suffix, and the reserved lists | the Rust mirror needs the same 53 reserved names, and a second copy kept by hand is a list that is correct until somebody forgets |

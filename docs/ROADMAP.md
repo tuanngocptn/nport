@@ -912,11 +912,22 @@ compatibility later. Tested-but-unreachable code is the exact shape seven defect
 about, so it is stated rather than left to be found: `apps/gateway/test/legacy-gap.test.ts` asserts
 the gap and **starts failing the day `/` is routed**, which is why it is a test and not a note.
 
-**`GET /v1/health` is not in `packages/contract`.** `docs/API.md` documents it as a public endpoint
-and three Workers serve it, but no route table defines it — so invariant 7 does not hold for it, and
-none of the three conformance tests covers it. Found by TypeScript rejecting a comparison against a
-path the `ROUTES` union does not contain. Not fixed with the gateway: it predates this Worker, and
-reopening the contract mid-step would widen a commit that is about something else.
+**`GET /v1/health` is in `packages/contract` now, as a third table.** It had been documented in
+`docs/API.md` as a public endpoint, served by all three Workers, and defined by no route table — so
+invariant 7 did not hold for it and none of the three conformance tests covered it. Found by TypeScript
+rejecting a comparison against a path the `ROUTES` union does not contain.
+
+`SHARED_ROUTES` holds routes **the front door answers itself**. It is a third table rather than an entry
+in either of the other two because it belongs to neither: the gateway answers health and forwards it
+nowhere, so calling it a node route or a registry route would be a lie about who serves it. Both
+generated documents list it, since both name the same host — omitting it from one would describe that
+host as not serving a route it serves.
+
+What the three conformance tests now assert, each a different question: the gateway answers every shared
+route *itself* and forwards none of them, with the contract's response shape and without a client
+version (uptime monitors send no NPort headers); the node and the registry each also mount one, which is
+what makes their service bindings probeable. Both halves verified by breaking them — dropping the
+gateway's handler fails 4 tests, dropping the node's fails 5.
 
 `crates/core`'s `DEFAULT_REGISTRY` and the user-facing docs follow after. A node registering does not
 need the client to have moved, and sequencing them first would delay the only thing that proves any of

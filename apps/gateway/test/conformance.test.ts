@@ -1,5 +1,5 @@
 import { SELF } from "cloudflare:test"
-import { REGISTRY_ROUTES, ROUTES } from "@nport/contract"
+import { REGISTRY_ROUTES, ROUTES, SHARED_ROUTES } from "@nport/contract"
 import { describe, expect, it } from "vitest"
 
 /**
@@ -10,10 +10,10 @@ import { describe, expect, it } from "vitest"
  * reach it at all". A perfectly implemented route behind a gateway that does not forward it is
  * unreachable, which is how the v2 shim now sits — see `legacy-gap.test.ts`.
  *
- * **`GET /v1/health` is not in `ROUTES`** and so is not checked here — `docs/API.md` documents it as a
- * public endpoint but `packages/contract` never defined it, which invariant 7 says it should. Found by
- * TypeScript rejecting a comparison against a path the union does not contain. Recorded in
- * `docs/ROADMAP.md` rather than fixed here, since it predates this Worker.
+ * **`GET /v1/health` is now `SHARED_ROUTES`**, and it is checked differently from the other two tables:
+ * this Worker must answer it *itself* rather than route it anywhere. It was the one public endpoint no
+ * route table defined — documented in `docs/API.md` since before the gateway existed, and therefore
+ * covered by none of the three conformance tests. Closing that is what the third table is for.
  *
  * Probed rather than read from Hono's table, because the gateway's routes are three wildcards. What
  * matters is not that `/v1/*` is registered but that a given contract path lands on the right service,
@@ -32,6 +32,42 @@ async function routedTo(path: string): Promise<string> {
   const body = (await response.json()) as { service?: string; error?: { code: string } }
   return body.service ?? `unrouted (${body.error?.code ?? response.status})`
 }
+
+describe("the routes the front door owns", () => {
+  it("answers every shared route itself, without troubling a service", async () => {
+    // **The distinction the third table exists to express.** A health check that crossed a service
+    // binding would report on the binding too, and an uptime monitor is asking whether the front door
+    // is open. So a shared route reaching `node` or `registry` is a routing bug, not a pass.
+    for (const route of SHARED_ROUTES) {
+      const response = await SELF.fetch(`https://api.nport.link${concrete(route.path)}`, {
+        headers: UA,
+      })
+      expect(response.status, route.path).toBe(route.successStatus)
+
+      const body = (await response.json()) as { service?: string }
+      expect(body.service, `${route.path} was forwarded to a service`).toBeUndefined()
+    }
+  })
+
+  it("answers them with the shape the contract promises", async () => {
+    for (const route of SHARED_ROUTES) {
+      const response = await SELF.fetch(`https://api.nport.link${concrete(route.path)}`, {
+        headers: UA,
+      })
+      const parsed = route.response?.safeParse(await response.json())
+      expect(parsed?.success, `${route.path}: ${JSON.stringify(parsed?.error?.issues)}`).toBe(true)
+    }
+  })
+
+  it("answers them without a client version, for uptime monitors", async () => {
+    // Rule 6: exempt from the gate and the limiter. A monitor sends no NPort headers, and it has to be
+    // able to tell a running-but-misconfigured deployment from a dead one.
+    for (const route of SHARED_ROUTES) {
+      const response = await SELF.fetch(`https://api.nport.link${concrete(route.path)}`)
+      expect(response.status, route.path).toBe(route.successStatus)
+    }
+  })
+})
 
 describe("every contract path reaches a service", () => {
   it("routes the node's table to the node", async () => {

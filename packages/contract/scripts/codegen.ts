@@ -35,7 +35,7 @@ import { z } from "zod"
 
 import { ERRORS, type ErrorCode, type ErrorDefinition, errorSlug } from "../src/errors"
 import type { RouteDefinition } from "../src/routes"
-import { REGISTRY_ROUTES, ROUTES } from "../src/routes"
+import { REGISTRY_ROUTES, ROUTES, SHARED_ROUTES } from "../src/routes"
 import {
   challengeResponseSchema,
   clientKindSchema,
@@ -472,7 +472,10 @@ const API_SERVICE: ServiceDocument = {
   description:
     "Provisions and reaps tunnels. Not on the tunnel data path. No accounts, no API keys, and no CORS headers — see docs/API.md.",
   server: { url: "https://api.nport.link", description: "Production" },
-  routes: ROUTES,
+  // `SHARED_ROUTES` first, and in **both** documents: `GET /v1/health` is answered by the gateway at
+  // the host both documents name, so a document that omitted it would describe a host as not serving a
+  // route it does serve. See the table's own docblock.
+  routes: [...SHARED_ROUTES, ...ROUTES],
 }
 
 const REGISTRY_SERVICE: ServiceDocument = {
@@ -483,7 +486,7 @@ const REGISTRY_SERVICE: ServiceDocument = {
   // survive that on the strength of disjoint path spaces — every registry route is under `/v1/nodes` —
   // rather than on the two-hostnames argument ADR-0046 originally made.
   server: { url: "https://api.nport.link", description: "Production" },
-  routes: REGISTRY_ROUTES,
+  routes: [...SHARED_ROUTES, ...REGISTRY_ROUTES],
 }
 
 const errorsPath = join(REPO, "docs", "ERRORS.md")

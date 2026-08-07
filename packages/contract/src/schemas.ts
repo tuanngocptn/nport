@@ -347,6 +347,19 @@ export const registerNodeResponseSchema = z
 
 // ── Errors ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * `GET /v1/health`'s body.
+ *
+ * One field, and it is deliberately not a summary of anything downstream. A health check that reported
+ * on Cloudflare's API or on a service binding would turn their outage into ours and page the wrong
+ * person — `apps/node/src/routes/health.ts` states the same rule from the other side.
+ */
+export const healthResponseSchema = z
+  .object({
+    status: z.literal("ok"),
+  })
+  .strict()
+
 export const errorCodeSchema = z
   .enum(ERROR_CODES as [string, ...string[]])
   .describe("Stable code. Branch on this, never on `message`.")

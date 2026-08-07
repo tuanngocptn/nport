@@ -38,7 +38,7 @@ pnpm --filter @nport/gateway deploy   # normally CI does this
 3. **The internal services trust those headers because they are unreachable.** That is a deployment property, not a cryptographic one — give either service a `routes` entry and rule 2's guarantee evaporates silently.
 4. **Dispatch by path prefix only.** `/v1/nodes*` → registry, `/v1/*` → node. The contract keeps the two route tables disjoint and three conformance tests hold it there; a router that needed to inspect a body would mean the contract had gone wrong.
 5. **`REGISTRY` is optional, `NODE` is not.** A node-only deployment omits the registry binding, so `/v1/nodes` does not exist there rather than 404ing — that is what makes role a deployment rather than a configuration flag.
-6. **`/v1/health` is answered here and never forwarded**, and is exempt from the client gate, the rate limiter and the binding check. An uptime monitor sends no NPort headers and must be able to tell a running-but-misconfigured Worker from a dead one.
+6. **`/v1/health` is answered here and never forwarded**, and is exempt from the client gate, the rate limiter and the binding check. An uptime monitor sends no NPort headers and must be able to tell a running-but-misconfigured Worker from a dead one. It is `SHARED_ROUTES` in `packages/contract` — a third table for what the front door owns — and `test/conformance.test.ts` asserts all four of those properties rather than trusting them.
 7. **Every failure carries a code.** The config check is Hono middleware rather than a guard in the `fetch` export, because a throw outside the app never reaches `onError` and `workerd` answers with a bare 500.
 
 ## Gotchas

@@ -1,4 +1,4 @@
-import { REGISTRY_ROUTES } from "@nport/contract"
+import { REGISTRY_ROUTES, SHARED_ROUTES } from "@nport/contract"
 import { describe, expect, it } from "vitest"
 
 import { createApp } from "../src/index"
@@ -31,9 +31,17 @@ describe("the registry and its contract", () => {
     expect(missing, `${missing.length} contract route(s) not mounted`).toEqual([])
   })
 
+  it("also serves the shared routes, so its binding can be probed", () => {
+    const mounted = new Set(app.routes.map((route) => `${route.method} ${route.path}`))
+    const missing = SHARED_ROUTES.map((route) => `${route.method} ${route.path}`).filter(
+      (signature) => !mounted.has(signature),
+    )
+    expect(missing, `${missing.length} shared route(s) not mounted`).toEqual([])
+  })
+
   it("keeps every route it serves under /v1/nodes", () => {
     // Load-bearing, not tidy: the gateway dispatches on the path prefix (ADR-0049), so a registry
-    // route outside this space is one no request can reach. `/v1/health` and `/` are the exceptions —
+    // route outside this space is one no request can reach. `SHARED_ROUTES` and `/` are the exceptions —
     // the gateway answers those itself and never forwards them.
     const stray = app.routes
       // Handlers only. `app.use` registers as method `ALL`, so the middleware wildcards (`/v1/*`,
@@ -41,7 +49,9 @@ describe("the registry and its contract", () => {
       .filter((route) => route.method !== "ALL")
       .map((route) => route.path)
       .filter((path) => path.startsWith("/v1/") && !path.startsWith("/v1/nodes"))
-      .filter((path) => path !== "/v1/health")
+      // **Derived from the table, not a literal.** This was a hardcoded `/v1/health`, which would have
+      // gone stale the moment a second shared route appeared.
+      .filter((path) => !SHARED_ROUTES.some((route) => route.path === path))
     expect(stray, "registry routes outside /v1/nodes are unroutable behind the gateway").toEqual([])
   })
 

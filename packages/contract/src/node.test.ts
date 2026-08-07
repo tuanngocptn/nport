@@ -3,7 +3,6 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
-
 import {
   isValidNodeId,
   MAX_NODE_DOMAIN_LENGTH,
@@ -12,7 +11,7 @@ import {
   nodeProofRecordValue,
   nodeProofSatisfied,
 } from "./node"
-import { REGISTRY_ROUTES, ROUTES } from "./routes"
+import { REGISTRY_ROUTES, ROUTES, SHARED_ROUTES } from "./routes"
 import { nodeListResponseSchema, nodeSchema, registerNodeRequestSchema } from "./schemas"
 import { SUBDOMAIN_PATTERN, validateSubdomain } from "./subdomain"
 
@@ -184,18 +183,36 @@ describe("the two service documents", () => {
     expect(api.info.title).not.toBe(registry.info.title)
   })
 
-  it("keeps the two path spaces disjoint, which is what makes one host work", () => {
+  it("keeps the two *dispatched* path spaces disjoint, which is what makes one host work", () => {
     // The gateway dispatches on the path prefix, so an overlap is not a documentation problem — it is
     // a request nobody can route. Every registry path must be under `/v1/nodes`, and no node path may
     // be. `GET /v1/challenge` is the case that forced this: both services had one, signed with
     // deliberately different secrets, so the registry's moved to `/v1/nodes/challenge`.
-    for (const path of Object.keys(registry.paths)) {
+    //
+    // **`SHARED_ROUTES` is excluded, and that is the point of it being a third table.** The gateway
+    // answers those itself and forwards them nowhere, so they are dispatched to neither service and
+    // cannot collide with either. Disjointness is a property of what gets *routed*; a route the front
+    // door owns is outside that question. Both documents list it because both name the same host.
+    // Widened deliberately: `SHARED_ROUTES` is `as const`, so an inferred `Set` would be
+    // `Set<"/v1/health">` and `has(someString)` would not typecheck. The document paths are strings.
+    const shared = new Set<string>(SHARED_ROUTES.map((route) => route.path))
+
+    for (const path of Object.keys(registry.paths).filter((path) => !shared.has(path))) {
       expect(path, `${path} is a registry route outside /v1/nodes`).toMatch(/^\/v1\/nodes/)
     }
-    for (const path of Object.keys(api.paths)) {
+    for (const path of Object.keys(api.paths).filter((path) => !shared.has(path))) {
       expect(path, `${path} is a node route inside the registry's space`).not.toMatch(
         /^\/v1\/nodes/,
       )
+    }
+  })
+
+  it("lists every shared route in both documents", () => {
+    // The other half of the same decision: omitting it from one would describe a host as not serving a
+    // route it does serve, since ADR-0049 gave both documents the same `servers` entry.
+    for (const route of SHARED_ROUTES) {
+      expect(Object.keys(api.paths), route.path).toContain(route.path)
+      expect(Object.keys(registry.paths), route.path).toContain(route.path)
     }
   })
 

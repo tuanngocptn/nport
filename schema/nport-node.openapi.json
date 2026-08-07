@@ -16,6 +16,37 @@
     }
   ],
   "paths": {
+    "/v1/health": {
+      "get": {
+        "summary": "Liveness of the deployment's front door.",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Liveness of the deployment's front door.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "ok"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        },
+        "x-idempotent": true,
+        "x-requires-owner-token": false
+      }
+    },
     "/v1/challenge": {
       "get": {
         "summary": "Issue a proof-of-work challenge.",

@@ -18,6 +18,7 @@ import {
   createTunnelRequestSchema,
   createTunnelResponseSchema,
   deleteTunnelRequestSchema,
+  healthResponseSchema,
   heartbeatRequestSchema,
   heartbeatResponseSchema,
   metaResponseSchema,
@@ -59,6 +60,41 @@ const UNIVERSAL_ERRORS = [
   "RATE_LIMITED",
   "INTERNAL",
 ] as const satisfies readonly ErrorCode[]
+
+/**
+ * Routes **the deployment's front door answers itself**, present whatever role it runs.
+ *
+ * A third table, because `GET /v1/health` belongs to neither of the other two and putting it in either
+ * would be a lie about who serves it. `apps/gateway` answers it and never forwards it — an uptime
+ * monitor asking "is the front door open" must not have its answer depend on a service binding — so it
+ * is not the node's route and not the registry's, even though both also mount one so their bindings can
+ * be probed.
+ *
+ * **Why it is in the contract at all**: invariant 7 says the public API lives only here, and
+ * `docs/API.md` has documented this endpoint as public since before the gateway existed. It was the one
+ * public route no route table defined, which meant none of the three conformance tests covered it —
+ * recorded as a gap when the gateway landed and closed here.
+ *
+ * Both generated documents include it, and that is not the duplication the two-document split exists to
+ * avoid. Since ADR-0049 both carry the same `servers` entry, so a client of either API can call this
+ * endpoint at the host its own document names. Saying so twice is accurate; omitting it from one would
+ * describe a host that answers a route the document denies.
+ */
+export const SHARED_ROUTES = [
+  {
+    method: "GET",
+    path: "/v1/health",
+    summary: "Liveness of the deployment's front door.",
+    response: healthResponseSchema,
+    successStatus: 200,
+    requiresOwnerToken: false,
+    idempotent: true,
+    // **No `errors`, and no client gate either.** This route is exempt from the version gate and the
+    // rate limiter (`apps/gateway/CLAUDE.md` rule 6): an uptime monitor sends no NPort headers and has
+    // to be able to tell a running-but-misconfigured deployment from a dead one.
+    errors: [],
+  },
+] as const satisfies readonly RouteDefinition[]
 
 export const ROUTES = [
   {

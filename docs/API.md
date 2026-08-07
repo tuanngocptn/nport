@@ -26,6 +26,8 @@ Under ADR-0031 the provisioning Worker is **a node**: one deployment bound to on
 
 **This document does not define field types.** `packages/contract` is the authority; it generates `schema/nport-node.openapi.json` and `schema/nport-registry.openapi.json`, which together generate `crates/contract`. Field-level truth is those documents, rendered on the website.
 
+**Three route tables, not two.** `ROUTES` is the node's, `REGISTRY_ROUTES` is the registry's, and `SHARED_ROUTES` holds what the **gateway answers itself** — currently just `GET /v1/health`. That endpoint had been documented here as public since before the gateway existed while no table defined it, so invariant 7 did not hold for it and none of the three conformance tests covered it. It appears in *both* generated documents, because both name the same host and a document that omitted it would describe that host as not serving a route it serves.
+
 **Two documents, because there are two services** — and since ADR-0049 they share a `servers` entry, so the reason has changed. ADR-0046's argument was "one `servers` entry cannot describe two hosts". What justifies the split now is that the two path spaces are **disjoint** and each document's components are reachable from its own routes: a node-only deployment serves one of the two, and a client generated from a merged document would call `/v1/nodes` on a deployment where nothing answers it.
 
 That is deliberate: v2's `docs/API.md` restated every field in prose tables and drifted immediately — it documented `subdomain` and `tunnelId` as required for DELETE when both were optional in the type. This file covers what OpenAPI cannot express: lifecycle, semantics, idempotency, and intent.
@@ -92,7 +94,7 @@ Skipping step 5 is safe — the lease expires on its own. Skipping step 4 kills 
 | `DELETE` | `/v1/tunnels/:subdomain` | Release the lease and tear down | **yes** |
 | `GET` | `/v1/tunnels/:subdomain` | Public status: exists, expires-at. No secrets. | no |
 | `GET` | `/v1/meta` | Limits, `MIN_CLIENT_VERSION`, reserved-name policy | no |
-| `GET` | `/v1/health` | Liveness for monitoring | no |
+| `GET` | `/v1/health` | Liveness for monitoring. **Answered by the gateway**, never forwarded — `SHARED_ROUTES` | no |
 | `GET` | `/` | 301 → `https://nport.link` | no |
 
 ### `GET /v1/challenge`

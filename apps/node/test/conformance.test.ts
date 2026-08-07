@@ -1,4 +1,4 @@
-import { ROUTES } from "@nport/contract"
+import { ROUTES, SHARED_ROUTES } from "@nport/contract"
 import { describe, expect, it } from "vitest"
 
 import { app } from "../src/index"
@@ -34,6 +34,18 @@ describe("the control plane and its contract", () => {
       (signature) => !mounted.has(signature),
     )
     expect(missing, `${missing.length} contract route(s) not mounted`).toEqual([])
+  })
+
+  it("also serves the shared routes, so its binding can be probed", () => {
+    // The gateway answers these for the public and never forwards them, so this Worker's copies are
+    // unreachable in a deployed system — deliberately. They exist so an operator can send a request
+    // through the service binding and learn whether *this* Worker is alive, which is the one question a
+    // health check at the front door cannot answer.
+    const mounted = new Set(app.routes.map((route) => `${route.method} ${route.path}`))
+    const missing = SHARED_ROUTES.map((route) => `${route.method} ${route.path}`).filter(
+      (signature) => !mounted.has(signature),
+    )
+    expect(missing, `${missing.length} shared route(s) not mounted`).toEqual([])
   })
 
   it("claims no route in the registry's path space", () => {
