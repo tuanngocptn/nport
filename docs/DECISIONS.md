@@ -57,6 +57,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0047 | Worker plumbing shared in a package, rather than imported across deployables | Accepted |
 | 0048 | Prerendered pages are served from Workers Static Assets, and e2e drives the Worker | Accepted |
 | 0049 | One hostname per deployment: a gateway Worker, service bindings, and heartbeat registration | Accepted |
+| 0050 | The desktop glass is opt-in per platform; opaque is the default | Accepted |
 
 ---
 
@@ -329,7 +330,10 @@ The general rule: **the authority for a boundary is whichever side owns the inva
 
 ## ADR-0021 — shadcn/ui + TanStack Virtual for the desktop frontend
 
-**Date** 2026-08-03 · **Status** Accepted
+**Date** 2026-08-03 · **Status** Accepted · **Refined by** ADR-0050
+
+ADR-0050 settles what this one left open by omission: the design it dresses those components in is
+built on `backdrop-filter`, and that decides the app's appearance on Linux.
 
 **Context.** ADR-0004 chose Tauri v2 with a React frontend and ADR-0014 chose Tailwind v4, but no component library was named — leaving the two hardest pieces of `apps/desktop` unspecified. Its real UI is not a marketing page: a virtualized request table over a ring buffer that can hold thousands of exchanges, a JSON tree viewer, keyboard-driven navigation, and a tray menu.
 
@@ -1079,3 +1083,75 @@ check would have all of them registering at once, each paying for a proof-of-wor
 - An `app` config service is designed for and **not built**. A third binding and a path prefix is all it would take; an empty deployable is a thing to maintain, secure and document for no behaviour (ADR-0047's argument against a speculative `packages/shared`).
 
 **Rejected.** *One Worker with path routing and an env flag* — role becomes configuration, the registry's code ships to every operator's account, and a misconfigured node could serve registry endpoints. *Gateway forwarding over public HTTP* — a full TLS round trip per request, and the internal services stay publicly reachable, which is most of what the split was for. *Keeping two hostnames* — the status quo, and it makes every operator provision DNS for a service they do not run. *Registry-side spot checks alongside heartbeats* — half of both designs: it keeps the fan-out that motivated the change while adding a second source of truth about the same fact.
+
+## ADR-0050 — The desktop glass is opt-in per platform, and opaque is the default
+
+**Date** 2026-08-08 · **Status** Accepted · **Refines** ADR-0021
+
+**Context.** `apps/desktop/CLAUDE.md` has carried an open question since the scaffold: the approved design
+is macOS Tahoe "Liquid Glass", every surface in `docs/mockup/handoff/shared/tokens.css` is a
+`backdrop-filter` layer, and `backdrop-filter` is the property that degrades worst on WebKitGTK — the
+oldest engine we ship against. The instruction was to *"decide what the app looks like when it is
+unsupported or too slow, rather than discovering it in a screenshot"*.
+
+Reading the token sheet answers most of it. **Every glass surface is translucent over `--np-page`, which
+is the one opaque value in the file.** `--np-window` is `rgba(30, 30, 34, 0.62)`, `--np-card` is
+`rgba(255, 255, 255, 0.07)`, and so on down. Composite that stack over an opaque page and it is a
+perfectly legible flat dark interface; all that `backdrop-filter` adds is the blur. The design does not
+*depend* on the blur for contrast, which is the thing that would have made this hard.
+
+So the hazard is not "no `backdrop-filter`". It is **a transparent window with nothing blurring behind
+it** — surfaces at 62 % and 7 % opacity compositing over whatever wallpaper the user happens to have.
+That is unreadable, and it is what the scaffold shipped: `tauri.conf.json` set `transparent: true` on
+every platform, `styles.css` set `background: transparent` on `html, body, #root`, and `--np-page` was
+never applied anywhere. On macOS a WKWebView often disguises this; on WebKitGTK, with transparency
+depending on a compositor and no vibrancy API in the first place, it is the screenshot bug the gotcha
+predicted.
+
+**Two things are needed for glass, and they are not the same thing.** Blurring the *desktop behind the
+window* is an OS compositor feature — `NSVisualEffectView` on macOS, Mica or Acrylic on Windows 11,
+and **nothing at all on Linux**. `backdrop-filter` only blurs what is behind an element *within the
+page*. Conflating them is why "does WebKitGTK support `backdrop-filter`" looked like the question; it
+is not, because even a perfect implementation cannot reach the wallpaper.
+
+**Decision.** Glass is an enhancement a platform opts into. Opaque is the default, everywhere.
+
+- The window paints `--np-page` and is **not** transparent. The token stack composites over it exactly
+  as designed, minus the blur.
+- Transparency is enabled per platform, in the same change that installs a real vibrancy layer for that
+  platform — never before. `tauri.macos.conf.json`, `tauri.windows.conf.json` and `tauri.linux.conf.json`
+  are supported by the CLI we pin (verified against `@tauri-apps/cli` 2.11.4), so this is a config
+  override rather than a runtime branch.
+- The seam is one attribute: `:root[data-glass="on"]` drops the opaque page so the transparent window
+  shows through. Nothing sets it today, which means today's answer to "what does it look like when
+  unsupported" is *the same as everywhere else*, and the enhancement is what has to prove itself.
+- `backdrop-filter` stays in the component styles unguarded. Where it is unsupported the surface keeps
+  its translucent colour over an opaque page and simply is not blurred; there is no fallback to write.
+
+**Linux is expected to stay opaque indefinitely**, and that is a product decision rather than a
+temporary gap. There is no portable Linux API for blurring behind a window, so the honest options were
+a flat interface or a fake one — a painted pseudo-wallpaper, which is what the mockup itself does and
+says in its own comments is scaffolding rather than product.
+
+**Consequences.**
+
+- **The Linux app looks different from the screenshots**, deliberately. `docs/mockup/README.md` rule 4
+  already says the design is not the authority on behaviour; this is the first case where it is not the
+  authority on appearance either, so it is written down rather than left for a bug report.
+- **Nobody can see the glass yet**, including on macOS. That is the cost of making the safe state the
+  default, and it is the right way round: the previous arrangement made the *unsafe* state the default
+  on all three platforms and looked fine on the one machine anybody had run it on.
+- **`window-vibrancy` is not a dependency**, and adding it is the macOS half of Phase 4's window work.
+  It is deliberately not added here, because a dependency added for an effect nothing yet renders is a
+  dependency nobody can evaluate.
+- **A settings toggle becomes possible rather than necessary.** `data-glass` is already the shape a
+  user preference would take, so "reduce transparency" costs an attribute rather than a refactor — but
+  it is not built, because a toggle for an effect that exists on no platform is a control with one
+  position.
+
+**Rejected.** *`@supports not (backdrop-filter: …)` with a full set of opaque fallback tokens* — a
+second colour system to keep in sync with the first, to solve a problem the translucent-over-opaque
+stack does not have. *Detecting WebKitGTK's blur performance at runtime and degrading* — a frame-timing
+heuristic that would flicker between two appearances on a machine under load, which is worse than
+either appearance. *Painting a wallpaper behind the window on Linux* — an imitation of the user's
+desktop that is wrong the moment they change it, and the mockup's own comments call this scaffolding.

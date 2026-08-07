@@ -4,19 +4,39 @@
 @custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
 
 /**
- * The window is transparent so the OS wallpaper shows through the glass. The mockup simulates that
- * layer with a painted background because a design export has no OS behind it; here the real thing
- * is available, so `tauri.conf.json` sets `transparent` and this sets nothing.
+ * The page is opaque, and the glass is what has to prove itself (ADR-0050).
+ *
+ * Every surface in `packages/design-tokens` is translucent — `--np-window` is 62% opaque, `--np-card`
+ * is 7% — and all of them composite over `--np-page`, the one opaque value in the file. Give them that
+ * page and the interface is legible everywhere; all `backdrop-filter` adds on top is the blur.
+ *
+ * What is *not* legible is a transparent window with nothing blurring behind it, which is what this
+ * file used to set on all three platforms: surfaces at 7% opacity over whatever wallpaper the user
+ * has. Blurring the desktop behind a window is an OS compositor feature — `NSVisualEffectView`,
+ * Mica, and nothing at all on Linux — so `backdrop-filter` cannot rescue it however well the engine
+ * implements it.
+ *
+ * `[data-glass="on"]` is the seam that drops the page back out, per platform, in the same change that
+ * installs a real vibrancy layer for that platform. Nothing sets it today.
  */
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
-  background: transparent;
+  background: var(--np-page);
   color: var(--np-text);
   font-family: var(--np-font);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Set on `<html>`, which is `:root` — so the flag and its descendants are three selectors, not a
+   nesting trick. All three have to go transparent together, or the one that stays opaque is the one
+   covering the window. */
+html[data-glass="on"],
+html[data-glass="on"] body,
+html[data-glass="on"] #root {
+  background: transparent;
 }
 
 /* A WebView is not a browser tab. Selecting the chrome and dragging it is not a gesture anyone
