@@ -306,6 +306,12 @@ Plus steps 1–4 against the production account, and an `env.production` block i
 `wrangler.jsonc` files. `pnpm deploy:check` refuses a block whose `vars` do not match the top level
 in shape, which is the mistake worth catching there.
 
+## Adding a node
+
+A different shape, not just a different account: gateway and node, **no registry**, registering with
+somebody else's. It needs its own domain, because a Cloudflare zone lives in one account.
+`docs/ADDING_A_NODE.md` covers what differs; steps 1–4 above are unchanged.
+
 ## Rotating a secret
 
 ```bash
