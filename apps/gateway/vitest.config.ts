@@ -24,7 +24,7 @@ export default defineConfig({
           // from Terraform and `wrangler secret bulk` (ADR-0040).
           IP_HASH_SECRET: "test-gateway-ip-hash-secret",
           // Pinned so a developer's `.dev.vars` cannot change what these tests mean — the pool reads
-          // that file alongside `wrangler.jsonc`, which is how `apps/api` once had 36 tests fail for
+          // that file alongside `wrangler.jsonc`, which is how `apps/node` once had 36 tests fail for
           // a reason that had nothing to do with the code.
           MIN_CLIENT_VERSION: "3.0.0",
         },

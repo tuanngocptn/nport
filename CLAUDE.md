@@ -6,7 +6,7 @@ Guidance for Claude Code working in this repository. Read this file first; it te
 
 NPort tunnels HTTP/HTTPS from localhost to a public `*.nport.link` URL over Cloudflare's edge. It is free, MIT-licensed, and **account-free** — no signup, no API keys, `nport 3000 -s myapp` and you have a URL. v3 is a from-scratch rewrite that replaces the bundled `cloudflared` binary with a native Rust implementation of Cloudflare's tunnel connector protocol.
 
-**Status: staging is live and real tunnels serve traffic on macOS, Linux and Windows** (2026-08-06), with WebSocket and server-enforced expiry, verified per deploy by `.github/workflows/smoke.yml`. Gate G2 is five of six: the gap is graceful Ctrl+C on Windows, where there is no `SIGINT` to send a child process. **Phase 5 (federation) is written and not deployed** — contract, `apps/registry`, node fields and client discovery all land; G5 needs a second Cloudflare account. `apps/web` is mid-2c: pages, copy, SEO and a Playwright tier against the built Worker. `apps/desktop` is still a booting scaffold. `docs/ROADMAP.md`.
+**Status: staging is live and real tunnels serve traffic on macOS, Linux and Windows** (2026-08-06), with WebSocket and server-enforced expiry, verified per deploy by `.github/workflows/smoke.yml`. Gate G2 is five of six: the gap is graceful Ctrl+C on Windows, where there is no `SIGINT` to send a child process. **Phase 5 (federation) is written and not deployed**, and ADR-0049 reshaped its topology mid-phase: one hostname per deployment, a gateway dispatching over service bindings, and liveness inverted from registry-pull to node-push. `apps/web` is mid-2c: pages, copy, SEO and a Playwright tier against the built Worker. `apps/desktop` is still a booting scaffold. `docs/ROADMAP.md` § Backend first is the live list.
 
 ## The apps
 
@@ -14,8 +14,8 @@ NPort tunnels HTTP/HTTPS from localhost to a public `*.nport.link` URL over Clou
 | --- | --- | --- | --- | --- |
 | `apps/web` | `@nport/web` | Next.js + OpenNext | Worker `nport-web` → nport.link | Marketing site + user docs |
 | `apps/gateway` | `@nport/gateway` | Hono on Workers | Worker `nport-gateway` → api.nport.link | **The only public backend Worker.** Shared middleware, dispatch by path |
-| `apps/api` | `@nport/api` | Hono on Workers | Worker `nport-api`, service binding `NODE` | A **node**: provisions tunnels. Becomes `apps/node` |
-| `apps/registry` | `@nport/registry` | Hono on Workers | Worker `nport-registry`, service binding `REGISTRY` | The node directory. No credentials. Master deployments only |
+| `apps/node` | `@nport/node` | Hono on Workers | Worker `nport-node`, service binding `NODE` | A **node**: provisions tunnels. No route of its own |
+| `apps/registry` | `@nport/registry` | Hono on Workers | Worker `nport-registry`, service binding `REGISTRY` | The node directory. No credentials, no route, fetches no node. Master deployments only |
 | `apps/desktop` | `@nport/desktop` | Tauri v2 (Rust + React) | signed installers | GUI + local traffic inspector |
 | `crates/cli` | `nport` | native Rust binary | npm, crates.io, Homebrew, Scoop, Releases | The CLI everyone uses |
 
@@ -36,7 +36,7 @@ Do not violate these without adding an ADR to `docs/DECISIONS.md` first.
 
 ```
 apps/gateway/      the public front door; the only routed Worker → apps/gateway/CLAUDE.md
-apps/api/          a node: one Cloudflare account + zone   → apps/api/CLAUDE.md
+apps/node/          a node: one Cloudflare account + zone   → apps/node/CLAUDE.md
 apps/registry/     the node directory, no credentials      → apps/registry/CLAUDE.md
 apps/web/          Next.js site + user docs    → apps/web/CLAUDE.md
 apps/desktop/      Tauri app                   → apps/desktop/CLAUDE.md
@@ -46,7 +46,7 @@ crates/protocol/   connector wire protocol     → crates/protocol/CLAUDE.md
 crates/contract/   Rust API mirror; generated.rs generated, subdomain.rs hand-written
 crates/xtask/      codegen, fixtures, verify-docs
 packages/contract/ zod + OpenAPI + errors — API AUTHORITY
-packages/worker-kit/     envelope, proof of work, source identity — shared by both Workers
+packages/worker-kit/     envelope, proof of work, source identity, forwarded headers — all three Workers
 packages/design-tokens/  tokens.css, shared by web + desktop
 packages/tsconfig/ shared tsconfig bases
 schema/            GENERATED: two OpenAPI docs, error registry, subdomain rules
@@ -63,9 +63,9 @@ Dependency direction is one-way: `protocol → core → {cli, desktop}`, and `co
 
 ```bash
 corepack enable && pnpm install    # bootstrap; also installs the git hooks
-pnpm dev                           # api + web + desktop, all at once
-pnpm dev:cli                       # tunnel the local site through the local control plane
-pnpm dev:api  dev:web  dev:desktop # one surface at a time
+pnpm dev                           # gateway :8787 + node + registry + web + desktop, at once
+pnpm dev:cli                       # tunnel the local site through the local gateway
+pnpm dev:gateway  dev:node  dev:registry  dev:web  dev:desktop   # one surface at a time
 cargo run -p nport -- 3000 -s test # run the CLI
 pnpm test          cargo test      # tests
 pnpm lint          cargo clippy    # lint
@@ -78,13 +78,13 @@ pnpm codegen       cargo xtask codegen   # regenerate; must leave the tree clean
 | --- | --- |
 | Running the whole thing locally | `docs/CONTRIBUTING.md` § Dev loop |
 | Anything touching the connector wire format | `docs/PROTOCOL.md` → `crates/protocol/CLAUDE.md` |
-| Add or change an API endpoint | `docs/API.md` → `packages/contract/` → `apps/api/CLAUDE.md` |
-| The node directory, or federation | ADR-0031 → ADR-0046 → `apps/registry/CLAUDE.md` |
+| Add or change an API endpoint | `docs/API.md` → `packages/contract/` → `apps/node/CLAUDE.md` |
+| The node directory, federation, or anything crossing between two Workers | ADR-0031 → ADR-0049 → `apps/gateway/CLAUDE.md` → `apps/registry/CLAUDE.md` |
 | Add or change an error | `docs/ERRORS.md` → `packages/contract/src/errors.ts`, then regenerate |
 | CLI flags, output, i18n | `crates/CLAUDE.md` → `crates/cli/src/` |
 | Tunnel lifecycle logic | `docs/ARCHITECTURE.md` §3 → `crates/core/src/tunnel.rs` |
 | Any UI — site or desktop | `docs/mockup/README.md` → that app's `CLAUDE.md` → `packages/design-tokens/` |
-| Storage, leases, expiry, abuse | `docs/ARCHITECTURE.md` §4–§7 → `apps/api/src/do/` |
+| Storage, leases, expiry, abuse | `docs/ARCHITECTURE.md` §4–§7 → `apps/node/src/do/` |
 | Scaling past one Cloudflare account | ADR-0031 → `docs/ARCHITECTURE.md` §1 → `docs/ROADMAP.md` Phase 5 |
 | Why it is built this way, or what v2 got wrong | `docs/DECISIONS.md` (ADR-0001), `docs/ARCHITECTURE.md` §8 |
 | Tests | `docs/TESTING.md` |
@@ -105,7 +105,7 @@ pnpm codegen       cargo xtask codegen   # regenerate; must leave the tree clean
 @docs/conventions/typescript.md
 @docs/conventions/rust.md
 
-Commits are conventional: `type(scope): description` with types `feat|fix|docs|refactor|test|chore` and scopes `gateway|node|registry|api|web|desktop|cli|core|protocol|contract|ci|docs`. The first three arrived with ADR-0049; `api` stays for the v2-era history that already used it. Branches are prefixed `feature/`, `fix/`, `docs/`, `refactor/`, `protocol/`.
+Commits are conventional: `type(scope): description` with types `feat|fix|docs|refactor|test|chore` and scopes `gateway|node|registry|web|desktop|cli|core|protocol|contract|ci|docs`. The first three arrived with ADR-0049. **`api` is not a scope** — it named the node service before the rename, so it appears throughout the history and in no new commit. Branches are prefixed `feature/`, `fix/`, `docs/`, `refactor/`, `protocol/`.
 
 Every user-visible failure carries a code from the registry in `packages/contract`. Never match on an error message string — that was v2's central design mistake (see ADR-0018).
 

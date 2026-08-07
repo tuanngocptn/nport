@@ -12,7 +12,7 @@ The CLI version is the one users mean by "NPort version". npm `nport`, the eight
 
 The desktop app versions independently: it ships on a slower clock and its releases are gated on manual per-platform verification.
 
-`apps/api` and `apps/web` deploy on every merge to `main` that touches them. They have no version because there is only ever one live copy, and the API's compatibility surface is `/v1` (`docs/API.md`).
+`apps/node` and `apps/web` deploy on every merge to `main` that touches them. They have no version because there is only ever one live copy, and the API's compatibility surface is `/v1` (`docs/API.md`).
 
 ## CLI release
 

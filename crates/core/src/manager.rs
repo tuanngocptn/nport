@@ -9,7 +9,7 @@
 //!
 //! **This module owns sockets and timers. It owns no rules.** Every decision — who starts, how long
 //! to wait, whether to rotate, when to give up — comes from [`crate::supervisor`], which is pure and
-//! tested without a network. That division is deliberate: `apps/api` produced five reachable
+//! tested without a network. That division is deliberate: `apps/node` produced five reachable
 //! concurrency bugs, every one of them inside an I/O loop where the decision could not be tested on
 //! its own.
 //!

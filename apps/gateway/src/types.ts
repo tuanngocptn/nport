@@ -35,13 +35,15 @@ export interface Variables {
 }
 
 /**
- * Headers the gateway adds before forwarding, and the internal services read instead of recomputing.
+ * The forwarded header names live in `@nport/worker-kit`, not here.
+ *
+ * They are a contract between three Workers, and a misspelling on one side is silent — so they are
+ * written once and imported (`packages/worker-kit/src/forwarded.ts`). This file used to declare its
+ * own pair, which is exactly two of the three spellings that must never diverge.
  *
  * **The trust boundary is deployment, not cryptography.** An internal service believes these because
  * it declares no `routes` and sets `workers_dev: false`, so the only way to reach it is the binding.
  * Give one of them a route and a caller could set `x-nport-source-hash` themselves and impersonate any
- * source — which would defeat every per-source cap at once. `check_internal_workers_are_private` in
+ * source — which would defeat every per-source cap at once. `checkReachability` in
  * `scripts/deploy-check.mjs` is what keeps that from happening quietly.
  */
-export const FORWARDED_REQUEST_ID = "x-nport-request-id"
-export const FORWARDED_SOURCE_HASH = "x-nport-source-hash"

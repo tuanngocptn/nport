@@ -17,7 +17,7 @@ coverage/
 .wrangler/
 .dev.vars
 .dev.vars.*
-# The template is committed on purpose: `pnpm dev:api` returns an opaque 500 without a
+# The template is committed on purpose: `pnpm dev:node` returns an opaque 500 without a
 # `.dev.vars`, so the copy-me file has to be discoverable. It holds no real secret.
 !.dev.vars.example
 worker-configuration.d.ts

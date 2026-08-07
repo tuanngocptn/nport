@@ -21,7 +21,7 @@
 //!    two of them long before anyone noticed. A stated limit nobody measures is the shape every defect
 //!    in `docs/ROADMAP.md`'s list shares, and the cost of measuring it is a line count.
 //!
-//! 6. **`docs/SELF_HOSTING.md`'s tuning table matches `apps/api/wrangler.jsonc`.** Both that a var
+//! 6. **`docs/SELF_HOSTING.md`'s tuning table matches `apps/node/wrangler.jsonc`.** Both that a var
 //!    exists and that its documented default is the real one. Five of that table's eight rows named vars
 //!    that had never existed, and one recommended a value the code rejects at runtime (defect 39). It is
 //!    the narrowest check here on purpose — see [`check_self_hosting_vars`] for the general version that
@@ -212,7 +212,7 @@ fn path_candidates(line: &str) -> Vec<String> {
         }
         // Not repository paths, and each of these produced a false positive on the first run:
         //   `:`  — URLs (`http://localhost:8787`) and git revisions (`main:src/tunnel.ts`)
-        //   `@`  — package names (`@nport/api`)
+        //   `@`  — package names (`@nport/node`)
         //   `/…` — absolute routes in a diagram (`/v1/tunnels`)
         //   `.go`— cloudflared source, which lives in another repository
         //   `.`  — a leading dot is a relative marker in prose, not a tree entry
@@ -647,7 +647,7 @@ fn tracked_files(repo: &Path) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// Every var in `docs/SELF_HOSTING.md`'s tuning table exists in `apps/api/wrangler.jsonc`, with the
+/// Every var in `docs/SELF_HOSTING.md`'s tuning table exists in `apps/node/wrangler.jsonc`, with the
 /// default the table claims.
 ///
 /// **This table was wrong in five of its eight rows.** It named `TUNNEL_MAX_AGE_HOURS`,
@@ -666,8 +666,8 @@ fn check_self_hosting_vars(repo: &Path) -> Result<Vec<String>, String> {
 
     let doc = std::fs::read_to_string(repo.join("docs/SELF_HOSTING.md"))
         .map_err(|error| format!("reading docs/SELF_HOSTING.md: {error}"))?;
-    let wrangler = std::fs::read_to_string(repo.join("apps/api/wrangler.jsonc"))
-        .map_err(|error| format!("reading apps/api/wrangler.jsonc: {error}"))?;
+    let wrangler = std::fs::read_to_string(repo.join("apps/node/wrangler.jsonc"))
+        .map_err(|error| format!("reading apps/node/wrangler.jsonc: {error}"))?;
 
     let Some(table) = tuning_table(&doc) else {
         // Not "no rows, nothing to check": the section vanishing is how a check quietly stops checking.
@@ -688,11 +688,11 @@ fn check_self_hosting_vars(repo: &Path) -> Result<Vec<String>, String> {
         // them, which is why the documented default is compared against the top level only.
         match top_level_var(&wrangler, &var) {
             None => problems.push(format!(
-                "docs/SELF_HOSTING.md § Tuning names `{var}`, which is not in apps/api/wrangler.jsonc"
+                "docs/SELF_HOSTING.md § Tuning names `{var}`, which is not in apps/node/wrangler.jsonc"
             )),
             Some(actual) if actual != default => problems.push(format!(
                 "docs/SELF_HOSTING.md § Tuning says `{var}` defaults to `{default}`, \
-                 but apps/api/wrangler.jsonc says `{actual}`"
+                 but apps/node/wrangler.jsonc says `{actual}`"
             )),
             Some(_) => {}
         }
@@ -1109,7 +1109,7 @@ mod tests {
         for expected in [
             "CLAUDE.md",
             "crates/CLAUDE.md",
-            "apps/api/CLAUDE.md",
+            "apps/node/CLAUDE.md",
             "apps/registry/CLAUDE.md",
             "docs/ARCHITECTURE.md",
         ] {

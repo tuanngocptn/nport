@@ -17,13 +17,13 @@ that disagrees with its section is a bug in this table.
 | ✅ | 0 · Docs and skeleton | **G0** ✅ | Lint, typecheck, tests, clippy, fmt and both codegen steps green locally and in CI |
 | ✅ | 1 · Protocol spike | **G1** 🟡 | 3 of 5 criteria met outright. Criterion 1 wants a dashboard check, 5 wants five more golden fixtures — both need access, neither is a protocol risk |
 | ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
-| ✅ | 2a · `apps/api` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
+| ✅ | 2a · `apps/node` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
 | ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
 | 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Code-complete**: error pages, marketing page, SEO surface, MDX docs, and a Playwright tier against the built Worker. Left is the gate — armed visual baselines, which need Linux, and the deploy |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
 | ⬜ | 4 · `apps/desktop` | — | A booting scaffold, and now **unblocked**: it was waiting on a stable `crates/core` and on discovery, and both exist. Still deliberately last |
-| 🚧 | **5 · Federation — registry and nodes** | **G5** ⬜ | **All four steps written and tested; nothing deployed.** Contract (ADR-0046), `apps/registry`, `apps/api`'s node fields, and `crates/core::discovery`. What is left is the gate itself: two nodes on two accounts and two domains, and a real failover |
+| 🚧 | **5 · Federation — registry and nodes** | **G5** ⬜ | **All four steps written and tested; nothing deployed.** Contract (ADR-0046), `apps/registry`, `apps/node`'s node fields, and `crates/core::discovery`. What is left is the gate itself: two nodes on two accounts and two domains, and a real failover |
 | ⬜ | 6 · v2 sunset | — | Waits on 3.0 being `latest` |
 
 **What to build next: Gate G5 — but it is an operations task, and everything else is blocked on access
@@ -33,12 +33,12 @@ it is last by design rather than by dependency now that `crates/core` and discov
 so bringing it forward is a scheduling decision, not a blocked one.
 
 All four of Phase 5's code steps are written and tested — the contract, `apps/registry`,
-`apps/api`'s node fields, and `crates/core::discovery` — in the order they had to be: the contract
+`apps/node`'s node fields, and `crates/core::discovery` — in the order they had to be: the contract
 froze first because it is the serializing dependency (the Phase 1.5 argument, applied again), the
-registry came next because the node schema is what it is written against, `apps/api` third because a
+registry came next because the node schema is what it is written against, `apps/node` third because a
 directory with nothing in it is not testable, and discovery last because it consumes all three.
 
-The whole chain is exercisable offline: a node registers with a fake registry in `apps/api`'s tests, a
+The whole chain is exercisable offline: a node registers with a fake registry in `apps/node`'s tests, a
 registry probes a fake node in its own, and a client fails over between two loopback nodes in
 `crates/core`'s.
 
@@ -53,7 +53,7 @@ that had been blocking it turned out not to be needed — the client does not ha
 domain, it only has to stop pretending it already knows.
 
 Why this rather than the site or the desktop app: v2 still serves `nport.link`, so nothing downstream
-of v3 is urgent, and federation is what turns `apps/api` from "the control plane" into "a node" —
+of v3 is urgent, and federation is what turns `apps/node` from "the control plane" into "a node" —
 changing its configuration surface and adding a discovery step in front of the client's entry point.
 Building two apps against a shape that is about to change is the cost being avoided (ADR-0044).
 
@@ -89,11 +89,11 @@ The paragraph that follows was written when none of it had happened.
 
 No new code is the blocker. **Deployment and live verification are.**
 
-`pnpm dev` now brings the control plane, the site, and the desktop window up together, and with `FAKE_CLOUDFLARE=1` in `apps/api/.dev.vars` the CLI provisions against it for real: proof of work, claim, saga, `201 Created`, the URL banner, heartbeats, and a clean `DELETE` on exit. It then dials the **actual** Cloudflare edge over QUIC and is refused at registration, because the credential is a fake — so the retry ladder, the give-up, and the lease release are all exercised too.
+`pnpm dev` now brings the control plane, the site, and the desktop window up together, and with `FAKE_CLOUDFLARE=1` in `apps/node/.dev.vars` the CLI provisions against it for real: proof of work, claim, saga, `201 Created`, the URL banner, heartbeats, and a clean `DELETE` on exit. It then dials the **actual** Cloudflare edge over QUIC and is refused at registration, because the credential is a fake — so the retry ladder, the give-up, and the lease release are all exercised too.
 
 That moves the boundary a long way: everything except a valid credential is now verifiable offline, including the `ConnectionsExhausted` path. What steps 1 and 2 below still own is the only thing left — whether the Cloudflare API calls that mint a *real* token are correct.
 
-1. ~~**Deploy `apps/api`.**~~ **Done for staging, 2026-08-06.** Terraform owns the zone settings and the rate-limit ruleset, the deploy pipeline owns the Workers, and the runtime secrets are generated and synced by CI rather than typed (ADR-0040, ADR-0043 — the "never CI" rule this step originally carried was deliberately reversed). `docs/DEPLOYMENT.md` is the walkthrough. Production is the same pipeline with a second caller and a second account.
+1. ~~**Deploy `apps/node`.**~~ **Done for staging, 2026-08-06.** Terraform owns the zone settings and the rate-limit ruleset, the deploy pipeline owns the Workers, and the runtime secrets are generated and synced by CI rather than typed (ADR-0040, ADR-0043 — the "never CI" rule this step originally carried was deliberately reversed). `docs/DEPLOYMENT.md` is the walkthrough. Production is the same pipeline with a second caller and a second account.
 2. ~~**Confirm the Cloudflare API paths against the live API.**~~ **Answered 2026-08-06:** `POST /accounts/{id}/cfd_tunnel` is correct, and the create response carried **no** `token` field — so `GET .../cfd_tunnel/{id}/token` is the live path and ADR-0032's second branch is the one that runs. The original note follows.
 
    **Confirm the Cloudflare API paths against the live API.** 2a uses the current `cfd_tunnel` resource name where v2 used the legacy `/accounts/{id}/tunnels`. Every provisioning test to date has run against `test/fake-cloudflare.ts`, so the first real create is also the first check that the path is right. This was the single most likely thing to be wrong on first deploy, and **most of it has now been checked without deploying**: every path, parameter and response field was read out of Cloudflare's published OpenAPI schema and cross-checked against its generated Go SDK on 2026-08-05 (`docs/OPERATIONS.md` § Verifying the Cloudflare API surface). That found two real problems, one of which would have failed every single provision. What is still genuinely open is one field the schema and v2 disagree about, and the code now accepts both answers (ADR-0032) — so the first live create resolves it by observation rather than by breaking.
@@ -114,7 +114,7 @@ Renumbered when the design gained the federated architecture — it now has four
 | Area | Lands in | State |
 | --- | --- | --- |
 | 1 · Registry | **Phase 5** | new. ADR-0031 |
-| 2 · Node | **2a** + Phase 5 | `apps/api` already *is* a node; it gains self-registration and a capacity field |
+| 2 · Node | **2a** + Phase 5 | `apps/node` already *is* a node; it gains self-registration and a capacity field |
 | 3 · Node selection in the client | **Phase 5** + Phase 4 | `core::discovery` is Phase 5; the Nodes screen over it is Phase 4 |
 | 4 · Core tunnel engine | **2b** | built, bar host targeting and edge basic auth |
 | 5 · Request inspector | Phase 4 | `core::inspector` built in 2b; the UI over it is Phase 4 |
@@ -195,7 +195,7 @@ Short, and the real serializing dependency. Until it exists, Phase 2's tracks ca
 
 - [x] `packages/contract`: 30 error codes, 6 routes, subdomain normalization and validation, shared `fixtures/subdomains.json` — the numbers as frozen at `contract-v1`; Phase 5 has since added 3 codes and a second route table, all additive
 - [x] `docs/ERRORS.md` **generated** from the registry
-- [x] `schema/nport-api.openapi.json` with named component schemas, and `schema/errors.json` for the metadata JSON Schema cannot express
+- [x] `schema/nport-node.openapi.json` with named component schemas, and `schema/errors.json` for the metadata JSON Schema cannot express
 - [x] `crates/contract` generated by `cargo xtask codegen` (ADR-0025 — not `typify`, and why)
 - [x] tag `contract-v1` — annotated, pushed 2026-08-04
 
@@ -205,7 +205,7 @@ The tag waited on two things, both now satisfied: a remote, and the contract hav
 
 ## Phase 2 — Three parallel tracks 🟡
 
-### 2a · `apps/api` ✅
+### 2a · `apps/node` ✅
 
 **Feature-complete, undeployed.** Everything 2a set out to build exists and is tested in real `workerd` against a fake Cloudflare. What remains is not code: the Cloudflare API paths have never met the live API, and the zone-level rate limit is a dashboard setting.
 
@@ -246,7 +246,7 @@ Three things worth knowing before this deploys:
 10. **A quadratic normalizer, reachable unauthenticated on the path with no proof of work.** `normalizeSubdomain` stripped the zone suffix in a loop by re-slicing, copying the whole remaining string each pass — O(n·k), with k growing with n. `"a"` plus `".nport.link"` repeated measured 4 ms at 11 KiB, 87 ms at 54 KiB and **12.5 s at 645 KiB**. `/v1` was bounded by its schema; the v2 shim was not, because v2's request shape is not in the contract so the shim reads its own body, and it passed whatever arrived straight in. Its refusal also echoed the raw value back, making a megabyte in a megabyte out. Fixed at both layers (ADR-0034): the function is linear, and the bound lives at the contract's entry points where no caller can forget it. `challenge`, `nonce` and `ownerToken` were unbounded strings for the same reason and are now bounded too.
 11. **Reconciliation could not reap an orphaned generated name — the commonest kind.** A generated name is `nport-<base32>`, so its tunnel is `nport-nport-<base32>` and the subdomain the sweep extracts starts with `nport-`: a reserved prefix, therefore skipped. Since a generated name is what every `nport 3000` without `-s` gets, the sweep was structurally unable to reap most orphans — **R8's family for the fourth time**. The deny list answers two questions and only one is the sweeper's, so `isProtectedFromCleanup` now refines `isReserved` by excluding the two prefixes only NPort creates (ADR-0036). Found by writing a smoke test, whose own `smoke-` names were refused `403` — which exposed a contradiction in `docs/TESTING.md`: it reserved `smoke-` "so reconciliation can identify them", when reserving a prefix is exactly what makes reconciliation leave it alone.
 12. **`URL=$(nport 3000)` returned four lines.** The `Provisioned` banner was a single stdout string holding the URL *and* `forwarding to`, `expires`, and `press Ctrl+C` — while the doc comment on `Stream` promised "the URL goes to stdout and everything else to stderr". `--quiet` hid it by suppressing the extras, which made the flag the only way to script the CLI rather than the default, and the existing test cemented the behaviour by asserting the stdout line *contained* `localhost:3000`. `event` now returns lines with their own streams, so the URL stands alone on stdout and the banner goes to stderr where the rest of the chatter already was.
-13. **The server could not shorten its own grace period.** `GET /v1/meta` publishes `heartbeatIntervalMs` as a quarter of the grace, for the reason `apps/api/CLAUDE.md` states — "so clients discover rather than hardcode it" — and `core::tunnel` hardcoded 30 s and never called `Api::meta()`, which was dead code in a client that had a method for it. Lower the grace to 60 s and a client still beating every 30 s has one miss of headroom instead of four; lower it to 30 s and every tunnel dies on schedule with nothing saying why. Invariant 3 makes the server authoritative for time limits, and a client picking its own beat rate is a client enforcing one. Now discovered and clamped (ADR-0037).
+13. **The server could not shorten its own grace period.** `GET /v1/meta` publishes `heartbeatIntervalMs` as a quarter of the grace, for the reason `apps/node/CLAUDE.md` states — "so clients discover rather than hardcode it" — and `core::tunnel` hardcoded 30 s and never called `Api::meta()`, which was dead code in a client that had a method for it. Lower the grace to 60 s and a client still beating every 30 s has one miss of headroom instead of four; lower it to 30 s and every tunnel dies on schedule with nothing saying why. Invariant 3 makes the server authoritative for time limits, and a client picking its own beat rate is a client enforcing one. Now discovered and clamped (ADR-0037).
 14. **A broken config file was always reported in English.** `main` printed `thiserror`'s Display for a config failure and returned, and it did so *before* resolving the language — because resolution consulted the config, which is the thing that had just failed. So `--lang es` and `NPORT_LANG=vi` were both ignored on the one path where a user is already puzzled. That is **defect R20's shape reappearing in `crates/cli` itself**: prose reaching a user outside the i18n path, which the layering rule exists to prevent. The ordering was not necessary — the flag and the environment are exactly the two sources still available when the file is unusable — so the language is now resolved without the config's contribution, and the line follows the shape the port probe already used: translated sentence, registry code, then the specific reason in parentheses. That reason stays English on purpose: "unknown field `porrt`, expected one of …" is what makes it actionable, and it is a technical detail rather than a sentence.
 15. **An hourly-quota refusal sent no `Retry-After`, while carrying the exact instant it frees up in the body.** `docs/API.md` says "Every `429` and `503` carries `Retry-After`", and the handler derived it from `details.retryAfter` alone — so `RATE_LIMITED` and `CAPACITY_EXHAUSTED` got one and `CREATE_QUOTA_EXCEEDED`, which counts time as an absolute `resetAt`, got none. The header is the field standard tooling and our own retry ladder read, and the server knew the answer. It is now derived from whichever field a refusal carries, clamped to 1 s–1 h. `CONCURRENCY_LIMIT` still has none, and that stays deliberate: a source at its cap frees a slot by closing a tunnel, not by waiting, so a header there would invite the loop it should discourage — which is the distinction `docs/API.md` now draws instead of overclaiming.
 
@@ -346,7 +346,7 @@ Three things worth knowing before this deploys:
 
     The fix is not "wait 30 seconds": a Worker request has a user at the end of it and cannot absorb that. It is to use the number in the direction it points — honour a delay under a second, and **stop immediately** when the delay is longer than the request could ever wait, because the remaining attempts are then being spent rather than saved. An unreadable header falls back to the ladder, which is deliberate: `Number("")` is `0` and an HTTP-date is not a number at all, so a mis-parse would read as "retry now" and be worse than what it replaced.
 
-    Found by the mirror-image move again, and it is becoming the most reliable one here. The fifteenth was about our API *sending* `Retry-After` correctly; the unasked question was whether we *honour* one when someone sends it to us. **Every protocol courtesy has two directions, and implementing one is not evidence about the other** — `apps/api/CLAUDE.md` rule 10 spells out our obligation to send the header and says nothing about reading one.
+    Found by the mirror-image move again, and it is becoming the most reliable one here. The fifteenth was about our API *sending* `Retry-After` correctly; the unasked question was whether we *honour* one when someone sends it to us. **Every protocol courtesy has two directions, and implementing one is not evidence about the other** — `apps/node/CLAUDE.md` rule 10 spells out our obligation to send the header and says nothing about reading one.
 
     The two retry ladders in this repository still differ on jitter — `crates/core/src/retry.rs` uses full jitter and argues in its docblock that partial jitter "still leaves a peak", while the client uses `base + random×base`. That difference is defensible rather than a defect: the Rust ladder de-synchronises thousands of independent clients, where a near-zero draw is fine, and the client's floor guarantees a minimum spacing against an upstream that rate-limits per account. Left as it is, recorded here so the next reader does not have to re-derive whether it was an oversight.
 
@@ -360,7 +360,7 @@ Three things worth knowing before this deploys:
 
 33. **A pass that found nothing, and the reason is the most useful thing in this list.** Four targeted checks, each against an explicitly documented claim, all four correct:
 
-    - The mirror of the thirty-second in TypeScript. Every `console.*` in `apps/api/src` passes named fields — `subdomain`, `code`, `status`, `operation`, `String(error)` — never a whole request or response object, so rule 12 holds. The mirror also does not really apply: TypeScript has no auto-derived debug printing, so there is no equivalent of the derive to get wrong.
+    - The mirror of the thirty-second in TypeScript. Every `console.*` in `apps/node/src` passes named fields — `subdomain`, `code`, `status`, `operation`, `String(error)` — never a whole request or response object, so rule 12 holds. The mirror also does not really apply: TypeScript has no auto-derived debug printing, so there is no equivalent of the derive to get wrong.
     - `crates/cli/src/args.rs` against defect R15. Port accepted positionally and as `-p`, `--help`/`--version` answering before anything else happens, unknown flags refused, adjacent flags not consuming each other's values — seven tests including the exact v2 regression (`nport -s app 3000` silently tunnelling 8080).
     - The locale precedence in `crates/CLAUDE.md` rule 5. The signature is `Lang::detect(flag, configured, env)`, which *reads* as though the config file outranks `NPORT_LANG`; the body orders them the documented way. Checked precisely because the signature suggested otherwise.
     - The two gotchas `crates/protocol/CLAUDE.md` names with their failure modes: `retryAfter` is nanoseconds (`Duration::from_nanos`, tested at `2_000_000_000` → 2 s, with a second test for a negative value being dropped rather than wrapping into roughly 585 years), and registration errors classify on `shouldRetry` rather than on cause text.
@@ -389,7 +389,7 @@ Three things worth knowing before this deploys:
 
     `verify-docs` now checks both directions, which is a fourth check in a module whose docblock said three. An index row with no ADR behind it matters as much as the reverse: it promises a decision nobody wrote.
 
-36. **A node handed out URLs it then refused to accept back.** `apps/api` builds a tunnel's URL from `CF_DOMAIN` — that is how `https://myapp.nport.dev` gets returned — while `checkSubdomain` normalized against the hardcoded `ZONE_SUFFIX`, `.nport.link`. So on any deployment except the public one, pasting your own tunnel's hostname into `-s` came back `INVALID_SUBDOMAIN` with the reason `invalid-characters`. Pasting a hostname is the single case the suffix strip exists for, and it worked on exactly one zone.
+36. **A node handed out URLs it then refused to accept back.** `apps/node` builds a tunnel's URL from `CF_DOMAIN` — that is how `https://myapp.nport.dev` gets returned — while `checkSubdomain` normalized against the hardcoded `ZONE_SUFFIX`, `.nport.link`. So on any deployment except the public one, pasting your own tunnel's hostname into `-s` came back `INVALID_SUBDOMAIN` with the reason `invalid-characters`. Pasting a hostname is the single case the suffix strip exists for, and it worked on exactly one zone.
 
     Latent for the whole of Phase 2 and reachable by every self-hoster, which is a population `docs/SELF_HOSTING.md` has documented since Phase 0. Federation is what made it urgent rather than what caused it: ADR-0031 gives every node its own domain, so "one zone" stopped being an approximation and became wrong.
 
@@ -429,15 +429,15 @@ The eighteenth extends that from reading to **writing**, and adds the one distin
 
 The nineteenth is the strongest argument yet for the direction the last three took, and it names the test the others were groping toward: **ask what a tool the user already trusts would accept.** curl accepts a bare-LF head. So the author of a small server has already proved to themselves that it works, and a connector stricter than curl does not look strict — it looks broken, and it looks broken in a way that blames them. Two of the last three bugs were the same mistake against the same yardstick: `": "` versus a colon, and `\r\n` versus a newline. Both times the standard permitted the lenient reading and every widely-used client took it. For anything the connector parses that a user's own server produces, the right question is not "what does the RFC require" but "what does curl already accept" — the RFC answers whether leniency is *allowed*, and curl answers whether strictness will be *blamed on us*.
 
-The thirteenth is the ninth's lesson again, and the cheapest place to keep applying it: a published field with a documented purpose that nothing read. `apps/api/CLAUDE.md` says a limit goes in `/v1/meta` "so clients discover rather than hardcode it" — so the check is simply *does anything call `meta()`*, and the answer was no.
+The thirteenth is the ninth's lesson again, and the cheapest place to keep applying it: a published field with a documented purpose that nothing read. `apps/node/CLAUDE.md` says a limit goes in `/v1/meta` "so clients discover rather than hardcode it" — so the check is simply *does anything call `meta()`*, and the answer was no.
 
 **Two lessons came out of the smoke work itself, and both are about instrumentation rather than product.** First: **an assertion that passes whether or not the bug is present is worse than no assertion.** The heartbeat check went green with the fix reverted, because it waited eleven seconds against a twenty-second grace — caught only by deliberately reverting and watching it pass. Reverting a fix to confirm the test fails is now the habit, not an optional flourish. Second: **a harness that shares state between runs is measuring the previous run.** The smoke test reused one source address, so the per-source hourly quota and the ADR-0028 difficulty dial accumulated across runs until a solve was slow enough to look like the server crashing — the abuse controls working correctly, on the wrong target. Each run now uses a fresh source, and the one control it cannot avoid (the CLI cannot set `cf-connecting-ip`) is lifted explicitly for the run rather than fought.
 
 A third came out of the fourteenth, and it is a tooling trap rather than a lesson about tests: **`mv backup.rs src.rs` preserves the backup's mtime**, so cargo saw a file older than its own artifact, considered the crate fresh, and kept the *reverted* binary. Both directions of the revert-check then looked wrong at once, which is the confusing signature to remember. `touch` the file after restoring it, or the check is measuring the previous build.
 
-**A pass that found nothing is worth recording too, so the next one does not repeat it.** Three claims were checked and hold: `GET /v1/tunnels/:subdomain` returns exactly `subdomain`, `active` and `expiresAt` — the contract's "carries nothing an attacker could use" is true of the hand-built response, not just of the schema; **no `access-control-*` header appears on any route** and `OPTIONS` gets a 400, so R9's browser layer is real rather than assumed; and all thirty `docsUrl` slugs agree between `apps/api` and `crates/cli`, which matters because three places derive them and a mismatch would print a 404 at a user.
+**A pass that found nothing is worth recording too, so the next one does not repeat it.** Three claims were checked and hold: `GET /v1/tunnels/:subdomain` returns exactly `subdomain`, `active` and `expiresAt` — the contract's "carries nothing an attacker could use" is true of the hand-built response, not just of the schema; **no `access-control-*` header appears on any route** and `OPTIONS` gets a 400, so R9's browser layer is real rather than assumed; and all thirty `docsUrl` slugs agree between `apps/node` and `crates/cli`, which matters because three places derive them and a mismatch would print a 404 at a user.
 
-What that pass did produce is a **budget test**. `apps/api/CLAUDE.md` and `docs/ARCHITECTURE.md` §6 both quoted a provisioning subrequest count and nothing asserted it, so the number had drifted to "~5" when a provision actually makes **three** Cloudflare calls and a teardown four. The free plan's ceiling of 50 is hard, and a Durable Object hop counts against it, so a saga that grows a step moves the whole request closer to failing outright. `test/tunnels.test.ts` now asserts both lists exactly — a new step shows up as a failing test rather than as a stale comment — and the four places quoting the old number are corrected.
+What that pass did produce is a **budget test**. `apps/node/CLAUDE.md` and `docs/ARCHITECTURE.md` §6 both quoted a provisioning subrequest count and nothing asserted it, so the number had drifted to "~5" when a provision actually makes **three** Cloudflare calls and a teardown four. The free plan's ceiling of 50 is hard, and a Durable Object hop counts against it, so a saga that grows a step moves the whole request closer to failing outright. `test/tunnels.test.ts` now asserts both lists exactly — a new step shows up as a failing test rather than as a stale comment — and the four places quoting the old number are corrected.
 
 One flaky test came out of the same work, worth recording for what it was asserting: the "refuses an unsolved challenge" case used a hardcoded `nonce: "0"`, which satisfies the 4-bit difficulty these tests run at one time in sixteen. A 6%-flaky test claiming proof of work is enforced is the worst possible thing to be flaky about. It now searches for a nonce verified *not* to satisfy the difficulty.
 
@@ -620,7 +620,7 @@ TCP read is one frame.
 
 Next.js + OpenNext; v2 marketing parity (section order and copy per `apps/web/CLAUDE.md`); MDX user docs; `/errors/[code]` pages generated from the contract; SEO parity including the four JSON-LD blocks; one GA4 property.
 
-**`/errors/[code]` is done, and it went first for a reason worth recording.** It was not really new work: every error envelope `apps/api` returns carries `docsUrl: https://nport.link/errors/<slug>`, `crates/cli` prints that URL as the *whole* remedy for the seven codes it does not translate, and `crates/cli/src/i18n.rs` justifies leaving those untranslated on the grounds that "the page behind that URL is always current in a way a hand-written translation is not". Thirty-three such URLs existed and none of them resolved. The same shape as defects 34 and 35 — a claim about work done somewhere else — and the cheapest slice of 2c to boot, since the content is generated from the registry rather than written.
+**`/errors/[code]` is done, and it went first for a reason worth recording.** It was not really new work: every error envelope `apps/node` returns carries `docsUrl: https://nport.link/errors/<slug>`, `crates/cli` prints that URL as the *whole* remedy for the seven codes it does not translate, and `crates/cli/src/i18n.rs` justifies leaving those untranslated on the grounds that "the page behind that URL is always current in a way a hand-written translation is not". Thirty-three such URLs existed and none of them resolved. The same shape as defects 34 and 35 — a claim about work done somewhere else — and the cheapest slice of 2c to boot, since the content is generated from the registry rather than written.
 
 Two things it settled. The **mockup does not design these pages** (it specifies the five marketing sections), so they follow `packages/design-tokens` and that is now written down rather than inferred. And `apps/web` has its **first test tier**: Vitest unit tests asserting one page per code and that every `docsUrl` round-trips. Playwright and its visual baselines (ADR-0023) are still ahead and are their own task — standing up browsers in CI is not something to bolt onto a page.
 
@@ -702,7 +702,7 @@ Two of the errors were worse than wrong names:
 - It recommended **`POW_DIFFICULTY_BITS = 0`** to disable proof of work on a private instance. `packages/worker-kit/src/pow.ts` sets `MIN_BITS = 1` and `issueChallenge` throws a `RangeError` outside `1..32`, so following that advice makes every provision fail. The Limits section then built a security note on the same false premise. PoW cannot be turned off; the honest framing is that it prices bulk abuse and never stops a single determined caller, so Cloudflare Access is the answer if the URL leaking matters.
 - A bolded paragraph told operators to **add their zone's hostnames to `RESERVED_EXTRA`** before going live, warning that the reserved list "is the only thing standing between a user and your DNS". The warning is correct and there was no such var. The list is `RESERVED_SUBDOMAINS`/`RESERVED_PREFIXES` in `packages/contract/src/subdomain.ts` — a build-time constant shared with the Rust client (ADR-0045) — so reserving a name is a code change and a redeploy, which the page now says.
 
-**`verify-docs` now pins that table to `apps/api/wrangler.jsonc`**, checking both that each var exists and that the documented default matches, and failing loudly if the `## Tuning` heading it keys on ever disappears.
+**`verify-docs` now pins that table to `apps/node/wrangler.jsonc`**, checking both that each var exists and that the documented default matches, and failing loudly if the `## Tuning` heading it keys on ever disappears.
 
 The general version was **prototyped and rejected**, which is the more useful finding. "Every `SCREAMING_SNAKE` token in the docs must appear somewhere in the source" surfaced 12 tokens, of which 10 were legitimate: seven Phase 3 CI secrets for workflows that do not exist yet, an HTTP/2 frame name in `docs/PROTOCOL.md`, and this page's own new prose *saying* two vars do not exist. Ten exceptions is an allowlist, and an allowlist behind a guarantee is what `verify_docs.rs` already distrusts in two places. So the fifth instance of the "claimed elsewhere" shape is only partly mechanisable: a table with a single authority behind it can be pinned, and prose cannot.
 
@@ -728,16 +728,16 @@ Tunnel list and one-click start; tray integration; the traffic inspector over `c
 
 **Unblocked, and now the active phase (ADR-0044).** G2 closed on 2026-08-06, and this runs ahead of
 2c, 3 and 4 rather than merely being allowed to: v2 still serves users, so nothing downstream of v3
-is urgent, and this is the change that turns `apps/api` into a node. Doing it while there is one
+is urgent, and this is the change that turns `apps/node` into a node. Doing it while there is one
 deployment and no users on it is as cheap as it will ever be. ADR-0031 owns the design. Today's control plane is one Worker on one account and one zone, and three ceilings bind at once — DNS records per zone, tunnels per account, and the per-account API rate limit. A zone cannot span accounts, so each shard needs its own domain as well as its own account.
 
-`apps/api` becomes a **node**, essentially unchanged: it is already one deployment bound to one zone with its own credentials. `apps/registry` is new and small — a directory that accepts registrations and answers `GET /v1/nodes`. It holds no Cloudflare credentials and provisions nothing. `crates/core` gains a discovery step before the `Api` client it already has.
+`apps/node` becomes a **node**, essentially unchanged: it is already one deployment bound to one zone with its own credentials. `apps/registry` is new and small — a directory that accepts registrations and answers `GET /v1/nodes`. It holds no Cloudflare credentials and provisions nothing. `crates/core` gains a discovery step before the `Api` client it already has.
 
 **Reshaped by ADR-0049, mid-phase.** The four code steps below all landed against a two-hostname design — a node on `api.nport.link`, a registry on `registry.nport.link` — and none of it had been deployed. Rather than deploy that and migrate later, the topology changed first: one hostname per deployment, a **gateway** Worker dispatching to internal services over service bindings, and liveness inverted from registry-pull to node-push. The steps below are marked done against what they set out to do; the work tracking that reshape is in **§ Backend first**, immediately after this list.
 
 - [x] `packages/contract`: `nodeSchema`, the list and registration schemas, `activeTunnels` on `GET /v1/meta`, and three codes — `NO_NODE_AVAILABLE`, `NODE_UNREACHABLE`, `REGISTRATION_REFUSED`. **Done**, then **revised by ADR-0049** — the two claims this bullet used to make are both reversed. It said a second OpenAPI document *because the registry is a separate host*: both documents now carry the same `servers` entry and the split rests on disjoint path spaces instead. And it said capacity **probed rather than claimed**: the node claims it now, the registry fetches nothing. What survived unchanged: both `/v1/meta` capacity fields optional so an older node still parses, and the DNS TXT proof's record name and value derived from one function so the registry, the operator and the docs cannot spell them differently
-- [x] `apps/registry`: the `Directory` DO, open registration behind proof of work and a DNS TXT domain proof, and a cron that probes and delists. **Written and tested, never deployed** — 45 tests in real `workerd`. Two things came out of building it that ADR-0031 did not anticipate: registration must refuse a URL that is not under the proved domain (otherwise the DNS proof covers nothing we actually fetch, and the endpoint is an open fetch proxy for anyone who solves one challenge), and `PROBE_FAILURES_BEFORE_DOWN`/`_DELIST` give three states rather than two, because "not answering right now" and "gone" want different answers from a client. Shared Worker plumbing moved to `packages/worker-kit` first (ADR-0047), so the registry is a small app rather than a copy of `apps/api`'s abuse controls
-- [x] `apps/api`: `NODE_ID`, `PUBLIC_URL`, `REGISTRY_URL`, self-registration on the existing `scheduled` export, and current usage on `/v1/meta`. **Done.** `REGISTRY_URL` is the switch — unset it and the node never registers, which is the private deployment `docs/SELF_HOSTING.md` describes, reached by setting nothing rather than by opting out. Registration is a **schedule rather than a boot-time task**: a Worker has no boot, and a node the registry delisted after an outage has to relist itself unattended
+- [x] `apps/registry`: the `Directory` DO, open registration behind proof of work and a DNS TXT domain proof, and a cron that probes and delists. **Written and tested, never deployed** — and **ADR-0049 took the probe back out**, so the cron is now a staleness sweep over `last_seen_at` and the three-state `PROBE_FAILURES_BEFORE_*` pair became two silence thresholds. What survived, and was the thing ADR-0031 did not anticipate: registration must refuse a URL that is not under the proved domain. That was written as an open-fetch-proxy guard and remains load-bearing for a different reason once nothing fetches — the TXT record proves `<domain>`, so a URL outside it is a URL the proof says nothing about. Shared Worker plumbing moved to `packages/worker-kit` first (ADR-0047), so the registry is a small app rather than a copy of `apps/node`'s abuse controls
+- [x] `apps/node`: `NODE_ID`, `PUBLIC_URL`, `REGISTRY_URL`, self-registration on the existing `scheduled` export, and current usage on `/v1/meta`. **Done.** `REGISTRY_URL` is the switch — unset it and the node never registers, which is the private deployment `docs/SELF_HOSTING.md` describes, reached by setting nothing rather than by opting out. Registration is a **schedule rather than a boot-time task**: a Worker has no boot, and a node the registry delisted after an outage has to relist itself unattended
 - [x] `crates/core::discovery`: fetch, cache to `~/.nport/nodes.json`, probe a few in parallel, pick the fastest with capacity, fail over — but **never after `POST /v1/tunnels` has been sent**, which is not idempotent. **Done.** Two rules came out of writing it that the bullet did not imply. Failover is allowed only when a node *answered* that it could not serve: a refusal about the **caller** (`CONCURRENCY_LIMIT`, `CREATE_QUOTA_EXCEEDED`) must not be shopped to another node, because per-source caps are enforced per node and trying elsewhere multiplies the cap by the size of the directory — `docs/ARCHITECTURE.md` §7's controls defeated by politely asking somebody else. And a network failure is never a reason to move, because "died mid-request" is indistinguishable from "never sent". `--backend` skips discovery entirely, which is what keeps every self-hosted deployment on the path it was already on
 
 ### Backend first — a listed node on staging (ADR-0049)
@@ -745,9 +745,12 @@ deployment and no users on it is as cheap as it will ever be. ADR-0031 owns the 
 The goal is narrow and checkable: **node #1 appears in `GET /v1/nodes` on staging.** Everything else in
 Phase 5 waits behind it, because a directory with nothing in it proves nothing.
 
-Today staging runs node #1 at `api.nport.online`, healthy and serving. Its `REGISTRY_URL` points at
-`registry.nport.online`, **which has no DNS**. So every five minutes it solves a proof of work, POSTs
-into nothing, and swallows the failure — by design, silently. That is the gap.
+Today staging runs node #1 at `api.nport.online`, healthy and serving. Its `REGISTRY_URL` pointed at
+`registry.nport.online`, **which has no DNS**, so every five minutes it solved a proof of work, POSTed
+into nothing, and swallowed the failure — by design, silently. That was the gap. It now points at
+`api.nport.online`, the same hostname, where the gateway dispatches `/v1/nodes*` to the registry.
+
+**Everything but the deploy is done.** What remains is one push and one cron period.
 
 - [x] **Contract**: registry routes under `/v1/nodes`, `/v1/nodes/challenge`, capacity on the
       registration, `lastProbedAt` → `lastSeenAt`. Both documents share a `servers` entry
@@ -755,19 +758,50 @@ into nothing, and swallows the failure — by design, silently. That is the gap.
       Hono's own registration table. Nothing checked that before — the contract is the authority and
       the only thing verifying it was the generated OpenAPI, which describes the contract to itself.
       It failed on its first run, which is how the drift above was found rather than deployed
-- [x] **`apps/gateway`**: the only public Worker. Middleware lifted out of `apps/api`, dispatch to
+- [x] **`apps/gateway`**: the only public Worker. Middleware lifted out of `apps/node`, dispatch to
       `NODE`/`REGISTRY` bindings, `sourceHash` forwarded as a header. 18 tests, including one that
       forges `x-nport-source-hash` and asserts the gateway overwrites it — internal services trust
       that header because they are unreachable, so a pass-through would hand any caller any identity
       and defeat every per-source cap at once. Its conformance test asks what the other two cannot:
       not whether a Worker implements its table, but whether a request for that table can reach it
-- [ ] **`apps/api` → `apps/node`**: no route of its own, reads `sourceHash`/`requestId` from headers,
-      self-checks `PUBLIC_URL/v1/health` before registering, sends its capacity
-- [ ] **`apps/registry`**: probe out, staleness sweep in; `Directory` keyed on `last_seen_at`
-- [ ] **Deploy**: three Worker jobs, and Terraform gains a second `random_password` so the registry's
-      `POW_SECRET` differs from the node's — they must not match, or a node's challenge is redeemable
-      at the registry
-- [ ] **Verify on staging**: node #1 registers within one cron period and `GET /v1/nodes` returns it
+- [x] **The node behind the gateway**: no route, no `workers_dev`, no rate limiter, no
+      `IP_HASH_SECRET`. Reads `sourceHash`/`requestId` from headers and **fails closed without them** —
+      synthesising one would work quietly and give every direct caller a single shared identity. Nine
+      tests relocated to the gateway, four deleted with a note saying why, one recorded as untestable
+      until `/` is routed again. Self-checks its own `PUBLIC_URL/v1/health` before every heartbeat and
+      sends its capacity
+- [x] **`apps/registry`**: probe out, staleness sweep in. `Directory.sweepStale` is three SQL
+      statements where the old sweep was a fetch per listed node, so the cron no longer grows with the
+      directory. `PROBE_FAILURES_BEFORE_*` became `NODE_DOWN_AFTER_SECONDS`/`NODE_DELIST_AFTER_SECONDS`
+      — a failure count only means something to whoever was counting, and nothing counts now
+- [x] **Deploy**: node and registry in parallel, then the gateway — Cloudflare rejects a `services`
+      binding naming a script that does not exist, so the gateway cannot go first. Terraform gained a
+      second `random_password` so the registry's `POW_SECRET` differs from the node's, and emits
+      secrets **per Worker** because one flat map cannot hold two different values under one name.
+      `verify-deployment.mjs` now proves the Workers are *wired*: `/v1/health` is the gateway alone,
+      `/v1/meta` is the first request that crosses a binding
+- [ ] **Verify on staging**: node #1 registers within one cron period and `GET /v1/nodes` returns it.
+      **The last step, and it needs a deploy** — everything above is committed and green locally
+
+**Four mechanical checks landed with this step**, each because a claim was made before it was true:
+
+| Check | What it holds | Why it exists |
+| --- | --- | --- |
+| `checkReachability` | only `apps/gateway` declares `routes`; every Worker that calls `readForwarded` sets `workers_dev: false` | `apps/gateway/src/types.ts` cited this check by name for a day before it existed. It guards the one assumption a stray config line breaks silently |
+| per-Worker secrets | each Worker's `REQUIRED_SECRETS` matches what the deploy hands it, **and** the two `POW_SECRET`s come from different resources | it read `apps/node/src/env.ts` alone, so the registry's secret was never checked and a union would have been satisfied by one shared PoW key |
+| `MIN_CLIENT_VERSION` parity | the gateway's enforced floor equals the node's published one, per environment | the gateway enforces it and `/v1/meta` reports it. Drift means a client is refused by a floor it was never told about, and no test can see it — both copies live in configs |
+| `check_adr_references` | every `ADR-NNNN` cited anywhere exists | ADR-0049 was cited thirteen times across nine files before it was written |
+
+**The rename is done.** `apps/api` → `apps/node`, `@nport/api` → `@nport/node`, `nport-api` →
+`nport-node`, the OpenAPI document renamed to match, and `api` removed
+from the commit-scope list — 99 files, and no identifier in the tree now calls the node "api". The
+hostname `api.nport.link` is unchanged and always was correct: it names the API a client talks to, not
+the service behind it. `docs/API.md` and `crates/core/src/api.rs` keep their names for the same reason.
+
+**It costs staging's Durable Object state**, because a Worker's DOs cannot follow it to a new script
+name. Staging leases live an hour and the directory has never held a row, so that is nothing — but the
+window to do this for free closed the moment production deployed, and this landed before it. Doing it
+later would have meant a migration for a naming preference.
 
 **Two things found while building it, neither fixed there.**
 
@@ -811,9 +845,9 @@ Dates and the exact sequence live in `docs/RELEASE.md`.
 - **Phase 1.5 precedes Phase 2.** Without a frozen contract the tracks collide. ✅ closed
 - **Phase 4 follows Phase 3.** The desktop app needs a stable `core`.
 - **G2 precedes 2c.** ✅ closed. 2a, 2b, and 2c *can* run in parallel once the contract is frozen, and for a while they did. They no longer do: with 2a and 2b both code-complete and nothing deployed, the only work that moved the project was getting a port open, and the site can now be built against a tunnel that demonstrably works rather than one that is only tested.
-- **Phase 5 precedes 2c and Phase 4.** ADR-0044. Federation changes `apps/api`'s configuration surface and puts a discovery step in front of the client's entry point, so a site documenting how a client finds a server, and a desktop app whose Nodes screen renders that discovery, are both cheaper to write after it than before. v2 still serves users, so nothing downstream is urgent enough to outweigh writing the contract once.
+- **Phase 5 precedes 2c and Phase 4.** ADR-0044. Federation changes `apps/node`'s configuration surface and puts a discovery step in front of the client's entry point, so a site documenting how a client finds a server, and a desktop app whose Nodes screen renders that discovery, are both cheaper to write after it than before. v2 still serves users, so nothing downstream is urgent enough to outweigh writing the contract once.
 - **`docs/FEATURES.md` §11 precedes nothing.** It is blocked on an ADR, not on a phase.
-- **G2 precedes Phase 5.** ✅ closed. Federating a provisioning path that had never run against the live Cloudflare API would have multiplied one unknown by the number of nodes. It has now run, on three operating systems, so this constraint is satisfied rather than merely waived. Phase 5 touches the contract, `apps/api`, and `crates/core`, none of which the release pipeline owns — so 3 can still run alongside it. **The numbers are a reading order, not a queue.**
+- **G2 precedes Phase 5.** ✅ closed. Federating a provisioning path that had never run against the live Cloudflare API would have multiplied one unknown by the number of nodes. It has now run, on three operating systems, so this constraint is satisfied rather than merely waived. Phase 5 touches the contract, `apps/node`, and `crates/core`, none of which the release pipeline owns — so 3 can still run alongside it. **The numbers are a reading order, not a queue.**
 
 ## Deferred
 

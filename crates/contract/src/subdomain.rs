@@ -16,7 +16,7 @@
 //! **Three functions from the TypeScript side are deliberately absent**, rather than forgotten:
 //! `checkSubdomainShape`, `isReserved` and `isProtectedFromCleanup`. The first serves the
 //! `:subdomain` path parameter and the other two serve the reconciliation sweeper, all three of which
-//! run in `apps/api` and have no caller here. Adding them would be untested surface — the fixtures
+//! run in `apps/node` and have no caller here. Adding them would be untested surface — the fixtures
 //! cover what this file does, and nothing would drive the rest.
 //!
 //! **The server stays authoritative** (invariant 3). This refuses early; it never decides. A name

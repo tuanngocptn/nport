@@ -21,6 +21,11 @@
   // Both services in production: this deployment is node #1 *and* the directory. A node-only
   // deployment omits `REGISTRY`, and `/v1/nodes` then does not exist there rather than 404ing —
   // `src/env.ts` requires `NODE` and deliberately does not require `REGISTRY`.
+  //
+  // **`service` is the deployed script name, not the role.** The node's script is still `nport-node`
+  // while the directory it lives in is still `apps/node`; the rename to `nport-node` is owed and is
+  // its own commit (docs/ROADMAP.md § Backend first). Cloudflare rejects a deploy whose binding names
+  // a script that does not exist, and `pnpm deploy:check` catches it before the deploy does.
   "services": [
     { "binding": "NODE", "service": "nport-node" },
     { "binding": "REGISTRY", "service": "nport-registry" }

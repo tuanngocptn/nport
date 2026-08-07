@@ -1,22 +1,32 @@
 ---
 applies_to:
-  - apps/api/src/**
+  - apps/gateway/src/**
+  - apps/node/src/**
+  - apps/registry/src/**
   - packages/contract/src/**
 ---
 
 # Control-plane API
 
-`https://api.nport.link` — the Worker in `apps/api`. It provisions and reaps tunnels. **It is not on the tunnel data path** (`docs/ARCHITECTURE.md` §3b).
+`https://api.nport.link` — **one hostname for the whole backend** (ADR-0049). Requests arrive at `apps/gateway`, which applies the cross-cutting concerns and dispatches by path prefix:
 
-**Status: implemented and deployed to staging**, serving real tunnels since 2026-08-06 (`docs/ROADMAP.md`). This said "design, not implemented" for two phases after it stopped being true.
+| Path | Served by | |
+| --- | --- | --- |
+| `/v1/nodes*` | `apps/registry` | the node directory — § The registry API below |
+| `/v1/*` | `apps/node` | a node: it provisions and reaps tunnels |
+| `/v1/health`, `GET /` | `apps/gateway` | answered at the front door, never forwarded |
 
-Under ADR-0031 this Worker is **a node**: one deployment bound to one Cloudflare account and one domain. The directory that lists nodes is a second service with its own contract — see § The registry API below.
+Only the gateway has a hostname. The two services behind it declare no `routes` and set `workers_dev: false`, so nothing can reach them except the gateway's service binding — which is what makes it safe for them to trust the identity it forwards. **None of it is on the tunnel data path** (`docs/ARCHITECTURE.md` §3b).
+
+**Status: `/v1/*` implemented and deployed to staging**, serving real tunnels since 2026-08-06. The gateway and the registry are **written and not deployed** (`docs/ROADMAP.md` § Backend first). This said "design, not implemented" for two phases after it stopped being true.
+
+Under ADR-0031 the provisioning Worker is **a node**: one deployment bound to one Cloudflare account and one domain.
 
 ## Authority
 
-**This document does not define field types.** `packages/contract` is the authority; it generates `schema/nport-api.openapi.json` and `schema/nport-registry.openapi.json`, which together generate `crates/contract`. Field-level truth is those documents, rendered on the website.
+**This document does not define field types.** `packages/contract` is the authority; it generates `schema/nport-node.openapi.json` and `schema/nport-registry.openapi.json`, which together generate `crates/contract`. Field-level truth is those documents, rendered on the website.
 
-**Two documents, because there are two services** (ADR-0046). A single `servers` entry cannot describe both hosts, and a client generated from a merged document would call `api.nport.link/v1/nodes` — a path that exists only on the registry.
+**Two documents, because there are two services** — and since ADR-0049 they share a `servers` entry, so the reason has changed. ADR-0046's argument was "one `servers` entry cannot describe two hosts". What justifies the split now is that the two path spaces are **disjoint** and each document's components are reachable from its own routes: a node-only deployment serves one of the two, and a client generated from a merged document would call `/v1/nodes` on a deployment where nothing answers it.
 
 That is deliberate: v2's `docs/API.md` restated every field in prose tables and drifted immediately — it documented `subdomain` and `tunnelId` as required for DELETE when both were optional in the type. This file covers what OpenAPI cannot express: lifecycle, semantics, idempotency, and intent.
 
@@ -43,7 +53,11 @@ Ownership of an existing tunnel is a different question, and it *is* verified: c
 | Minimum version | Below `MIN_CLIENT_VERSION` → `426 CLIENT_TOO_OLD` |
 | Content type | `application/json` on requests with bodies |
 
-The minimum-version gate exists because we now own the connector protocol: if Cloudflare's edge changes, old clients break in ways only a new binary can fix, and the API is the only place to tell them so.
+The minimum-version gate exists because we now own the connector protocol: if Cloudflare's edge changes, old clients break in ways only a new binary can fix, and the API is the only place to tell them so. It is applied **once, at the gateway**, so both services receive an already-gated request.
+
+`GET /v1/health` is exempt from all of it: an uptime monitor sends no NPort headers, and it must be able to tell a running-but-misconfigured deployment from a dead one.
+
+**`x-nport-request-id` and `x-nport-source-hash` are internal.** The gateway overwrites both on every forward, so sending them does nothing — a caller who could choose their own source hash would adopt any identity and walk past every per-source cap at once. They are not in `packages/contract` for that reason.
 
 ## Lifecycle
 
@@ -176,13 +190,17 @@ Sunset schedule in `docs/RELEASE.md`.
 
 ## The registry API
 
-`https://registry.nport.link` — the Worker in `apps/registry`. **It is a directory and nothing else**: it lists nodes, accepts registrations, and probes what it lists. It holds no Cloudflare credentials, provisions nothing, and never touches a tunnel (ADR-0031).
+`https://api.nport.link/v1/nodes*` — the Worker in `apps/registry`, behind the same gateway as node #1 (ADR-0049). **It is a directory and nothing else**: it lists nodes and accepts registrations. It holds no Cloudflare credentials, provisions nothing, never touches a tunnel (ADR-0031), and fetches nothing but a DNS resolver.
+
+**Master deployments only.** A node-only deployment omits the gateway's `REGISTRY` binding, so `/v1/nodes` does not exist there rather than 404ing — role is a deployment, not a configuration flag.
 
 | Method | Path | Purpose | Needs `ownerToken` |
 | --- | --- | --- | --- |
-| `GET` | `/v1/challenge` | Issue a proof-of-work challenge for a registration | no |
+| `GET` | `/v1/nodes/challenge` | Issue a proof-of-work challenge for a registration | no |
 | `GET` | `/v1/nodes` | The node directory | no |
-| `POST` | `/v1/nodes` | Register or refresh a node | no — see below |
+| `POST` | `/v1/nodes` | Register or refresh a node — **and the heartbeat** | no — see below |
+
+**Every registry route lives under `/v1/nodes`**, including the challenge, and that is load-bearing rather than tidy. The gateway dispatches on path prefix, so a route outside that space is one no request can reach — and the challenge in particular *cannot* sit at `/v1/challenge`, because a node serves one there signed with a different `POW_SECRET`, deliberately, so that a node's challenge is not redeemable here. Two secrets cannot share one path.
 
 ### It is advisory, and that is the design
 
@@ -196,21 +214,29 @@ There is no account and no shared secret — invariant 1 applies here too. Three
 
 1. **Proof of work**, the same challenge-and-solve as a tunnel create. The challenges are signed with a different secret and are not interchangeable between the two services.
 2. **A DNS TXT record proving control of the claimed domain.** The registry resolves `_nport-node.<domain>` and requires a record whose value is exactly `nport-node=<id>`. Both strings come from `nodeProofRecordName` and `nodeProofRecordValue` in `packages/contract` — do not retype them here or anywhere else. The label is underscore-prefixed so no tunnel claim can ever reach it.
-3. **A liveness probe** of the node's own `GET /v1/meta`. A node that does not answer is not listed.
+3. **The node's own check of its public URL**, before it calls. It fetches `PUBLIC_URL/v1/health` and does not register if that fails — so DNS, the route, the gateway and the node are all exercised from outside, which is closer to what a client experiences than the registry's own fetch was (ADR-0049 replaces ADR-0031's liveness probe with this).
 
-The proof is bound to **one node id**, so publishing the record authorises that listing rather than any listing on the domain. There is no `ownerToken`: authority is re-proved by DNS on every call, which cannot leak from a config file and is revoked by deleting a record.
+The first two are re-verified on **every** registration, not just the first: a domain that changes hands must not keep its listing. The proof is bound to **one node id**, so publishing the record authorises that listing rather than any listing on the domain. There is no `ownerToken`: authority is re-proved by DNS on every call, which cannot leak from a config file and is revoked by deleting a record.
 
-### Capacity is probed, never claimed
+### Liveness is pushed, not polled
 
-A registration carries no capacity or status. The registry reads `activeTunnels` and `maxActiveTunnels` from the node's `/v1/meta` and stores what it observed. A node that could assert `activeTunnels: 0` would be picked first by every client — a free denial of service against its own operator, on an endpoint anyone may call.
+`POST /v1/nodes` **is** the heartbeat. There is no separate endpoint and there should not be — a registration already carries everything a heartbeat would and already re-proves what a heartbeat would have to. A node calls it on its own cron, every five minutes.
 
-Both fields are **optional**, so a node on an older build still parses. **Absent means unknown, not zero**, and discovery treats unknown as usable: a node that does not say is not a node that says no.
+The registry fetches nothing. It records `last_seen_at` and ages the list: silence past `NODE_DOWN_AFTER_SECONDS` reads as `down` and **stays listed**, silence past `NODE_DELIST_AFTER_SECONDS` deletes the row. **A node that stops registering is presumed gone.**
 
-`status` is `up | degraded | down` and reports **health only**. Whether a node is *full* is a separate question, answered by comparing the two capacity numbers — so a client can tell "try later" from "try elsewhere".
+Coming back is cheap: one proof of work on the next tick restores the listing, from `down` and from delisted alike.
+
+### Capacity is claimed; status is not
+
+A registration carries `activeTunnels` and `maxActiveTunnels`, both optional, and the registry stores what it was told (ADR-0049 reverses ADR-0046, which had the registry probe `/v1/meta` for them). The objection stands and is accepted: a node asserting `activeTunnels: 0` is picked first by every client, a free denial of service against its own operator. The probe was never much of a defence — a node can answer `/v1/meta` with anything — and a directory of parties already trusted to carry your traffic is not made safer by distrusting them about a counter.
+
+**Absent means unknown, not zero**, and discovery treats unknown as usable: a node that does not say is not a node that says no. Storing `0` for a node that reported nothing would make it look idle and sort it to the front of every list.
+
+`status` is **not** in the registration schema. It is `up | degraded | down`, reports **health only**, and is the registry's to decide: `up` on a registration, `down` from the sweep. A node asking to be listed `down` is asking for what not registering already achieves. Whether a node is *full* is a separate question, answered by comparing the two capacity numbers — so a client can tell "try later" from "try elsewhere".
 
 ### What the registry never does
 
-No traffic. No credentials. No selection. It does not know a tunnel exists, and it cannot create, extend or delete one.
+No traffic. No credentials. No selection. **No outbound fetch to a node.** It does not know a tunnel exists, and it cannot create, extend or delete one.
 
 ## Self-hosting
 

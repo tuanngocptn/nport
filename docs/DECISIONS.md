@@ -174,7 +174,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 
 **Context.** Three consumers must agree on the API: the Rust CLI, the TS Worker, and the website. v2 had no shared definition, so the CLI matched error strings the server produced by convention.
 
-**Decision.** `packages/contract` is the single authority: zod schemas, route definitions, and the error registry. It generates `schema/nport-api.openapi.json`, which generates `crates/contract` via `typify`. CI fails on drift.
+**Decision.** `packages/contract` is the single authority: zod schemas, route definitions, and the error registry. It generates `schema/nport-node.openapi.json`, which generates `crates/contract` via `typify`. CI fails on drift.
 
 The general rule: **the authority for a boundary is whichever side owns the invariants.** The server validates input, so the API contract is TS-first. Rust owns Tauri IPC command signatures, so that boundary generates the other way (`tauri-specta`). The connector wire protocol is Rust-only and hand-written — TS never speaks it.
 
@@ -437,7 +437,7 @@ Phase 1's `examples/pool.rs` hit this the moment it tried to `tokio::spawn` a pe
 
 **Decision.** `cargo xtask codegen` reads two files and emits `crates/contract/src/generated.rs`:
 
-- `schema/nport-api.openapi.json` for request and response types
+- `schema/nport-node.openapi.json` for request and response types
 - `schema/errors.json`, a new output of `pnpm codegen`, carrying each code's origin, status, retryability, slug, and default message
 
 The emitter resolves inlined enums back to their named component by value set, and **fails rather than guessing** on any construct it does not recognise. An unnamed inline enum is a codegen error telling the author to name it, not a silent `String`.
@@ -591,9 +591,9 @@ Adding accounts alone does not help, because of a constraint that shapes everyth
 
 A **registry** at `registry.nport.link` that is only a directory: it accepts registrations, probes what it has listed, and answers `GET /v1/nodes`. It holds no Cloudflare credentials and provisions nothing.
 
-Many **nodes**, each on its own Cloudflare account and its own domain, each doing exactly what `apps/api` does today. `api.nport.link` becomes node #1 and keeps serving `*.nport.link`, so no existing URL shape changes.
+Many **nodes**, each on its own Cloudflare account and its own domain, each doing exactly what `apps/node` does today. `api.nport.link` becomes node #1 and keeps serving `*.nport.link`, so no existing URL shape changes.
 
-Enrolment is **anonymous and open**: any node self-registers, with no shared secret. The gate is proof of work (reusing `apps/api/src/domain/pow.ts`), a DNS TXT proof that the node controls the domain it claims, and a liveness probe of its `/v1/meta`.
+Enrolment is **anonymous and open**: any node self-registers, with no shared secret. The gate is proof of work (reusing `apps/node/src/domain/pow.ts`), a DNS TXT proof that the node controls the domain it claims, and a liveness probe of its `/v1/meta`.
 
 **Selection is the client's.** The registry returns the list; `crates/core` probes a handful in parallel and picks the fastest with capacity, caching the list at `~/.nport/nodes.json`. A registry that is down therefore costs nothing — which is the property that lets a directory be a single point of listing without being a single point of failure.
 
@@ -740,7 +740,7 @@ Smoke tests ask for a generated name rather than a `smoke-` one. That loses noth
 
 **Status.** Accepted, 2026-08-05.
 
-**Context.** `GET /v1/meta` publishes `heartbeatIntervalMs` as a quarter of `HEARTBEAT_GRACE_SECONDS`, and it exists for one reason: `apps/api/CLAUDE.md` says a limit is surfaced there "so clients discover rather than hardcode it". `core::tunnel` hardcoded 30 s and never called `Api::meta()` — which was therefore dead code in a client that had a method for it.
+**Context.** `GET /v1/meta` publishes `heartbeatIntervalMs` as a quarter of `HEARTBEAT_GRACE_SECONDS`, and it exists for one reason: `apps/node/CLAUDE.md` says a limit is surfaced there "so clients discover rather than hardcode it". `core::tunnel` hardcoded 30 s and never called `Api::meta()` — which was therefore dead code in a client that had a method for it.
 
 The consequence is that **the server could not shorten its own grace period**. Drop it from 120 s to 60 s, a plausible response to abuse, and a client still beating every 30 s has one miss of headroom instead of four. Drop it to 30 s and every tunnel dies on schedule with nothing anywhere explaining why. Invariant 3 makes the server authoritative for time limits, and a client choosing its own beat rate is a client enforcing one.
 
@@ -768,7 +768,7 @@ The consequence is that **the server could not shorten its own grace period**. D
 - Two accounts to pay for and two to keep in the runbook. Both are free-plan eligible.
 - `wrangler.jsonc` names no account id; `CLOUDFLARE_ACCOUNT_ID` in the deploy environment selects it. Editing a constant cannot send a deploy to the wrong account.
 - The staging zone gets the *same* subdomain deny list, so `api`, `www` and the rest stay unclaimable there too. `staging` is already on that list, which is why `staging.nport.link` would have been an odd name to hand to a real tunnel.
-- **The Worker names are identical in both accounts** — `nport-api` and `nport-web`, not a `-staging` variant. Once the account is the isolation, a name suffix isolates nothing and only makes the two deployments differ in a way nothing else does; dashboards, log queries and runbooks then read the same in both places. Wrangler defaults an environment's `name` to `<name>-<env>`, so each environment states its name explicitly and `pnpm deploy:check` fails if one drifts — an unset `name` is a silent rename, not an error, and the symptom is a second Worker that nothing routes to.
+- **The Worker names are identical in both accounts** — `nport-node` and `nport-web`, not a `-staging` variant. Once the account is the isolation, a name suffix isolates nothing and only makes the two deployments differ in a way nothing else does; dashboards, log queries and runbooks then read the same in both places. Wrangler defaults an environment's `name` to `<name>-<env>`, so each environment states its name explicitly and `pnpm deploy:check` fails if one drifts — an unset `name` is a silent rename, not an error, and the symptom is a second Worker that nothing routes to.
 
 ## ADR-0039 — Terraform manages infrastructure; it never mints a credential CI could use
 
@@ -867,7 +867,7 @@ The result was a CI credential whose authority was not "deploy this project" but
 - The CI token loses two rows and can no longer mint a credential or create a tunnel. Compromising the runner now costs a deploy of arbitrary Worker code and zone-settings changes — bad, but bounded, and no longer an escalation to the whole account.
 - One manual step per environment, and rotation of that one token becomes a dashboard task rather than a command. Everything else still rotates with `-replace`.
 - The Worker's token no longer lives in Terraform state, so the state's blast radius shrinks to two HMAC keys and three identifiers.
-- Two lists now have to agree that are not adjacent: `REQUIRED_SECRETS` in `apps/api/src/env.ts`, and what the deploy actually sets. `pnpm deploy:check` compares them and separately asserts that the workflow really writes the one name Terraform does not emit — a missing secret is otherwise a green deploy that refuses every request.
+- Two lists now have to agree that are not adjacent: `REQUIRED_SECRETS` in `apps/node/src/env.ts`, and what the deploy actually sets. `pnpm deploy:check` compares them and separately asserts that the workflow really writes the one name Terraform does not emit — a missing secret is otherwise a green deploy that refuses every request.
 - ADR-0040's own argument for automation stands and is simply outweighed here: the thing being automated was small, and the permission required to automate it was not.
 - **Both tokens become account-owned rather than user-owned**, which was impossible while Terraform minted one: `POST /user/tokens` is reachable only by a user token. With that call gone, every request the pipeline makes is account- or zone-scoped. Account tokens outlive the person who created them and cannot carry a user-scoped permission at all, so the scope-dropdown mistake that produced two failed runs is now unrepresentable. They cannot enumerate their own accounts, so `CLOUDFLARE_ACCOUNT_ID` becomes required rather than merely recommended — every job that runs wrangler already passes it.
 
@@ -877,17 +877,17 @@ The result was a CI credential whose authority was not "deploy this project" but
 
 **Context.** G2 is closed: a real port is open and a tunnel carries traffic on three operating systems. ADR-0031 put federation at Phase 5, "unblocks at G2, not before — well ahead of Phases 3 and 4, and parallel with them", which leaves the reading order ambiguous about what a person should pick up next. The obvious candidates were 2c (the website) and Phase 4 (the desktop app).
 
-Two facts decide it. **v2 is still what serves users** — `nport.link` runs the old Worker, so nothing downstream of v3 is urgent in the way it would be if v3 were live. And **federation changes the shape of `apps/api`**: it gains `NODE_ID`, `PUBLIC_URL`, `REGISTRY_URL`, self-registration, and a usage field on `/v1/meta`; `crates/core` gains a discovery step in front of the `Api` client it already has; and the contract gains a node schema, two route groups and three error codes.
+Two facts decide it. **v2 is still what serves users** — `nport.link` runs the old Worker, so nothing downstream of v3 is urgent in the way it would be if v3 were live. And **federation changes the shape of `apps/node`**: it gains `NODE_ID`, `PUBLIC_URL`, `REGISTRY_URL`, self-registration, and a usage field on `/v1/meta`; `crates/core` gains a discovery step in front of the `Api` client it already has; and the contract gains a node schema, two route groups and three error codes.
 
 Building the site and the desktop app first would mean building both against a control plane whose configuration surface and client entry point are about to change. The site's docs describe how a client finds a server; the desktop app's Nodes screen (`docs/FEATURES.md` §3) does not exist yet precisely because discovery does not.
 
-**Decision.** Do federation next: `packages/contract`, then `apps/registry`, then `apps/api`'s node fields, then `crates/core::discovery`. 2c and Phase 4 follow it. The phase keeps the number 5 — it is referenced from `CLAUDE.md`, `docs/ARCHITECTURE.md` §1 and ADR-0031, and renumbering four phases to express a priority the ordering-constraints section can state in a sentence is churn for nothing.
+**Decision.** Do federation next: `packages/contract`, then `apps/registry`, then `apps/node`'s node fields, then `crates/core::discovery`. 2c and Phase 4 follow it. The phase keeps the number 5 — it is referenced from `CLAUDE.md`, `docs/ARCHITECTURE.md` §1 and ADR-0031, and renumbering four phases to express a priority the ordering-constraints section can state in a sentence is churn for nothing.
 
 **Consequences.**
 
 - The contract changes once, before anything is written against the parts of it that move. That is the same argument as Phase 1.5, applied a second time and for the same reason.
 - 2c's own gate, G2c, gates the 3.0 *announcement* rather than the tunnel, so deferring the site does not defer anything a user can reach.
-- Federation is where `apps/api` stops being "the control plane" and becomes "a node". Doing that while there is exactly one deployment, and no users on it, is as cheap as it will ever be.
+- Federation is where `apps/node` stops being "the control plane" and becomes "a node". Doing that while there is exactly one deployment, and no users on it, is as cheap as it will ever be.
 - The v2 shim keeps serving `nport.link` throughout, so this reordering costs no user anything. It does mean v2 stays in production longer, which is the cost being accepted — Phase 6 moves further out.
 - The registry holds no Cloudflare credentials and provisions nothing (ADR-0031), so this adds a deployable without adding a credential to protect. The staging pattern from ADR-0038 and ADR-0043 extends to it unchanged.
 
@@ -934,7 +934,7 @@ Length is counted in **UTF-16 code units**, matching JavaScript's `String.length
 
 **Decision.**
 
-**Two documents.** `schema/nport-registry.openapi.json` alongside `schema/nport-api.openapi.json`, from a second route table `REGISTRY_ROUTES`. One `servers` entry cannot describe two hosts, and a client generated from a merged document would call `api.nport.link/v1/nodes` — a path that does not exist there. Each document carries only the components it reaches, computed by walking `$ref`s rather than by a hand-kept list. `cargo xtask codegen` reads both and emits one Rust crate, because `crates/core` is a client of both; a name in both documents must mean one shape, and the emitter **checks** that rather than letting one definition win.
+**Two documents.** `schema/nport-registry.openapi.json` alongside `schema/nport-node.openapi.json`, from a second route table `REGISTRY_ROUTES`. One `servers` entry cannot describe two hosts, and a client generated from a merged document would call `api.nport.link/v1/nodes` — a path that does not exist there. Each document carries only the components it reaches, computed by walking `$ref`s rather than by a hand-kept list. `cargo xtask codegen` reads both and emits one Rust crate, because `crates/core` is a client of both; a name in both documents must mean one shape, and the emitter **checks** that rather than letting one definition win.
 
 **Capacity is observed, never claimed.** A registration carries no `activeTunnels`, `maxActiveTunnels` or `status`. The registry probes the node's `GET /v1/meta` — which it must fetch anyway to know the node is alive — and stores what it saw. A node that could assert `activeTunnels: 0` would be selected first by every client, which is a free denial of service against whoever runs it, on an endpoint that is anonymous by design.
 
@@ -959,20 +959,20 @@ The two capacity fields on `GET /v1/meta` are **optional**, and that is a compat
 
 **Date** 2026-08-06 · **Status** Accepted
 
-**Context.** Phase 5 adds a second Worker. ADR-0031 said the registry's enrolment gate is "proof of work (reusing `apps/api/src/domain/pow.ts`)" — the right instinct, and a path that cannot be imported: `apps/registry` reaching into `apps/api/src` couples two independently deployable Workers, so a refactor inside one silently breaks the other's build, and neither app's `package.json` would record the dependency.
+**Context.** Phase 5 adds a second Worker. ADR-0031 said the registry's enrolment gate is "proof of work (reusing `apps/api/src/domain/pow.ts`)" — quoted as written, before ADR-0049 renamed that app to `apps/node`. The right instinct, and a path that cannot be imported: one app reaching into another's `src` couples two independently deployable Workers, so a refactor inside one silently breaks the other's build, and neither app's `package.json` would record the dependency.
 
 Two things genuinely must not diverge. **Proof of work**, because the two services issue and verify challenges with the same algorithm — an implementation that drifted would verify something subtly different from what the sibling issues, and the failure would look like a client bug. And **the error envelope**, whose shape is fixed by `docs/ERRORS.md` and parsed by every client, including `crates/core`'s typed refusal reader. A second copy of that is how one service starts answering in a shape nothing is parsing for, which is ADR-0018's whole subject.
 
-**Decision.** `packages/worker-kit` — `ApiError`, `envelope`, `retryAfterSeconds`, and the proof-of-work issue/verify/solve functions, moved out of `apps/api` with their tests. Both Workers depend on it; neither depends on the other.
+**Decision.** `packages/worker-kit` — `ApiError`, `envelope`, `retryAfterSeconds`, and the proof-of-work issue/verify/solve functions, moved out of `apps/node` with their tests. Both Workers depend on it; neither depends on the other.
 
-The boundary is **no bindings, no `env`, no Hono**. That is what keeps the package testable under plain vitest rather than `workerd`, and it is the test for whether something belongs here: anything needing a binding stays in the app that owns the binding. So the middleware did *not* move — `requestId`, `rateLimit`, `clientGate` and `requireBindings` are typed against `apps/api`'s own `Env` and read its bindings, and generalising them over a type parameter to share four small functions would trade clarity for reuse nobody asked for.
+The boundary is **no bindings, no `env`, no Hono**. That is what keeps the package testable under plain vitest rather than `workerd`, and it is the test for whether something belongs here: anything needing a binding stays in the app that owns the binding. So the middleware did *not* move — `requestId`, `rateLimit`, `clientGate` and `requireBindings` are typed against `apps/node`'s own `Env` and read its bindings, and generalising them over a type parameter to share four small functions would trade clarity for reuse nobody asked for.
 
 **Consequences.**
 
-- `apps/api/src/errors.ts` and `src/domain/pow.ts` are gone; imports point at `@nport/worker-kit`. 25 tests moved with them and run faster, since they never needed `workerd` in the first place — they touch no binding.
+- `apps/node/src/errors.ts` and `src/domain/pow.ts` are gone; imports point at `@nport/worker-kit`. 25 tests moved with them and run faster, since they never needed `workerd` in the first place — they touch no binding.
 - **Sharing the algorithm is not sharing the trust boundary.** Each Worker signs challenges with its own `POW_SECRET`, so a challenge issued by the registry is not solvable for a node and vice versa. Worth stating, because "shared proof of work" reads as if it were one pool of challenges.
-- `docs/ERRORS.md`'s generated `applies_to` named `apps/api/src/errors.ts`. Fixed in the generator, since the file is generated (invariant 6) — and it is a reminder that frontmatter is a path claim `verify-docs` does not check, because it only reads fenced layout blocks.
-- ADR-0031's text still names `apps/api/src/domain/pow.ts`. Left as written: accepted decisions are superseded, never edited, and this entry is the supersession.
+- `docs/ERRORS.md`'s generated `applies_to` named `apps/node/src/errors.ts`. Fixed in the generator, since the file is generated (invariant 6) — and it is a reminder that frontmatter is a path claim `verify-docs` does not check, because it only reads fenced layout blocks.
+- ADR-0031's text still names `apps/node/src/domain/pow.ts`. Left as written: accepted decisions are superseded, never edited, and this entry is the supersession.
 - One more package in the graph, and a real cost: `packages/worker-kit` is a third place a Worker change might need to land. Accepted because the alternative is two copies of the code that decides how every failure looks to every client.
 
 **Rejected.** *Importing across `apps/`* — couples two deployables and records the dependency nowhere. *Duplicating both modules* — the drift this repository has spent thirty-five defects learning to distrust, and the error envelope is the worst possible thing to have two of. *Putting them in `packages/contract`* — the contract is the API's authority, not a runtime library; giving it a crypto implementation and an exception class would make "the contract" mean two different things. *A broader `packages/shared`* — a name that invites everything and explains nothing; the next thing that wants sharing should have to argue for its own boundary, as this did.
@@ -1032,6 +1032,7 @@ The internal Workers declare no `routes` and set `workers_dev: false`, so they a
 - **Two OpenAPI documents survive on different grounds.** ADR-0046 justified them by "one `servers` entry cannot describe two hosts". Both now carry the same `servers` entry, and the split rests on disjoint path spaces and per-document component reachability — the two properties already under test.
 - **Capacity is claimed, not probed**, reversing ADR-0046 directly. Its objection stands and is accepted: a node asserting `activeTunnels: 0` is selected first by every client, a free denial of service against its own operator. The probe was never much of a defence — a node can answer `/v1/meta` with anything — and ADR-0031 already accepts that node operators can read the traffic they carry. A directory of parties trusted with traffic is not made safer by distrusting them about a counter.
 - **ADR-0031's third enrolment gate changes.** Proof of work and the DNS TXT proof stay and are re-verified on every registration. The registry's liveness probe is replaced by the node's own check of its public URL, which is strictly closer to what a client experiences — it exercises DNS, the route, the gateway and the node, from outside.
+- **`apps/api` becomes `apps/node`**, `@nport/api` becomes `@nport/node`, `nport-api` becomes `nport-node`, and `api` is removed from the commit-scope list. The name always belonged to the hostname rather than to the Worker, and `api.nport.link` is the gateway's now — leaving the provisioning service called "api" would make every sentence about either one ambiguous. **It costs the staging deployment's Durable Object state**, because DOs cannot follow a script to a new name; staging leases live an hour and the directory has never held a row, and the window to pay nothing for this closed the moment production deployed. `docs/API.md` and `crates/core/src/api.rs` keep their names, because they are about the API a client speaks rather than the service behind it.
 - **`sourceHash` crosses the binding as a header.** The gateway computes it and forwards `x-nport-source-hash`; internal services trust it **only because they are not publicly reachable**. That assumption is load-bearing and a stray `routes` entry would silently break it.
 - **The gateway is a new single point of failure per deployment.** ADR-0031's "a registry that is down costs nothing" still holds for clients, which cache the list — but registry and node #1 now share a front door where they previously failed independently.
 - One more Worker per deployment, one more hop per request. Service bindings avoid DNS and TLS but still count against the subrequest budget.

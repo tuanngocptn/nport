@@ -8,7 +8,7 @@ import {
 import { ApiError, verifyChallenge } from "@nport/worker-kit"
 import { Hono } from "hono"
 import type { Env, Variables } from "../types"
-import { domainProofSatisfied, probeNode, verifyNodeUrl } from "../upstream"
+import { domainProofSatisfied, verifyNodeUrl } from "../upstream"
 
 /**
  * `GET /v1/nodes` and `POST /v1/nodes` — the whole directory.
@@ -20,8 +20,16 @@ import { domainProofSatisfied, probeNode, verifyNodeUrl } from "../upstream"
  * So nothing here is on a tunnel's critical path, and `GET` is deliberately boring.
  *
  * **Registration is gated but not authenticated.** There is no account and no shared secret —
- * invariant 1 applies here too. What stands in for identity is proof of work, a DNS TXT record
- * proving control of the claimed domain, and a liveness probe.
+ * invariant 1 applies here too. What stands in for identity is proof of work and a DNS TXT record
+ * proving control of the claimed domain. The third gate used to be a liveness probe from here; it is
+ * now the node's own check of its public URL before it calls (ADR-0049), which exercises DNS, the
+ * route, the gateway and the node from outside — strictly closer to what a client experiences than a
+ * fetch from inside this Worker was.
+ *
+ * **`POST /v1/nodes` is also the heartbeat.** There is no separate endpoint and there should not be: a
+ * registration already carries everything a heartbeat would, already proves what a heartbeat would
+ * have to re-prove, and a node calling one and not the other would be a state this file had to
+ * reconcile.
  */
 export function createNodesRoute(fetcher: typeof fetch = fetch) {
   return new Hono<{ Bindings: Env; Variables: Variables }>()
@@ -98,17 +106,10 @@ export function createNodesRoute(fetcher: typeof fetch = fetch) {
         throw new ApiError("POW_INVALID")
       }
 
-      // ── Now the network. Two subrequests, in this order: the proof is cheaper than the probe and
-      // refusing on it saves a fetch to a host we have not yet established anyone controls.
+      // ── The one subrequest. Re-verified on **every** registration, not just the first: the proof is
+      // what ties a node id to a domain, and a domain that changes hands must not keep its listing.
       if (!(await domainProofSatisfied(body.domain, body.id, fetcher))) {
         throw new ApiError("REGISTRATION_REFUSED", { reason: "proof-missing" })
-      }
-
-      const observed = await probeNode(body.url, fetcher)
-      if (observed === null) {
-        // Nothing worth listing. Not an error on our side: the operator's node did not answer its own
-        // `/v1/meta`, and saying so is more useful than listing something that cannot serve.
-        throw new ApiError("REGISTRATION_REFUSED", { reason: "unreachable" })
       }
 
       const entry: Node = {
@@ -117,10 +118,15 @@ export function createNodesRoute(fetcher: typeof fetch = fetch) {
         domain: body.domain,
         ...(body.region === undefined ? {} : { region: body.region }),
         version: body.version,
-        // Registration only succeeds after a successful probe, so a newly listed node is never
-        // anything but `up`.
+        // **`up` because it just called, and it does not get to claim otherwise.** `status` is not in
+        // `registerNodeRequestSchema` at all: a node reporting itself `down` would be asking to stay
+        // listed and unselected, which is what not registering already achieves. The sweep is the only
+        // other thing that writes this column, and it only ever writes `down`.
         status: "up",
-        ...observed,
+        // **Claimed, not observed** (ADR-0049 reverses ADR-0046). Both fields are optional, so a node
+        // that reports nothing is listed without capacity and ranked blind rather than refused.
+        ...(body.activeTunnels === undefined ? {} : { activeTunnels: body.activeTunnels }),
+        ...(body.maxActiveTunnels === undefined ? {} : { maxActiveTunnels: body.maxActiveTunnels }),
         lastSeenAt: now,
       }
       await directory.upsert(entry)
@@ -146,7 +152,7 @@ export const nodesRoute = createNodesRoute()
  * How long a spent challenge is remembered.
  *
  * Matches the challenge's own validity window: once a challenge cannot be redeemed anyway, the ledger
- * row is dead weight. `apps/api` keeps the same shape for the same reason (ADR-0027).
+ * row is dead weight. `apps/node` keeps the same shape for the same reason (ADR-0027).
  */
 const CHALLENGE_LEDGER_TTL_MS = 120_000
 

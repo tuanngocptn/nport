@@ -29,7 +29,7 @@ import { LINKS, STEPS, shippingFaqs, shippingFeatures } from "../content/site"
 /**
  * The production origin, absolute because canonical URLs and JSON-LD `@id`s cannot be relative.
  *
- * One constant rather than a binding: unlike `apps/api`, which serves several zones and reads
+ * One constant rather than a binding: unlike `apps/node`, which serves several zones and reads
  * `CF_DOMAIN` for that reason, this app is the single public site. A preview deployment that echoed its
  * own hostname here would publish canonical tags pointing at itself, which is how preview URLs end up
  * outranking production.

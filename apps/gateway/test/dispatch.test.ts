@@ -20,10 +20,21 @@ interface Echo {
   sourceHash: string | null
 }
 
+/**
+ * **Sends an address by default**, so every test that does not care about identity shares one bucket
+ * that no test deliberately floods.
+ *
+ * Without it every such request keys the rate limiter on `HMAC("unknown")`, and the limiter allows 60
+ * a minute — so a file that grew past sixty incidental requests would start failing somewhere
+ * unrelated to whatever was added, with a 429 nobody was looking for. The two tests below that *do*
+ * flood pass their own addresses.
+ */
+const QUIET = "192.0.2.1"
+
 async function call(path: string, init: RequestInit = {}): Promise<Response> {
   return SELF.fetch(`https://api.nport.link${path}`, {
     ...init,
-    headers: { ...UA, ...(init.headers ?? {}) },
+    headers: { "cf-connecting-ip": QUIET, ...UA, ...(init.headers ?? {}) },
   })
 }
 
@@ -110,6 +121,121 @@ describe("the forwarded headers", () => {
       await call("/v1/meta", { headers: { "cf-connecting-ip": "198.51.100.1" } })
     ).json()) as Echo
     expect(one.sourceHash).not.toBe(two.sourceHash)
+  })
+})
+
+describe("IPv6, end to end", () => {
+  /**
+   * Relocated from `apps/node/test/abuse-controls.test.ts`, where it could no longer mean anything: the
+   * node is handed a finished hash and cannot tell an IPv6 caller from an IPv4 one.
+   *
+   * **The cap used to be free to bypass over IPv6.** A residential or mobile allocation is a 64-bit
+   * prefix at the very smallest, so a client picks the rest of the address itself — a different one per
+   * request meant a different `SourceQuota` object downstream, and therefore a fresh concurrency cap, a
+   * fresh hourly quota and a fresh rate-limit bucket, at no cost and with no botnet.
+   */
+  async function hashFor(ip: string): Promise<string | null> {
+    const echo = (await (
+      await call("/v1/meta", { headers: { "cf-connecting-ip": ip } })
+    ).json()) as Echo
+    return echo.sourceHash
+  }
+
+  it("gives one identity to every address a client can pick inside its own /64", async () => {
+    const first = await hashFor("2001:db8:1234:5678::1")
+    expect(first).toBeTruthy()
+    for (const rotated of [
+      "2001:db8:1234:5678::2",
+      "2001:db8:1234:5678:dead:beef:cafe:f00d",
+      "2001:db8:1234:5678:ffff:ffff:ffff:ffff",
+    ]) {
+      expect(await hashFor(rotated), rotated).toBe(first)
+    }
+  })
+
+  it("still separates two different prefixes", async () => {
+    // The fix must not go the other way and fold unrelated networks onto one identity, which would cap
+    // strangers against each other.
+    expect(await hashFor("2001:db8:aaaa:1::7")).not.toBe(await hashFor("2001:db8:aaaa:2::7"))
+  })
+})
+
+describe("the request-rate limiter", () => {
+  /**
+   * Also relocated: the `RATE_LIMITER` binding is declared only here now.
+   *
+   * The outermost of the layered controls, and the only one that bounds a flood of *cheap* requests.
+   * Without it a source could hammer `/v1/challenge` — one Durable Object read each, on a Worker it
+   * cannot otherwise reach — indefinitely.
+   *
+   * Deliberately end-to-end rather than a unit test of the middleware: the binding is a platform
+   * primitive, so the only thing worth checking is that it is wired to the right key on the right
+   * routes, which is exactly what a test with a stubbed limiter would not tell us.
+   */
+  it("engages before a request crosses a binding", async () => {
+    let limited: Response | undefined
+    for (let index = 0; index < 90; index += 1) {
+      const response = await call("/v1/meta", { headers: { "cf-connecting-ip": "198.51.100.7" } })
+      if (response.status === 429) {
+        limited = response
+        break
+      }
+    }
+
+    expect(limited, "the rate limiter never engaged").toBeDefined()
+    const response = limited as Response
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe("RATE_LIMITED")
+    // Every 429 carries Retry-After, because `docs/API.md` tells clients to honour it and a retryable
+    // error without one invites a tighter loop than the server wants.
+    expect(response.headers.get("retry-after")).toBe("60")
+  })
+
+  it("leaves another source unaffected when one is limited", async () => {
+    for (let index = 0; index < 90; index += 1) {
+      const response = await call("/v1/meta", { headers: { "cf-connecting-ip": "198.51.100.8" } })
+      if (response.status === 429) {
+        break
+      }
+    }
+    // A shared counter would turn one abuser into an outage for everyone, which is the failure mode
+    // keying on the source is there to avoid.
+    const quiet = await call("/v1/meta", { headers: { "cf-connecting-ip": "198.51.100.9" } })
+    expect(quiet.status).toBe(200)
+  })
+
+  it("does not limit health, so an uptime monitor cannot poll itself out of existence", async () => {
+    for (let index = 0; index < 90; index += 1) {
+      await call("/v1/meta", { headers: { "cf-connecting-ip": "198.51.100.10" } })
+    }
+    const health = await SELF.fetch("https://api.nport.link/v1/health", {
+      headers: { "cf-connecting-ip": "198.51.100.10" },
+    })
+    expect(health.status).toBe(200)
+  })
+})
+
+describe("the request id", () => {
+  it("prefers cf-ray, so it matches Cloudflare's logs", async () => {
+    // Relocated from `apps/node`, which now echoes whatever this Worker forwarded. A user quoting an id
+    // from an error should find that same string in Cloudflare's own logs for the request.
+    const echo = (await (
+      await call("/v1/meta", { headers: { "cf-ray": "abc123-HKG" } })
+    ).json()) as Echo
+    expect(echo.requestId).toBe("abc123-HKG")
+  })
+
+  it("mints one when the edge did not supply a ray", async () => {
+    const echo = (await (await call("/v1/meta")).json()) as Echo
+    expect(echo.requestId).toBeTruthy()
+  })
+
+  it("does not let a caller choose the id two services will log", async () => {
+    // Not a security boundary — an id is only ever logged — but two callers who both claimed
+    // `deadbeef` would make the field useless for the one thing it is for: finding one request.
+    const echo = (await (
+      await call("/v1/meta", { headers: { "x-nport-request-id": "chosen-by-the-caller" } })
+    ).json()) as Echo
+    expect(echo.requestId).not.toBe("chosen-by-the-caller")
   })
 })
 

@@ -1,0 +1,268 @@
+/**
+ * Integration tests against the real Worker in real `workerd`.
+ *
+ * `SELF.fetch` goes through the actual `fetch` handler — middleware, routing, error handler — so
+ * these assert the contract as a client sees it rather than as the handlers intend it.
+ */
+
+import { SELF, env as testEnv } from "cloudflare:test"
+import { solveChallenge, verifyChallenge } from "@nport/worker-kit"
+import { describe, expect, it } from "vitest"
+import type { Env } from "../src/types"
+import { asGateway } from "./gateway"
+
+/**
+ * `cloudflare:test` types its `env` as the global `Cloudflare.Env`, which nothing in this repo
+ * populates — and augmenting it (or `ProvidedEnv`, as older guides suggest) silently does not
+ * apply. One cast here, against the app's own `Env`, beats scattering casts through the file, and
+ * it keeps the property that a test reading a binding the Worker does not declare fails to compile.
+ */
+const env = testEnv as unknown as Env
+
+const UA = asGateway({ "user-agent": "nport/3.0.0 (darwin; arm64)" })
+
+async function get(path: string, headers: Record<string, string> = UA) {
+  return SELF.fetch(`https://api.nport.link${path}`, { headers })
+}
+
+describe("GET /", () => {
+  it("redirects to the website, matching v2", async () => {
+    // Some users type the API host into a browser. v2 did this and the shim must keep doing it.
+    const response = await SELF.fetch("https://api.nport.link/", { redirect: "manual" })
+    expect(response.status).toBe(301)
+    expect(response.headers.get("location")).toBe("https://nport.link")
+  })
+})
+
+describe("no CORS, ever", () => {
+  it("sends no CORS headers on any route", async () => {
+    // Their absence is an abuse control: without them no web page can drive this API, so a
+    // browser-based attack has to become a server-based one (docs/ARCHITECTURE.md §7).
+    for (const path of ["/v1/health", "/v1/meta", "/v1/challenge"]) {
+      const response = await get(path)
+      expect(response.headers.get("access-control-allow-origin"), path).toBeNull()
+      expect(response.headers.get("access-control-allow-methods"), path).toBeNull()
+    }
+  })
+
+  it("does not answer a preflight with permission", async () => {
+    const response = await SELF.fetch("https://api.nport.link/v1/challenge", {
+      method: "OPTIONS",
+      headers: { origin: "https://evil.test", ...UA },
+    })
+    expect(response.headers.get("access-control-allow-origin")).toBeNull()
+  })
+})
+
+describe("GET /v1/health", () => {
+  it("answers without client identification", async () => {
+    // Uptime monitors send no NPort headers. Gating health behind a version would make a version
+    // bump look like an outage.
+    const response = await SELF.fetch("https://api.nport.link/v1/health")
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ status: "ok" })
+  })
+
+  it("is not cached", async () => {
+    const response = await SELF.fetch("https://api.nport.link/v1/health")
+    expect(response.headers.get("cache-control")).toBe("no-store")
+  })
+})
+
+/**
+ * **The client gate moved to `apps/gateway`** (ADR-0049), and its tests with it.
+ *
+ * Five cases used to live here: no User-Agent, a browser's, one below the floor, a version smuggled
+ * into a comment, and a current client. They are `apps/gateway/test/dispatch.test.ts` § "the client
+ * gate, applied once for every service" now — the gate runs in front of this Worker *and* the
+ * registry, so testing it here would have tested one of the two places it applies.
+ *
+ * What stays testable here is that this Worker accepts what the gateway lets through, which every
+ * other test in this file does by construction.
+ */
+
+describe("GET /v1/meta", () => {
+  it("reports limits from the environment rather than hardcoding them", async () => {
+    const response = await get("/v1/meta")
+    const body = (await response.json()) as Record<string, number | string>
+
+    expect(body.minClientVersion).toBe(String(env.MIN_CLIENT_VERSION))
+    expect(body.tunnelDurationMs).toBe(Number(env.LEASE_TTL_SECONDS) * 1000)
+    expect(body.powDifficulty).toBe(Number(env.POW_DIFFICULTY_BITS))
+  })
+
+  it("leaves room for more than one heartbeat inside the grace period", async () => {
+    // If a single dropped heartbeat could end a healthy tunnel, the grace period is decoration.
+    const body = (await (await get("/v1/meta")).json()) as { heartbeatIntervalMs: number }
+    const graceMs = Number(env.HEARTBEAT_GRACE_SECONDS) * 1000
+    expect(body.heartbeatIntervalMs).toBeLessThanOrEqual(graceMs / 2)
+    expect(body.heartbeatIntervalMs).toBeGreaterThan(0)
+  })
+
+  it("exposes no secret", async () => {
+    const text = await (await get("/v1/meta")).text()
+    expect(text).not.toContain(String(env.POW_SECRET))
+  })
+
+  /**
+   * The two fields federation runs on (ADR-0046).
+   *
+   * `apps/registry` probes this endpoint every five minutes and stores these as the node's observed
+   * capacity, which is what a client selects on. They were absent for the whole of the contract step
+   * and the registry recorded "capacity unknown" for every node — harmless, since unknown is treated
+   * as usable, and it meant no client could see headroom.
+   */
+  it("publishes its own capacity, so the registry can see this node's headroom", async () => {
+    const body = (await (await get("/v1/meta")).json()) as Record<string, number>
+
+    expect(body.maxActiveTunnels).toBe(Number(env.MAX_ACTIVE_TUNNELS))
+    // Not merely present: a real count, and a fresh isolate holds no leases. Asserting only
+    // `toBeDefined` would pass with a hardcoded zero, which is the value that makes a node look
+    // emptiest and get picked first.
+    expect(body.activeTunnels).toBe(0)
+    expect(body.activeTunnels).toBeLessThanOrEqual(body.maxActiveTunnels as number)
+  })
+
+  // The half that makes this mean something — a count that is always zero is not a count — lives in
+  // `test/tunnels.test.ts`, where the Cloudflare fake needed to create a real tunnel already is.
+})
+
+describe("GET /v1/challenge", () => {
+  it("issues a challenge the verifier accepts", async () => {
+    // End to end through the real handler: issue over HTTP, solve locally, verify with the same
+    // secret the Worker used. If the route and the domain logic ever disagree, this fails.
+    const response = await get("/v1/challenge")
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      challenge: string
+      difficulty: number
+      expiresAt: number
+    }
+
+    // A first-time source pays the floor. Difficulty rises per source with recent creates, so this
+    // asserts the floor rather than a fixed number (ADR-0028).
+    expect(body.difficulty).toBe(Number(env.POW_DIFFICULTY_BITS))
+    expect(body.expiresAt).toBeGreaterThan(Date.now())
+
+    const solution = await solveChallenge(body.challenge, body.difficulty)
+    const accepted = await verifyChallenge(
+      String(env.POW_SECRET),
+      body.challenge,
+      solution,
+      Date.now(),
+    )
+    expect(accepted).toEqual({ ok: true, bits: body.difficulty })
+  })
+
+  it("commits to the difficulty, so a client cannot negotiate it down", async () => {
+    // The property that makes per-source escalation binding rather than advisory. Asserted by
+    // tampering rather than by solving at a lower difficulty, which would be probabilistic: a nonce
+    // found for 1 bit satisfies 4 bits one time in eight, and a flaky security test is worse than none.
+    const body = (await (await get("/v1/challenge")).json()) as { challenge: string }
+    const [encoded, mac] = body.challenge.split(".") as [string, string]
+
+    const payload = JSON.parse(atob(encoded.replaceAll("-", "+").replaceAll("_", "/"))) as {
+      exp: number
+      bits: number
+      salt: string
+    }
+    expect(payload.bits).toBe(Number(env.POW_DIFFICULTY_BITS))
+
+    // Re-encode with the difficulty lowered, keeping the original MAC.
+    const forged = btoa(JSON.stringify({ ...payload, bits: 1 }))
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replaceAll("=", "")
+    const tampered = `${forged}.${mac}`
+
+    const solution = await solveChallenge(tampered, 1)
+    const result = await verifyChallenge(String(env.POW_SECRET), tampered, solution, Date.now())
+    expect(result).toEqual({ ok: false, reason: "bad-signature" })
+  })
+
+  it("never issues the same challenge twice", async () => {
+    const first = (await (await get("/v1/challenge")).json()) as { challenge: string }
+    const second = (await (await get("/v1/challenge")).json()) as { challenge: string }
+    expect(first.challenge).not.toBe(second.challenge)
+  })
+
+  it("is not cached", async () => {
+    // A cached challenge is replayable, which defeats the point of a per-request cost.
+    const response = await get("/v1/challenge")
+    expect(response.headers.get("cache-control")).toBe("no-store")
+  })
+
+  it("does not leak the signing secret", async () => {
+    const text = await (await get("/v1/challenge")).text()
+    expect(text).not.toContain(String(env.POW_SECRET))
+  })
+})
+
+describe("errors", () => {
+  it("uses the documented envelope on every failure", async () => {
+    // Provoked with an unknown route rather than an old client: the version gate is the gateway's now
+    // (ADR-0049), so `CLIENT_TOO_OLD` can no longer be raised here. The envelope's *shape* is what this
+    // asserts, and it is the same whichever code fills it.
+    const response = await get("/v1/nope")
+    const body = (await response.json()) as {
+      error: { code: string; message: string; requestId: string; docsUrl: string }
+    }
+
+    // Exactly the shape in docs/ERRORS.md § Response shape.
+    expect(Object.keys(body)).toEqual(["error"])
+    expect(body.error.code).toBe("INVALID_REQUEST")
+    expect(body.error.message.length).toBeGreaterThan(0)
+    expect(body.error.requestId.length).toBeGreaterThan(0)
+    expect(body.error.docsUrl).toBe("https://nport.link/errors/invalid-request")
+  })
+
+  it("gives an unknown route the envelope too, not an HTML 404", async () => {
+    const response = await get("/v1/nope")
+    expect(response.status).toBe(400)
+    expect(response.headers.get("content-type")).toContain("application/json")
+  })
+
+  it("echoes the request id the gateway forwarded, rather than minting its own", async () => {
+    // **This used to assert `cf-ray`.** Reading it is the gateway's job now (ADR-0049): it prefers
+    // Cloudflare's ray so a user's quoted id matches Cloudflare's logs, and passes the result on as
+    // `x-nport-request-id`. What matters here is that this Worker uses what it was handed — if it
+    // minted a fresh id, the two services would name one request two different things and the id in a
+    // bug report would match neither log.
+    const failed = await get("/v1/nope", { ...UA, "x-nport-request-id": "abc123-HKG" })
+    const body = (await failed.json()) as { error: { requestId: string } }
+    expect(body.error.requestId).toBe("abc123-HKG")
+  })
+})
+
+describe("binding validation", () => {
+  it("refuses a request when a required secret is missing", async () => {
+    // The regression test for a 500 that was very hard to read: with POW_SECRET absent, an empty
+    // HMAC key reached WebCrypto and failed as `DataError: Imported HMAC key length (0)...`.
+    // `wrangler dev` hits this by default because secrets are not in wrangler.jsonc.
+    const original = env.POW_SECRET
+    try {
+      env.POW_SECRET = ""
+      const response = await get("/v1/challenge")
+      expect(response.status).toBe(500)
+      const body = (await response.json()) as { error: { code: string; message: string } }
+      expect(body.error.code).toBe("INTERNAL")
+      // The response must not name the binding. Telling an anonymous caller which secret is
+      // missing is free reconnaissance; the operator gets it from the log instead.
+      expect(body.error.message).not.toContain("POW_SECRET")
+      expect(JSON.stringify(body)).not.toContain("POW_SECRET")
+    } finally {
+      env.POW_SECRET = original
+    }
+  })
+
+  it("still answers health when misconfigured, so a monitor can tell it apart from a dead worker", async () => {
+    const original = env.POW_SECRET
+    try {
+      env.POW_SECRET = ""
+      const response = await SELF.fetch("https://api.nport.link/v1/health")
+      expect(response.status).toBe(200)
+    } finally {
+      env.POW_SECRET = original
+    }
+  })
+})

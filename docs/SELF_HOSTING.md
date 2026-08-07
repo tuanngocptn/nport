@@ -4,15 +4,17 @@ Run your own control plane on your own domain. Clients point at it with `--backe
 
 Reasons to: you want your own domain instead of `*.nport.link`; you need tunnels without the public instance's time limit; your organisation cannot send subdomain names to a third party; or you want a private instance with no abuse controls in the way.
 
-**Status: followable.** `apps/api` is feature-complete and deployed (`docs/ROADMAP.md` §2a), so the steps below describe software that exists. What has *not* happened is somebody other than us following them end to end on a fresh account — and every var name and flag on this page was wrong until 2026-08-07 (defect 39), so treat a discrepancy as this page's bug and report it.
+**Status: followable.** `apps/node` is feature-complete and deployed (`docs/ROADMAP.md` §2a), so the steps below describe software that exists. What has *not* happened is somebody other than us following them end to end on a fresh account — and every var name and flag on this page was wrong until 2026-08-07 (defect 39), so treat a discrepancy as this page's bug and report it.
 
 ## What you get and what you own
 
-Self-hosting replaces **only the control plane** (`apps/api`). The data plane is still Cloudflare's edge, so you still get global anycast, TLS, and DDoS protection. NPort's connector talks to Cloudflare directly either way (`docs/ARCHITECTURE.md` §3b).
+Self-hosting replaces **only the control plane**. The data plane is still Cloudflare's edge, so you still get global anycast, TLS, and DDoS protection. NPort's connector talks to Cloudflare directly either way (`docs/ARCHITECTURE.md` §3b).
+
+**You deploy two Workers, not one** (ADR-0049). `apps/gateway` owns your hostname and applies the cross-cutting concerns; `apps/node` provisions tunnels and has no hostname at all. You do **not** deploy `apps/registry` — that is the public directory, one deployment in the world, and its code never needs to reach your account.
 
 You become responsible for: your Cloudflare bill, your own abuse controls and caps, your API token's security, and keeping the deployment current when the protocol changes (`docs/OPERATIONS.md`).
 
-**Your deployment is a private node, and it stays private by default.** Under ADR-0031 a deployment of `apps/api` is a **node**, and nodes may list themselves in a public directory so that any client can discover them. Yours will not: listing requires `REGISTRY_URL`, and leaving it unset — which is what happens if you follow this guide and do nothing extra — means the node never registers, never appears in `GET /v1/nodes`, and is reachable only by someone who knows its URL and passes it with `--backend`. There is no opt-out to remember, because there is no opt-in you did not make.
+**Your deployment is a private node, and it stays private by default.** Under ADR-0031 a deployment of gateway + node is a **node**, and nodes may list themselves in a public directory so that any client can discover them. Yours will not: listing requires `REGISTRY_URL`, and leaving it unset — which is what happens if you follow this guide and do nothing extra — means the node never registers, never appears in `GET /v1/nodes`, and is reachable only by someone who knows its URL and passes it with `--backend`. There is no opt-out to remember, because there is no opt-in you did not make.
 
 ## Prerequisites
 
@@ -44,34 +46,56 @@ account it belongs to, so `CF_ACCOUNT_ID` below is not optional.
 **Do not use the Global API Key.** It grants full account control, and unlike v2, v3 does not accept it.
 
 These are the same two permissions this project's own deployment gives the Worker
-(`docs/DEPLOYMENT.md` § 2b) — they are the entire Cloudflare surface `apps/api` touches. If one list
-changes, the other is wrong.
+(`docs/DEPLOYMENT.md` § 2b) — they are the entire Cloudflare surface `apps/node` touches. If one list
+changes, the other is wrong. **Only `apps/node` gets the token**; the gateway holds no Cloudflare
+credential, which is the point of putting it in front — it terminates every public request and cannot
+provision anything.
 
 ### 2. Configure and deploy
 
 ```bash
 git clone https://github.com/tuanngocptn/nport.git
 cd nport && corepack enable && pnpm install
-cd apps/api
 ```
 
-Set `name` and `routes` in `wrangler.jsonc` to your own worker name and hostname. Leave `durable_objects` and `migrations` untouched.
+In `apps/node/wrangler.jsonc`: set `name` to your own Worker name and leave `durable_objects` and
+`migrations` untouched. **Do not add `routes`, and leave `workers_dev: false`** — that Worker is meant
+to be unreachable except through the gateway, and it trusts the identity the gateway forwards *because*
+nothing else can reach it. Give it a hostname and any caller could choose their own source identity and
+walk past every per-source cap you have set.
+
+In `apps/gateway/wrangler.jsonc`: set `name`, set `routes` to your hostname, and remove the `REGISTRY`
+entry from `services` — you are not running a directory, and a binding to a Worker that does not exist
+fails the deploy.
+
+**Deploy the node first.** The gateway's `services` binding must resolve at deploy time.
 
 ```bash
+cd apps/node
 pnpm wrangler deploy          # DO migrations apply on first deploy
 pnpm wrangler secret put CF_API_TOKEN
 pnpm wrangler secret put CF_ACCOUNT_ID
 pnpm wrangler secret put CF_ZONE_ID
 pnpm wrangler secret put CF_DOMAIN        # e.g. tunnels.example.com
 pnpm wrangler secret put POW_SECRET       # openssl rand -hex 32
+
+cd ../gateway
+pnpm wrangler deploy
 pnpm wrangler secret put IP_HASH_SECRET   # openssl rand -hex 32
 ```
 
-Verify:
+`IP_HASH_SECRET` belongs to the gateway and nowhere else: it is the only Worker that sees an address,
+and the other two receive the hash.
+
+Verify — the hostname is the gateway's, and health is answered there without reaching the node:
 
 ```bash
 curl https://api.example.com/v1/health
+curl -H "user-agent: nport/3.0.0 (linux; x86_64)" https://api.example.com/v1/meta
 ```
+
+The second one crosses the service binding, so it is the check that the two Workers are actually wired
+together. A 500 with `"code": "INTERNAL"` there and a healthy `/v1/health` means the binding is wrong.
 
 ### 3. Point clients at it
 
@@ -92,7 +116,7 @@ backend = "https://api.example.com"
 
 ## Tuning
 
-Set these as `vars` in `wrangler.jsonc`. The public instance's values are chosen for a free service shared by strangers; a private instance can be far more relaxed.
+Set these as `vars` in `apps/node/wrangler.jsonc`, except `MIN_CLIENT_VERSION`, which is the gateway's — it applies the version gate. The public instance's values are chosen for a free service shared by strangers; a private instance can be far more relaxed.
 
 | Var | Public default | Notes |
 | --- | --- | --- |
@@ -103,7 +127,7 @@ Set these as `vars` in `wrangler.jsonc`. The public instance's values are chosen
 | `MAX_CREATES_PER_HOUR_PER_SOURCE` | `20` | |
 | `POW_DIFFICULTY_BITS` | `20` | Starting difficulty. **The floor is 1, not 0** — see below |
 | `POW_MAX_DIFFICULTY_BITS` | `26` | Ceiling the adaptive difficulty climbs to under load |
-| `MIN_CLIENT_VERSION` | `"3.0.0"` | Raising it is how you tell users to upgrade |
+| `MIN_CLIENT_VERSION` | `"3.0.0"` | **In `apps/gateway`.** Raising it is how you tell users to upgrade |
 
 **Proof of work cannot be turned off.** `packages/worker-kit/src/pow.ts` sets `MIN_BITS = 1`, and `issueChallenge` throws a `RangeError` outside `1..32` — so a `0` here does not relax the instance, it makes every provision attempt fail. This page recommended `0` until 2026-08-07. One bit is nearly free to solve, so if what you want is "no meaningful gate", `1` is that; it is not the same as no gate, and the note under **Limits** about protecting a private instance still applies.
 
@@ -122,13 +146,13 @@ Two things worth doing early:
 
 ## Becoming a public node
 
-Optional, and only if you want strangers' tunnels on your Cloudflare account and your bill. Four vars in `apps/api/wrangler.jsonc` § vars, and one DNS record:
+Optional, and only if you want strangers' tunnels on your Cloudflare account and your bill. Four vars in `apps/node/wrangler.jsonc` § vars, and one DNS record:
 
 | Var | What it is |
 | --- | --- |
 | `NODE_ID` | your node's id in the directory: `[a-z0-9-]`, 3–32 characters, stable across deploys |
-| `PUBLIC_URL` | where clients reach you. **Must be under your `CF_DOMAIN`** |
-| `REGISTRY_URL` | the directory. `https://registry.nport.link` for the public one |
+| `PUBLIC_URL` | where clients reach you — your **gateway's** hostname. **Must be under your `CF_DOMAIN`** |
+| `REGISTRY_URL` | the directory. `https://api.nport.link` for the public one |
 | `NODE_VERSION` | display-only, and never verified |
 
 Then publish a TXT record proving you control the domain, which is what stands in for an account:
@@ -137,7 +161,11 @@ Then publish a TXT record proving you control the domain, which is what stands i
 _nport-node.<your domain>   TXT   "nport-node=<your NODE_ID>"
 ```
 
-The registry resolves that record, probes your `GET /v1/meta`, and lists you. `PUBLIC_URL` has to be under your domain because that record proves control of the domain and nothing else — a URL outside it would be a listing the proof does not cover. It re-registers on every cron tick, so a node that was delisted after an outage relists itself.
+The registry resolves that record and lists you. `PUBLIC_URL` has to be under your domain because that record proves control of the domain and nothing else — a URL outside it would be a listing the proof does not cover.
+
+**The registry never fetches you** (ADR-0049). Your node registers on its own cron, every five minutes, having first fetched its own `PUBLIC_URL/v1/health` to confirm the public path works — so a deployment whose DNS is gone or whose gateway is undeployed simply stops calling and ages out of the list. Coming back is one proof of work on the next tick, from `down` and from delisted alike.
+
+That inverts one thing worth knowing: **if you stop registering, you are gone.** Silence past the registry's `NODE_DOWN_AFTER_SECONDS` shows you as `down` to clients, and past `NODE_DELIST_AFTER_SECONDS` removes the row. There is nothing to deregister with — stopping is how you leave.
 
 **What you are taking on**: strangers create tunnels in your zone, against your caps, on your bill — and `docs/ARCHITECTURE.md` §1 is explicit that a node operator *can* read and modify the traffic passing through the tunnels they issue. Being trusted not to is the whole arrangement. Do not do this on an account that matters to you.
 
@@ -152,7 +180,10 @@ The registry resolves that record, probes your `GET /v1/meta`, and lists you. `P
 
 ```bash
 git pull && pnpm install
-cd apps/api && pnpm wrangler deploy
+cd apps/node && pnpm wrangler deploy
+cd ../gateway && pnpm wrangler deploy
 ```
+
+Node first, gateway second — the same order as the first deploy, for the same reason.
 
 Read the changelog for `api` and `protocol` scopes first. A `protocol` change may require your users to upgrade their CLI, and raising `MIN_CLIENT_VERSION` is how you tell them.

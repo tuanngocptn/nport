@@ -14,7 +14,7 @@
  *
  * ## Why the expectations are not written here
  *
- * They are read from `apps/api/wrangler.jsonc` for the environment being verified. Hardcoding "16"
+ * They are read from `apps/node/wrangler.jsonc` for the environment being verified. Hardcoding "16"
  * in a workflow would duplicate a number that already lives in the config, and the copy would be
  * wrong the first time somebody tuned the original — the same duplication this repository avoids
  * everywhere else by generating rather than restating. So this compares *deployed against
@@ -39,7 +39,17 @@ if (host === undefined) {
 // A bare hostname gets https, which is what CI passes. A full URL is accepted so this can be aimed
 // at a local server — a check nobody can run against anything but production is a check nobody runs.
 const base = host.includes("://") ? host.replace(/\/$/, "") : `https://${host}`
-const vars = varsFor(loadWranglerConfig("apps/api/wrangler.jsonc"), envName)
+/**
+ * Two configs, because ADR-0049 split the backend across three Workers and the hostname belongs to the
+ * gateway.
+ *
+ * `/v1/meta` is the node's response, so its numbers come from the node's config — except
+ * `MIN_CLIENT_VERSION`, which the **gateway** enforces and the node merely publishes. Reading the
+ * floor from the gateway is what makes the User-Agent below the one the deployed gate will accept;
+ * `pnpm deploy:check` separately holds the two configs' copies equal.
+ */
+const vars = varsFor(loadWranglerConfig("apps/node/wrangler.jsonc"), envName)
+const gatewayVars = varsFor(loadWranglerConfig("apps/gateway/wrangler.jsonc"), envName)
 
 /**
  * Each `/v1/meta` field, and the var it is built from in `src/routes/meta.ts`.
@@ -58,15 +68,16 @@ const EXPECTATIONS = [
 
 /**
  * Every route but `/v1/health` is behind the client gate, which requires a `nport/<version>`
- * User-Agent (`src/middleware/client-gate.ts`). Without one the API answers `INVALID_REQUEST`,
- * correctly — so this identifies itself like a real client or it cannot read `/v1/meta` at all.
+ * User-Agent (`apps/gateway/src/middleware/client-gate.ts`). Without one the API answers
+ * `INVALID_REQUEST`, correctly — so this identifies itself like a real client or it cannot read
+ * `/v1/meta` at all.
  *
  * The version sent is the **committed** minimum, not something arbitrarily high. If the deployed
  * Worker's floor is above it the gate answers `CLIENT_TOO_OLD`, and that is a genuine mismatch
  * between deployed and committed — exactly what this script exists to catch. A hardcoded
  * `999.0.0` would sail past it.
  */
-const USER_AGENT = `nport/${vars.MIN_CLIENT_VERSION} (verify-deployment)`
+const USER_AGENT = `nport/${gatewayVars.MIN_CLIENT_VERSION} (verify-deployment)`
 
 /**
  * Retries only what waiting can fix.
@@ -113,9 +124,17 @@ let failures = 0
 
 console.log(`verifying ${base}${envName ? ` against env.${envName}` : ""}\n`)
 
+// The gateway answers this itself and never forwards it, so a 200 proves the front door and nothing
+// behind it. That is the point of checking it first: it separates "the hostname is not routed" from
+// "the hostname is routed and a binding is wrong", which are different incidents.
 const health = await getJson("/v1/health")
 console.log(`  health: ${JSON.stringify(health)}`)
 
+/**
+ * **The first request that crosses a service binding**, and therefore the real check that the three
+ * Workers are wired together (ADR-0049). A gateway deployed against a binding that does not resolve
+ * answers `/v1/health` cheerfully and `INTERNAL` here.
+ */
 const meta = await getJson("/v1/meta")
 
 for (const [field, expected] of EXPECTATIONS) {
@@ -131,6 +150,34 @@ for (const [field, expected] of EXPECTATIONS) {
   }
 }
 
+/**
+ * The registry's half of the path space, checked only where a registry is expected to exist.
+ *
+ * **Whether one does is a property of the gateway's config, not of this script**: a master deployment
+ * binds `REGISTRY`, a node-only deployment does not, and on the latter `/v1/nodes` is *meant* to be
+ * absent rather than broken. Reading the binding list is what lets one script verify both roles.
+ *
+ * A `nodes` array — even an empty one — proves the request reached the registry. Before node #1 has
+ * registered, empty is the correct answer and a 200 is the whole assertion.
+ */
+if (
+  (loadWranglerConfig("apps/gateway/wrangler.jsonc").services ?? []).some(
+    (s) => s.binding === "REGISTRY",
+  )
+) {
+  const directory = await getJson("/v1/nodes")
+  if (Array.isArray(directory.nodes)) {
+    console.log(`  ✓ /v1/nodes reaches the registry (${directory.nodes.length} node(s) listed)`)
+  } else {
+    console.error(`  ✗ /v1/nodes answered without a \`nodes\` array: ${JSON.stringify(directory)}`)
+    failures += 1
+  }
+} else {
+  console.log(
+    "  – /v1/nodes not checked: this deployment binds no REGISTRY, so it has no directory",
+  )
+}
+
 if (failures > 0) {
   console.error(
     `\nverify-deployment: ${failures} mismatch(es). The deploy did not carry the configuration in the` +
@@ -139,4 +186,4 @@ if (failures > 0) {
   process.exit(1)
 }
 
-console.log("\nverify-deployment: the deployed control plane matches the committed configuration\n")
+console.log("\nverify-deployment: the deployed backend matches the committed configuration\n")

@@ -6,7 +6,7 @@ Four describe the contract: they come from `packages/contract` and feed `cargo x
 
 | File | Holds | Exists because |
 | --- | --- | --- |
-| `nport-api.openapi.json` | the OpenAPI description of a **node's** API | the request and response shapes, also rendered on the website |
+| `nport-node.openapi.json` | the OpenAPI description of a **node's** API | the request and response shapes, also rendered on the website |
 | `nport-registry.openapi.json` | the OpenAPI description of the **registry's** API | a separate service on a separate host. One `servers` entry cannot describe both, and a client generated from a merged document would call `api.nport.link/v1/nodes` ([ADR-0046](../docs/DECISIONS.md)) |
 | `errors.json` | each code's status, retryability, slug and `details` keys | **JSON Schema cannot express them.** The document can say `code` is one of 33 strings; it cannot say `SUBDOMAIN_IN_USE` is a 409 not worth retrying, which is exactly what the Rust client branches on |
 | `subdomain.json` | the length bounds, the zone suffix, and the reserved lists | the Rust mirror needs the same 53 reserved names, and a second copy kept by hand is a list that is correct until somebody forgets |

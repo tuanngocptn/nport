@@ -197,7 +197,7 @@ export const ERRORS = {
     retryable: true,
     message: "You have created too many tunnels this hour.",
     cause: "Hourly create cap for this source",
-    // `Retry-After` is derived from `resetAt` by `apps/api`, so a client that honours the header needs
+    // `Retry-After` is derived from `resetAt` by `apps/node`, so a client that honours the header needs
     // to read nothing; `resetAt` is there for one that wants to show a countdown to a real instant.
     action: "Honour `Retry-After`; `details.resetAt`",
     details: ["resetAt"],
@@ -236,7 +236,7 @@ export const ERRORS = {
     cause: "Global active-tunnel cap reached",
     action: "Honour `Retry-After`",
     // The API has always sent this; the registry did not say so, and the registry is the authority a
-    // client reads. `apps/api` turns it into the `Retry-After` header too.
+    // client reads. `apps/node` turns it into the `Retry-After` header too.
     details: ["retryAfter"],
   },
 

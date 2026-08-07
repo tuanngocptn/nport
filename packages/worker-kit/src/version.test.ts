@@ -1,7 +1,7 @@
 /**
  * The client-version gate's arithmetic, tested directly for the first time.
  *
- * It had route-level coverage in `apps/api` and no unit tests, which left the one genuinely subtle
+ * It had route-level coverage in `apps/node` and no unit tests, which left the one genuinely subtle
  * rule — that a pre-release sorts *below* its release — resting on whichever User-Agent the route
  * tests happened to send. Both Workers now share these functions, so a disagreement here would mean
  * one service admitting a client the other refuses.
@@ -61,7 +61,7 @@ describe("compareVersions", () => {
 
   it("compares pre-release tags as strings, which is why staging's floor is 0.0.0", () => {
     // Documented rather than admired: `beta` < `dev` lexically, so a floor of `3.0.0-dev` would
-    // refuse every beta. `apps/api/wrangler.jsonc` explains why staging uses `0.0.0` instead, and
+    // refuse every beta. `apps/node/wrangler.jsonc` explains why staging uses `0.0.0` instead, and
     // this is the assertion behind that paragraph.
     expect(compareVersions("3.0.0-beta.1", "3.0.0-dev")).toBe(-1)
     expect(compareVersions("3.0.0-dev", "3.0.0-beta.1")).toBe(1)

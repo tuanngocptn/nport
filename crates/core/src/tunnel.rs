@@ -43,7 +43,7 @@ use crate::manager::{Connector, TunnelConfig, TunnelHandle, TunnelManager};
 /// other is healthy.
 ///
 /// **The rate normally comes from `GET /v1/meta`**, which publishes `heartbeatIntervalMs` as a
-/// quarter of the grace period for exactly this purpose — `apps/api/CLAUDE.md` says a limit is
+/// quarter of the grace period for exactly this purpose — `apps/node/CLAUDE.md` says a limit is
 /// surfaced there "so clients discover rather than hardcode it". This value was hardcoded and the
 /// published one was read by nobody, which meant the server could not shorten its own grace period:
 /// drop it to 60 s and a client still beating every 30 s has one miss of headroom instead of four;
@@ -683,7 +683,7 @@ mod tests {
     /// loop actually uses it, which is the half `docs/ROADMAP.md`'s defect 25 is about.
     ///
     /// **The first node advertises the most room and then refuses**, which is not a contrived setup:
-    /// `MAX_ACTIVE_TUNNELS` is checked before the claim, so `apps/api`'s global cap is soft and a burst
+    /// `MAX_ACTIVE_TUNNELS` is checked before the claim, so `apps/node`'s global cap is soft and a burst
     /// can overshoot it between a probe and a create. Ranking on advertised headroom is also what makes
     /// the order here deterministic — sorting on measured latency put two loopback servers in whichever
     /// order the scheduler felt like, and the test passed alone and failed in the full suite.

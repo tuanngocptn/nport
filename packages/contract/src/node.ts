@@ -1,7 +1,7 @@
 /**
  * Node identity and the domain proof that gates registration.
  *
- * `docs/ARCHITECTURE.md` §1 and ADR-0031. A **node** is one deployment of `apps/api` bound to one
+ * `docs/ARCHITECTURE.md` §1 and ADR-0031. A **node** is one deployment of `apps/node` bound to one
  * Cloudflare account and one domain; the **registry** is a directory that lists nodes and holds no
  * credentials. Enrolment is open and anonymous, so the only thing standing between a stranger and a
  * listing is proof of work plus the DNS proof below.
@@ -101,7 +101,16 @@ export const NODE_REJECTION_REASONS = [
   "invalid-url",
   /** The TXT record is absent, or none of the records at that name match. */
   "proof-missing",
-  /** The node's own `GET /v1/meta` did not answer, so there is nothing worth listing. */
+  /**
+   * **No longer sent by any registry** (ADR-0049), and kept because removing it would be a breaking
+   * contract change for a string clients already parse.
+   *
+   * It meant "the node's own `GET /v1/meta` did not answer", raised by a probe the registry made
+   * during registration. Nothing probes now: a node checks its own public URL before it calls, so an
+   * unreachable node does not register at all rather than registering and being refused. A client that
+   * still handles this reason handles a case it will not see, which costs nothing; a client that
+   * stopped handling it would break if a future registry found a reason to send it again.
+   */
   "unreachable",
   /** The id is listed already, against a different domain. */
   "id-taken",

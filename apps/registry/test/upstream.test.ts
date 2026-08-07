@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest"
 
-import { domainProofSatisfied, probeNode, verifyNodeUrl } from "../src/upstream"
+import { domainProofSatisfied, verifyNodeUrl } from "../src/upstream"
 import { fakeUpstream } from "./fake-upstream"
 
 describe("verifyNodeUrl", () => {
@@ -111,61 +111,15 @@ describe("domainProofSatisfied", () => {
   })
 })
 
-describe("probeNode", () => {
-  const ORIGIN = "https://api.nport.link"
-
-  it("reads the capacity a node publishes", async () => {
-    const fake = fakeUpstream({}, { [ORIGIN]: { activeTunnels: 12, maxActiveTunnels: 100 } })
-    await expect(probeNode(ORIGIN, fake.fetch)).resolves.toEqual({
-      activeTunnels: 12,
-      maxActiveTunnels: 100,
-    })
-    expect(fake.calls).toEqual([`${ORIGIN}/v1/meta`])
-  })
-
-  it("returns an empty observation for a node that publishes neither field", async () => {
-    // An older node. **Empty, not null**: it answered, so it is up — it just did not say how full it
-    // is. Conflating the two would delist every node running a build from before ADR-0046.
-    const fake = fakeUpstream({}, { [ORIGIN]: { minClientVersion: "3.0.0", powDifficulty: 20 } })
-    await expect(probeNode(ORIGIN, fake.fetch)).resolves.toEqual({})
-  })
-
-  it("treats a nonsense capacity as unknown rather than as zero", async () => {
-    // Absent means unknown. A node reporting `-1` or `"lots"` must not end up looking empty, which is
-    // the state every client sorts to the front.
-    const fake = fakeUpstream({}, { [ORIGIN]: { activeTunnels: -1, maxActiveTunnels: "lots" } })
-    await expect(probeNode(ORIGIN, fake.fetch)).resolves.toEqual({})
-  })
-
-  it("is null for a node that does not answer", async () => {
-    const fake = fakeUpstream({}, { [ORIGIN]: null })
-    await expect(probeNode(ORIGIN, fake.fetch)).resolves.toBeNull()
-  })
-
-  it("is null for a body that is not JSON", async () => {
-    const notJson = (async () => new Response("<html>hello</html>")) as unknown as typeof fetch
-    await expect(probeNode(ORIGIN, notJson)).resolves.toBeNull()
-  })
-
-  it("is null for an error status", async () => {
-    const failing = (async () => new Response("nope", { status: 502 })) as unknown as typeof fetch
-    await expect(probeNode(ORIGIN, failing)).resolves.toBeNull()
-  })
-
-  it("refuses a body larger than the ceiling rather than reading forever", async () => {
-    // The peer is a stranger's server. Without a bound, a node that streams forever makes the probe
-    // read forever — the missing-ceiling shape `crates/core`'s `MAX_RESPONSE_HEAD` exists to prevent,
-    // in the other language.
-    const huge = (async () =>
-      Response.json({ activeTunnels: 1, padding: "x".repeat(20_000) })) as unknown as typeof fetch
-    await expect(probeNode(ORIGIN, huge)).resolves.toBeNull()
-  })
-
-  it("asks for /v1/meta even when the node's URL carries a path", async () => {
-    // `new URL("/v1/meta", base)` replaces the path rather than appending, which is what we want: a
-    // node registered as `https://api.nport.link/` must not be probed at `//v1/meta`.
-    const fake = fakeUpstream({}, { [ORIGIN]: { activeTunnels: 0 } })
-    await probeNode(`${ORIGIN}/some/prefix`, fake.fetch)
-    expect(fake.calls).toEqual([`${ORIGIN}/v1/meta`])
-  })
-})
+/**
+ * **`describe("probeNode")` is gone with the probe** (ADR-0049), and it is worth saying what went with
+ * it, because the tests were the good kind: a bounded read so a node streaming forever could not make
+ * the probe read forever, field-by-field parsing so an older node's `/v1/meta` was not rejected for a
+ * field it never had, `-1` and `"lots"` read as *unknown* rather than as empty, and `new URL` used so a
+ * node registered with a path was still probed at `/v1/meta`.
+ *
+ * None of it has a caller now: this Worker fetches a DNS resolver and nothing else. Nodes report their
+ * own capacity, and `apps/node/test/register.test.ts` covers what they send. The "unknown, never zero"
+ * distinction survives where it still matters — `Directory` stores those columns nullable, and
+ * `test/nodes.test.ts` asserts an absent claim stays absent rather than becoming `0`.
+ */

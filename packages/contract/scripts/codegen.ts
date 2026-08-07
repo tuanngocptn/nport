@@ -10,7 +10,7 @@
  * recording — so: **all of them, and what each is for.**
  *
  * - `docs/ERRORS.md`                — the registry as a human-readable table
- * - `schema/nport-api.openapi.json` — the API contract: request and response shapes
+ * - `schema/nport-node.openapi.json` — the API contract: request and response shapes
  * - `schema/errors.json`            — each code's status and retryability, which JSON Schema cannot say
  * - `schema/subdomain.json`         — the subdomain bounds and reserved lists, for the Rust mirror
  *
@@ -487,7 +487,7 @@ const REGISTRY_SERVICE: ServiceDocument = {
 }
 
 const errorsPath = join(REPO, "docs", "ERRORS.md")
-const schemaPath = join(REPO, "schema", "nport-api.openapi.json")
+const schemaPath = join(REPO, "schema", "nport-node.openapi.json")
 const registrySchemaPath = join(REPO, "schema", "nport-registry.openapi.json")
 const registryPath = join(REPO, "schema", "errors.json")
 const subdomainPath = join(REPO, "schema", "subdomain.json")

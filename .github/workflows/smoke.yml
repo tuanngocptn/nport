@@ -2,7 +2,7 @@ name: Smoke
 
 # **The only test that opens a port on the internet.**
 #
-# Everything else in CI runs against a fake: `pnpm test` drives `apps/api` in real `workerd` with
+# Everything else in CI runs against a fake: `pnpm test` drives `apps/node` in real `workerd` with
 # `test/fake-cloudflare.ts`, and `pnpm smoke` drives the CLI against `wrangler dev` with a credential
 # the edge refuses on purpose. Both stop at the same boundary — no tunnel has carried a byte.
 #
@@ -13,7 +13,7 @@ name: Smoke
 #
 # It costs one create per OS per run against the environment's per-source hourly cap. Runners have
 # distinct addresses so they do not compete with each other, but a human debugging from one machine
-# can still lock themselves out — `apps/api/wrangler.jsonc` § staging says why the staging cap is
+# can still lock themselves out — `apps/node/wrangler.jsonc` § staging says why the staging cap is
 # higher than production's.
 
 on:

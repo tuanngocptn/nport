@@ -2,7 +2,7 @@
  * Route definitions: method, path, what each carries, and which errors it can return.
  *
  * **Two tables, one per service.** [`ROUTES`] is a node's API and emits
- * `schema/nport-api.openapi.json`; [`REGISTRY_ROUTES`] is the registry's and emits
+ * `schema/nport-node.openapi.json`; [`REGISTRY_ROUTES`] is the registry's and emits
  * `schema/nport-registry.openapi.json` (ADR-0046). `pnpm codegen` walks both.
  *
  * Keeping them as data rather than as decorators on Hono handlers means each OpenAPI document can be

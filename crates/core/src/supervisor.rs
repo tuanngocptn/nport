@@ -6,7 +6,7 @@
 //! **Pure on purpose.** Every rule here is a function of stored state and one observation, so the
 //! whole policy is testable without a socket, a timer, or an edge. The task that owns sockets asks
 //! this what to do and does it; it never encodes a rule itself. That split is what let the five
-//! concurrency bugs in `apps/api` be *found* — a decision buried inside an I/O loop is one nobody can
+//! concurrency bugs in `apps/node` be *found* — a decision buried inside an I/O loop is one nobody can
 //! test in isolation.
 
 use std::time::Duration;

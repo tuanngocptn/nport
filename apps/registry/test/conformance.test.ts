@@ -6,7 +6,7 @@ import { createApp } from "../src/index"
 /**
  * This Worker serves every route the contract says it does, and nothing outside its path space.
  *
- * The sibling of `apps/api/test/conformance.test.ts`, and the one that has already earned its keep:
+ * The sibling of `apps/node/test/conformance.test.ts`, and the one that has already earned its keep:
  * the registry's challenge moved to `/v1/nodes/challenge` in `packages/contract` and stayed at
  * `/v1/challenge` here, with all 45 of this app's tests still green — because every one of them calls
  * `app.request("/v1/challenge")` and so tests the implementation against itself.

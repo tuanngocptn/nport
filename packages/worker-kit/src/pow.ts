@@ -11,7 +11,7 @@
  * outstanding challenges would itself be the attack surface.
  *
  * Pure logic, heavily unit-tested, no bindings — which is what lets it live in a package rather than
- * in one of the Workers. **Both Workers use this one implementation** (ADR-0047): `apps/api` gates
+ * in one of the Workers. **Both Workers use this one implementation** (ADR-0047): `apps/node` gates
  * `POST /v1/tunnels` with it and `apps/registry` gates `POST /v1/nodes`. The two sign with *different*
  * secrets, so a challenge from one is not solvable for the other — sharing the algorithm is not
  * sharing the trust boundary.

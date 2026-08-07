@@ -24,7 +24,7 @@
     },
     {
       "builtin": false,
-      "help": "The control plane to use. For self-hosting and for `pnpm dev:api`",
+      "help": "The control plane to use. For self-hosting and for `pnpm dev:node`",
       "id": "backend",
       "long": "backend",
       "required": false,

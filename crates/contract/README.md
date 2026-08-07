@@ -2,7 +2,7 @@
 
 Rust mirror of the control-plane API contract — request and response types, the error-code enum, and subdomain normalization.
 
-The authority is `packages/contract` (zod). It generates `schema/nport-api.openapi.json`, `schema/errors.json` and `schema/subdomain.json`, and `cargo xtask codegen` turns those three into `src/generated.rs` with a purpose-built emitter — **not `typify`**, and [ADR-0025](../../docs/DECISIONS.md) says why. CI fails on drift.
+The authority is `packages/contract` (zod). It generates `schema/nport-node.openapi.json`, `schema/errors.json` and `schema/subdomain.json`, and `cargo xtask codegen` turns those three into `src/generated.rs` with a purpose-built emitter — **not `typify`**, and [ADR-0025](../../docs/DECISIONS.md) says why. CI fails on drift.
 
 To change a type, a code, or a reserved name: edit `packages/contract`, then run `pnpm codegen && cargo xtask codegen`.
 

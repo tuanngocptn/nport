@@ -41,7 +41,7 @@ pub struct Args {
     #[arg(short, long, value_name = "NAME")]
     pub subdomain: Option<String>,
 
-    /// The control plane to use. For self-hosting and for `pnpm dev:api`.
+    /// The control plane to use. For self-hosting and for `pnpm dev:node`.
     // Setting this **skips node discovery entirely** (ADR-0031), which is what keeps every
     // self-hosted deployment and `pnpm dev:cli` working exactly as they did before federation.
     #[arg(long, value_name = "URL")]

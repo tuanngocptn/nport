@@ -1,7 +1,7 @@
 /**
  * The one way **either** NPort Worker fails.
  *
- * **Never `throw new Error()`** (rule 2 in `apps/api/CLAUDE.md`, and the same rule holds in
+ * **Never `throw new Error()`** (rule 2 in `apps/node/CLAUDE.md`, and the same rule holds in
  * `apps/registry`). Throw [`ApiError`] with a code from `@nport/contract`, and the app's error
  * handler turns it into the documented envelope with the right status.
  *

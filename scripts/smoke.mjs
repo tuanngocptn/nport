@@ -3,7 +3,7 @@
  *
  * ## Why this exists when `pnpm test` already passes
  *
- * `pnpm test` runs `apps/api` inside real `workerd`, which is a lot — but it never starts
+ * `pnpm test` runs `apps/node` inside real `workerd`, which is a lot — but it never starts
  * `wrangler dev`, never runs the `nport` binary, and never touches `src/cloudflare/dev-fake.ts`.
  * Three things therefore had **no coverage at all** until this script:
  *
@@ -27,10 +27,22 @@
  * This is *not* `.github/workflows/smoke.yml`, which is Phase 3: published artifacts, real tunnels,
  * six operating systems, nightly. That one needs a deployment. This one needs nothing.
  *
+ * ## Two Workers, and the client talks to the gateway
+ *
+ * ADR-0049 put a **gateway** in front of the node, and that is not a detail this script can skip: the
+ * node declares no route, reads its caller's identity from a header the gateway sets, and **fails
+ * closed without it**. Pointing the CLI at the node's port directly gets `INTERNAL`, correctly.
+ *
+ * So the stack is two `wrangler dev` sessions. Their service binding resolves through wrangler's dev
+ * registry, which is the one part of this that no unit test can cover — `apps/gateway`'s own tests stub
+ * both services, deliberately, to ask what the gateway *sends*. **This is the only place the binding
+ * itself is exercised**, and a binding that does not resolve is exactly the failure a deploy produces
+ * when a `service` names the wrong script name.
+ *
  * ## Ports
  *
- * Its own, so it can run while `pnpm dev` is up — that stack owns 3000, 8787 and 1420, and a smoke
- * test that cannot be run without stopping your dev servers is a smoke test nobody runs.
+ * Its own, so it can run while `pnpm dev` is up — that stack owns 3000, 8787, 8789 and 1420, and a
+ * smoke test that cannot be run without stopping your dev servers is a smoke test nobody runs.
  *
  * ## Names
  *
@@ -51,9 +63,20 @@ import { fileURLToPath } from "node:url"
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 
-const API_PORT = 8788
+/**
+ * The gateway's, and therefore the client's. Its inspector takes the port above it.
+ *
+ * **Clear of `pnpm dev`**, which now owns 8787–8789 for the three Workers and 9227–9229 for their
+ * inspectors. A smoke test that cannot run without stopping your dev servers is a smoke test nobody
+ * runs, and the collision does not announce itself: wrangler would bind, this script would talk to
+ * the *dev* stack, and it would report that stack's configuration as if it were ours.
+ */
+const API_PORT = 8795
+/** The node's. Nothing in this script sends a request here except the fails-closed check. */
+const NODE_PORT = 8797
 const ORIGIN_PORT = 3210
 const API = `http://localhost:${API_PORT}`
+const NODE = `http://localhost:${NODE_PORT}`
 const ORIGIN_BODY = "nport smoke origin\n"
 
 /**
@@ -240,8 +263,8 @@ async function startOrigin() {
   await new Promise((resolve) => originServer.listen(ORIGIN_PORT, "127.0.0.1", resolve))
 }
 
-function startApi() {
-  // `wrangler dev` rather than `pnpm dev:api`, so the port is ours to choose and the output is
+function startNode() {
+  // `wrangler dev` rather than `pnpm dev:node`, so the port is ours to choose and the output is
   // this process's to read.
   //
   // **The short grace is what makes the heartbeat observable.** `GET /v1/meta` publishes the beat
@@ -256,7 +279,12 @@ function startApi() {
         "wrangler",
         "dev",
         "--port",
-        String(API_PORT),
+        String(NODE_PORT),
+        // **Two `wrangler dev` sessions cannot share an inspector.** It defaults to 9229 and the
+        // second session fails to bind it — which surfaces as "the gateway never became healthy",
+        // pointing at the wrong Worker entirely.
+        "--inspector-port",
+        String(NODE_PORT + 1),
         "--var",
         `HEARTBEAT_GRACE_SECONDS:${GRACE_SECONDS}`,
         // **The hourly quota is lifted, and only the hourly quota.** The CLI cannot set
@@ -269,7 +297,7 @@ function startApi() {
         "MAX_CREATES_PER_HOUR_PER_SOURCE:1000",
       ],
       {
-        cwd: join(ROOT, "apps", "api"),
+        cwd: join(ROOT, "apps", "node"),
         stdio: ["ignore", "pipe", "pipe"],
         // **Its own process group.** `pnpm exec wrangler` is three processes deep and `workerd` is
         // the one holding the port, so killing the child we spawned left that alive — every run
@@ -278,15 +306,61 @@ function startApi() {
         detached: true,
       },
     ),
-    "wrangler dev",
+    "wrangler dev (node)",
   )
 }
 
-async function waitForHealth(deadlineMs = 90_000) {
+/**
+ * The gateway, which is what the CLI actually talks to (ADR-0049).
+ *
+ * **`--var MIN_CLIENT_VERSION:0.0.0`** because the version gate lives here now and the local build
+ * calls itself `3.0.0-dev`, which the gate sorts *below* `3.0.0`. `apps/node/.dev.vars` used to lower
+ * the floor for exactly this reason; the floor moved and the override has to move with it.
+ *
+ * **No `--var` for the registry.** `apps/gateway/wrangler.jsonc` binds `REGISTRY`, and wrangler's dev
+ * registry resolves a missing binding to a stub that 503s rather than failing the session — so
+ * `/v1/nodes` is unavailable here and nothing in this script asks for it. Booting a third Worker to
+ * smoke-test a directory with nothing in it would cost a process and prove nothing.
+ */
+function startGateway() {
+  return track(
+    spawn(
+      "pnpm",
+      [
+        "exec",
+        "wrangler",
+        "dev",
+        "--port",
+        String(API_PORT),
+        "--inspector-port",
+        String(API_PORT + 1),
+        "--var",
+        "MIN_CLIENT_VERSION:0.0.0",
+        "--var",
+        "IP_HASH_SECRET:smoke-ip-hash-secret-not-for-production",
+      ],
+      {
+        cwd: join(ROOT, "apps", "gateway"),
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
+      },
+    ),
+    "wrangler dev (gateway)",
+  )
+}
+
+/**
+ * Waits for a `/v1/health` 200 at `base`.
+ *
+ * Both Workers answer it: the node's is its own, the gateway's is answered at the front door and never
+ * forwarded. Waiting on **both** is what distinguishes "the gateway is not up" from "the gateway is up
+ * and its binding does not resolve" — and the second is the failure this stack exists to catch.
+ */
+async function waitForHealth(base, deadlineMs = 90_000) {
   const until = Date.now() + deadlineMs
   while (Date.now() < until) {
     try {
-      const response = await fetch(`${API}/v1/health`)
+      const response = await fetch(`${base}/v1/health`)
       if (response.ok) return true
     } catch {
       // Not up yet. `wrangler dev` takes a few seconds and longer on a cold miniflare cache.
@@ -328,17 +402,68 @@ function cleanup() {
 async function checkPreconditions() {
   console.log("\nprecondition")
   try {
-    await access(join(ROOT, "apps", "api", ".dev.vars"))
-    pass("apps/api/.dev.vars exists")
+    await access(join(ROOT, "apps", "node", ".dev.vars"))
+    pass("apps/node/.dev.vars exists")
     return true
   } catch {
     fail(
-      "apps/api/.dev.vars is missing",
+      "apps/node/.dev.vars is missing",
       "Run `pnpm dev` once, or copy .dev.vars.example. Without FAKE_CLOUDFLARE=1 every\n" +
         "Cloudflare call is rejected upstream and provisioning cannot succeed.",
     )
     return false
   }
+}
+
+/**
+ * The two properties the split rests on, and the only place either is exercised for real (ADR-0049).
+ *
+ * Both are deployment properties rather than code, so no unit test can see them: the gateway's own
+ * suite stubs its services, and the node's suite hands itself the header the gateway would have set.
+ * What is left over is precisely this — does a request cross the binding, and does the node refuse one
+ * that did not.
+ */
+async function checkTheGatewayIsInFront() {
+  console.log("\nthe gateway")
+
+  // `/v1/meta` is the first request that crosses the service binding. A gateway whose binding does not
+  // resolve answers `/v1/health` cheerfully — it never forwards that one — and `INTERNAL` here.
+  const meta = await api("/v1/meta")
+  check(
+    meta.status === 200,
+    "GET /v1/meta crosses the service binding to the node",
+    meta.status === 500
+      ? `${meta.text}\n(a 500 here means the NODE binding did not resolve, not that the node is down)`
+      : meta.text,
+  )
+
+  // **The node refuses a request that did not come through a gateway.** Not a hypothetical: in a
+  // deployment it declares no route, so this can only happen by mistake — and serving it anyway would
+  // give every direct caller one shared identity and no per-source cap would apply to any of them.
+  const direct = await fetch(`${NODE}/v1/meta`, { headers: { "user-agent": UA } })
+  const directBody = await direct.text()
+  let code
+  try {
+    code = JSON.parse(directBody)?.error?.code
+  } catch {
+    code = undefined
+  }
+  check(
+    direct.status === 500 && code === "INTERNAL",
+    "the node fails closed for a request that skipped the gateway",
+    `${direct.status} ${directBody}`,
+  )
+
+  // And the forged-header case, which is the reason the gateway overwrites rather than passes through.
+  // Two callers who could both claim one hash would share one `SourceQuota` object.
+  const forged = await fetch(`${API}/v1/meta`, {
+    headers: { "user-agent": UA, "x-nport-source-hash": "f".repeat(64) },
+  })
+  check(
+    forged.status === 200,
+    "a forged x-nport-source-hash does not break the request (the gateway overwrites it)",
+    `${forged.status} ${await forged.text()}`,
+  )
 }
 
 async function checkControlPlane() {
@@ -432,13 +557,30 @@ async function checkIpv6Cap() {
 }
 
 /** ADR-0034. Before the fix this was 12.5 s of CPU and echoed the whole payload back. */
+/**
+ * ADR-0034's input bound, **moved off the v2 shim** (ADR-0049).
+ *
+ * It used to POST 645 KiB at `/`, and that check had quietly stopped meaning anything: the gateway
+ * routes only `/v1/*`, so `POST /` gets the front door's not-found envelope in three milliseconds
+ * without any bound being consulted. Three of its four assertions passed for that reason, and the
+ * fourth — "still v2's shape, so a 2.x client can read it" — failed, which is the only reason the
+ * other three were looked at. A check that passes because nothing serves the path is worse than no
+ * check.
+ *
+ * So it goes at `POST /v1/tunnels`, where the validator actually lives. The v2 shim's own version of
+ * this bound is unreachable until `/` is routed again; `apps/gateway/test/legacy-gap.test.ts` is the
+ * tripwire for that, and `apps/node/test/legacy.test.ts` still covers the shape when driven directly.
+ *
+ * The interesting assertion is the **timing**: normalization was quadratic in the input length, so a
+ * 645 KiB subdomain took 12.5 seconds of CPU on one anonymous request.
+ */
 async function checkInputBounds() {
-  console.log("\noversized input on the v2 shim (ADR-0034)")
-  const oversized = JSON.stringify({ subdomain: `a${".nport.link".repeat(60_000)}` })
+  console.log("\noversized input (ADR-0034)")
+  const oversized = JSON.stringify({ subdomain: `a${".nport.link".repeat(60_000)}`, client: "cli" })
   const started = Date.now()
-  const response = await fetch(`${API}/`, {
+  const response = await fetch(`${API}/v1/tunnels`, {
     method: "POST",
-    headers: { "content-type": "application/json", "user-agent": "nport/2.1.0" },
+    headers: { "content-type": "application/json", "user-agent": UA },
     body: oversized,
   })
   const text = await response.text()
@@ -447,11 +589,23 @@ async function checkInputBounds() {
   check(response.status === 400, "645 KiB of input is refused", String(response.status))
   check(elapsed < 3_000, `refused promptly (${elapsed} ms — quadratic was 12,500 ms)`)
   check(text.length < 4_096, `the refusal is small (${text.length} bytes, not 645 KiB)`)
+  // **Refused by the node's validator, not by the gateway's router.** `INVALID_REQUEST` from a path
+  // that exists is the whole point — it proves the bound ran, where a 404 would prove only that
+  // nothing listens.
+  let code
+  try {
+    code = JSON.parse(text)?.error?.code
+  } catch {
+    code = undefined
+  }
   check(
-    text.includes("SUBDOMAIN_PROTECTED:"),
-    "still v2's shape, so a 2.x client can read it",
+    code === "INVALID_REQUEST",
+    "refused by the contract's own bound, on a path that exists",
     text,
   )
+  // No "and nothing was provisioned" assertion here: the input is refused by the validator before a
+  // subdomain exists to look up, so there is no name to ask about. `apps/node/test/tunnels.test.ts`
+  // covers the saga's side-effect-free refusals, where a name *is* known.
 }
 
 /**
@@ -707,19 +861,43 @@ async function main() {
   if (!(await checkPreconditions())) return
 
   await startOrigin()
-  const wrangler = startApi()
-  // Kept so a death mid-run reports what the server said rather than `TypeError: fetch failed`.
-  for (const stream of [wrangler.stdout, wrangler.stderr]) {
-    stream?.on("data", (chunk) => {
-      apiOutput += chunk
-    })
+
+  // **The node first.** The gateway's `services` binding resolves through wrangler's dev registry,
+  // and a session that starts before its target is registered has to re-resolve. Starting in
+  // dependency order is the same order the deploy uses, for the same reason.
+  const node = startNode()
+  const gateway = startGateway()
+
+  // Kept so a death mid-run reports what a server said rather than `TypeError: fetch failed`. Both,
+  // labelled, because "which of the two died" is the first question.
+  for (const [name, child] of [
+    ["node", node],
+    ["gateway", gateway],
+  ]) {
+    for (const stream of [child.stdout, child.stderr]) {
+      stream?.on("data", (chunk) => {
+        apiOutput += `[${name}] ${chunk}`
+      })
+    }
   }
 
-  if (!(await waitForHealth())) {
-    fail("wrangler dev never became healthy", `no 200 from ${API}/v1/health within 90 s`)
-    return
+  // The tail of both Workers' output, because "never became healthy" on its own names a symptom and
+  // the cause is always in what wrangler printed — a port already held, a binding that would not
+  // resolve, a config error. Reporting one without the other sent this on a long detour once.
+  for (const [what, base] of [
+    ["node", NODE],
+    ["gateway", API],
+  ]) {
+    if (!(await waitForHealth(base))) {
+      fail(
+        `the ${what} never became healthy`,
+        `no 200 from ${base}/v1/health within 90 s\n\n--- the Workers said ---\n${apiOutput.slice(-3_000)}`,
+      )
+      return
+    }
   }
 
+  await checkTheGatewayIsInFront()
   await checkControlPlane()
   await checkRedirect()
   await checkProvisioning()
@@ -747,7 +925,7 @@ try {
 } catch (error) {
   fail(
     "the smoke test threw",
-    `${error?.stack ?? String(error)}\n\n--- wrangler dev said ---\n${apiOutput.slice(-3_000)}`,
+    `${error?.stack ?? String(error)}\n\n--- the Workers said ---\n${apiOutput.slice(-4_000)}`,
   )
 } finally {
   cleanup()
@@ -761,11 +939,13 @@ try {
 // a leak on *every* run — the port is free about a tenth of a second later — so the warning was noise,
 // and a genuine leak looked exactly like it. A check that fires when nothing is wrong cannot tell you
 // when something is.
-if (await stillHeld(API_PORT)) {
-  console.log(
-    `\nwarning: something still holds port ${API_PORT}. Stop it before the next run:\n` +
-      `  lsof -ti:${API_PORT} | xargs kill -9`,
-  )
+for (const port of [API_PORT, NODE_PORT]) {
+  if (await stillHeld(port)) {
+    console.log(
+      `\nwarning: something still holds port ${port}. Stop it before the next run:\n` +
+        `  lsof -ti:${port} | xargs kill -9`,
+    )
+  }
 }
 
 console.log(

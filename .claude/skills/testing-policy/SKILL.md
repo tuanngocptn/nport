@@ -15,7 +15,7 @@ Enforced by `.claude/hooks/require-tests.sh`, a `Stop` hook. It blocks once per 
 
 | Changed | Required | Non-negotiable because |
 | --- | --- | --- |
-| `apps/api/src/**` | Vitest in `apps/api/test/`, with `@cloudflare/vitest-pool-workers` for anything touching Durable Object storage, alarms, or bindings | The whole lease design rests on single-threaded DO execution and at-least-once alarms. A mocked DO passes precisely when those assumptions are wrong |
+| `apps/node/src/**` | Vitest in `apps/node/test/`, with `@cloudflare/vitest-pool-workers` for anything touching Durable Object storage, alarms, or bindings | The whole lease design rests on single-threaded DO execution and at-least-once alarms. A mocked DO passes precisely when those assumptions are wrong |
 | `apps/web/src/**` | Vitest beside the module for anything in `src/lib` or `src/content`, **and** a Playwright spec in `apps/web/e2e/` for anything a request can observe (ADR-0023) | The site is the product's front door. Both tiers, because the unit tier passed while all 33 error pages 404'd in production — only the e2e tier drives the artifact that deploys (ADR-0048) |
 | `apps/desktop/src/**` | A test under `apps/desktop/e2e/` | Phase 4; see ADR-0023 on why this is WebdriverIO rather than Playwright |
 | `apps/desktop/src-tauri/src/**` | Inline `#[cfg(test)]`, or `tests/` | It links `crates/core` in-process, so a panic here kills the GUI |

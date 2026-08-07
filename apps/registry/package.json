@@ -6,7 +6,7 @@
   "description": "NPort node directory: lists nodes, accepts registrations, probes what it lists.",
   "license": "MIT",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --port 8789 --inspector-port 9229",
     "deploy": "wrangler deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

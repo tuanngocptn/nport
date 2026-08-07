@@ -5,7 +5,7 @@ import { ERROR_CODES, type ErrorCode, errorSlug, isErrorCode } from "@nport/cont
  *
  * In its own module rather than inside the page so it can be tested without importing a Next route —
  * and because the property that matters is not how the page looks but that **every URL the product
- * emits resolves to one**. `apps/api` puts `https://nport.link/errors/<slug>` in every error envelope
+ * emits resolves to one**. `apps/node` puts `https://nport.link/errors/<slug>` in every error envelope
  * and `crates/cli` prints it as the whole remedy for the codes it does not translate, so a slug that
  * does not round-trip is a 404 at the exact moment someone needs help.
  */

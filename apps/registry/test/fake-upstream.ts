@@ -2,7 +2,7 @@
  * An in-memory stand-in for the registry's two outbound calls: DNS-over-HTTPS, and a node's
  * `GET /v1/meta`.
  *
- * **It must never be more generous than the real thing.** `apps/api`'s `test/fake-cloudflare.ts`
+ * **It must never be more generous than the real thing.** `apps/node`'s `test/fake-cloudflare.ts`
  * learned that the hard way: it invented a `result_info.total_pages` field the tunnels list does not
  * send, so the reconciliation sweep silently never left page 1 and the whole suite agreed with the bug
  * (`docs/ROADMAP.md`, defect 8). So the DoH response shape here is exactly Cloudflare's — `Answer`

@@ -5,7 +5,7 @@
 #
 # ## What is deliberately absent
 #
-# **No DNS records for the Workers.** `apps/api/wrangler.jsonc` and `apps/web/wrangler.jsonc` declare
+# **No DNS records for the Workers.** `apps/node/wrangler.jsonc` and `apps/web/wrangler.jsonc` declare
 # their hostnames with `custom_domain: true`, and that is what creates the record — the repo is the
 # source of truth for both (`docs/OPERATIONS.md` § Inventory). Declaring the same name here would put
 # two tools on one record, and each apply would fight the last deploy.

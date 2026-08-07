@@ -61,8 +61,8 @@ Node 24 and [rustup](https://rustup.rs) — full prerequisites and dev loop in [
 
 ```bash
 corepack enable && pnpm install    # dependencies and the git hooks
-pnpm dev                           # api :8787 · site :3000 · desktop window
-pnpm dev:cli                       # second terminal: tunnel the site through the local api
+pnpm dev                           # gateway :8787 · node :8788 · registry :8789 · site :3000 · desktop
+pnpm dev:cli                       # second terminal: tunnel the site through the local gateway
 ```
 
 **No Cloudflare account is needed to run the stack.** `pnpm dev` provisions against an in-memory
@@ -73,8 +73,8 @@ Most of these currently run against stubs; the phase in brackets is when each be
 
 | Command | What it does |
 | --- | --- |
-| `pnpm dev` | **every surface at once** — the control plane, the site, and the desktop window |
-| `pnpm dev:cli` | tunnel the local site through the local control plane |
+| `pnpm dev` | **every surface at once** — the three backend Workers, the site, and the desktop window |
+| `pnpm dev:cli` | tunnel the local site through the local gateway |
 | `pnpm lint` | Biome over the whole repo — the linter and the formatter check |
 | `pnpm lint:fix` | the same, applying every safe fix |
 | `pnpm format` | formatting only, no lint rules |
@@ -82,7 +82,9 @@ Most of these currently run against stubs; the phase in brackets is when each be
 | `pnpm test` | Vitest, including the API's real-`workerd` tests [2a] |
 | `pnpm build` | Next.js + OpenNext, and any package that builds [2c] |
 | `pnpm codegen` | regenerate the OpenAPI document and everything downstream of it [1.5] |
-| `pnpm dev:api` | `wrangler dev` with local Durable Objects [2a] |
+| `pnpm dev:gateway` | `wrangler dev` — the front door, where clients connect [5] |
+| `pnpm dev:node` | `wrangler dev` with local Durable Objects [2a] |
+| `pnpm dev:registry` | `wrangler dev` — the node directory [5] |
 | `pnpm dev:web` | `next dev` with Worker bindings [2c] |
 | `pnpm dev:desktop` | `tauri dev` [4] |
 | `cargo run -p nport -- 3000 -s test` | the CLI [2b] |

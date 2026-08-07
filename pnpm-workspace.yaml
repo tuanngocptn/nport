@@ -21,8 +21,8 @@ minimumReleaseAge: 1440
 catalog:
   typescript: 7.0.2
   vitest: 4.1.10
-  # The contract's schema language. apps/api validates with these exact schemas via
-  # @hono/zod-validator, and `pnpm codegen` turns them into schema/nport-api.openapi.json —
+  # The contract's schema language. apps/node validates with these exact schemas via
+  # @hono/zod-validator, and `pnpm codegen` turns them into schema/nport-node.openapi.json —
   # so a version skew between packages would mean two different notions of the API.
   zod: 4.4.3
   # Runs the codegen scripts. Node 22 strips types but its ESM resolver still demands explicit
@@ -33,7 +33,7 @@ catalog:
   tsx: 4.23.1
   # Node globals for the codegen scripts and for tests that read generated files off disk.
   '@types/node': 22.19.1
-  # apps/api. Pinned exactly, like everything else (ADR-0022): a Worker runtime bump changing
+  # apps/node. Pinned exactly, like everything else (ADR-0022): a Worker runtime bump changing
   # behaviour mid-phase is noise nobody needs.
   # 4.12.34 exists but was published this morning; minimumReleaseAge (24h) rejects it, which is
   # the supply-chain guard doing its job. The pin moves, not the guard.
@@ -41,7 +41,7 @@ catalog:
   '@hono/zod-validator': 0.9.0
   wrangler: 4.118.0
   '@cloudflare/workers-types': 5.20260801.1
-  # Runs apps/api's tests in real workerd, so Durable Object storage and alarms are the real
+  # Runs apps/node's tests in real workerd, so Durable Object storage and alarms are the real
   # thing. A mocked DO proves nothing about the semantics the design rests on (docs/TESTING.md).
   '@cloudflare/vitest-pool-workers': 0.20.1
 

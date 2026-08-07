@@ -35,28 +35,42 @@ sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
   libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
 ```
 
-You do **not** need a Cloudflare account to work on most of the repo, including running the whole stack locally — see the dev loop below. You do for `apps/api` deploys, for a genuine end-to-end tunnel, and for live-edge protocol tests.
+You do **not** need a Cloudflare account to work on most of the repo, including running the whole stack locally — see the dev loop below. You do for `apps/node` deploys, for a genuine end-to-end tunnel, and for live-edge protocol tests.
 
 ## Dev loop
 
 ```bash
-pnpm dev        # the control plane, the site, and the desktop window, together
-pnpm dev:cli    # in a second terminal: tunnel the local site through the local API
+pnpm dev        # the whole backend, the site, and the desktop window, together
+pnpm dev:cli    # in a second terminal: tunnel the local site through the local gateway
 ```
 
-`pnpm dev` puts `apps/api` on **8787**, `apps/web` on **3000**, and opens the `apps/desktop` window against Vite on **1420**. Each is also startable alone — `pnpm dev:api`, `dev:web`, `dev:desktop` — which is usually what you want, because the first `tauri dev` compiles several hundred Rust crates and everything else is ready in under a second.
+| Port | Surface | |
+| --- | --- | --- |
+| **8787** | `apps/gateway` | the front door — **point clients here** |
+| 8788 | `apps/node` | provisioning. No route in production; reachable here only because `wrangler dev` gives everything one |
+| 8789 | `apps/registry` | the directory |
+| 3000 | `apps/web` | the site |
+| 1420 | `apps/desktop` | Vite, behind the native window |
 
-A preflight runs first. It creates `apps/api/.dev.vars` if it is missing, says which ports are already taken, and prints what is starting. It never refuses to start the stack: a preflight that blocks on a warning is one people route around, and then they lose the warnings too.
+**Three Workers, and only the first one is for clients** (ADR-0049). The node and the registry sit behind service bindings, which wrangler resolves between concurrent `wrangler dev` sessions. Pointing a client at 8788 gets `INTERNAL`, correctly: no gateway, no caller identity, and the node fails closed rather than inventing one.
+
+Each is startable alone — `pnpm dev:gateway`, `dev:node`, `dev:registry`, `dev:web`, `dev:desktop` — which is usually what you want, because the first `tauri dev` compiles several hundred Rust crates and everything else is ready in under a second. The gateway alone answers `/v1/health` and nothing else, since its bindings have nothing to resolve to.
+
+Ports are pinned in each app's `dev` script rather than left to wrangler, whose default is 8787 for all three; `turbo run dev` starts them at once, so which two failed to bind would otherwise be a race.
+
+A preflight runs first. It creates `apps/node/.dev.vars` and `apps/gateway/.dev.vars` if either is missing, says which ports are already taken, and prints what is starting. It never refuses to start the stack: a preflight that blocks on a warning is one people route around, and then they lose the warnings too.
 
 **`apps/web` and `apps/desktop` are scaffolds.** One page and one window respectively, existing so the whole stack comes up together. The site is Phase 2c and the app is Phase 4 (`docs/ROADMAP.md`); each says so on itself, so nobody mistakes the placeholder for the product.
 
 ### Provisioning without a Cloudflare account
 
-`apps/api/.dev.vars` is created from `.dev.vars.example` on first run. It is gitignored, it holds no real secret, and `wrangler deploy` never uploads it — which is what makes it the right place for two settings that must never exist in production.
+`apps/node/.dev.vars` and `apps/gateway/.dev.vars` are created from their examples on first run. Both are gitignored, hold no real secret, and `wrangler deploy` never uploads them — which is what makes them the right place for settings that must never exist in production.
+
+**Both must agree on `MIN_CLIENT_VERSION`.** The gateway *enforces* the floor and the node *publishes* it on `GET /v1/meta`, so a mismatch means a client reads one number and is refused by another. Both examples say `0.0.0`, because the local build calls itself `3.0.0-dev` and the gate sorts a pre-release below its release. `pnpm deploy:check` holds the same pair equal in the committed configs.
 
 **`pnpm smoke`** drives that whole stack end to end and asserts on it — worth running before a push, and required after touching `src/cloudflare/dev-fake.ts` or the CLI's output, neither of which any other tier covers (`docs/TESTING.md` § Smoke tests).
 
-**`FAKE_CLOUDFLARE="1"`** routes every Cloudflare call to an in-memory fake (`apps/api/src/cloudflare/dev-fake.ts`), so `POST /v1/tunnels` succeeds with no credentials. What it buys is most of the system, and a full run looks like this:
+**`FAKE_CLOUDFLARE="1"`** routes every Cloudflare call to an in-memory fake (`apps/node/src/cloudflare/dev-fake.ts`), so `POST /v1/tunnels` succeeds with no credentials. What it buys is most of the system, and a full run looks like this:
 
 ```
 challenge 200 → tunnels 201 → the URL banner → a real QUIC dial to Cloudflare's edge

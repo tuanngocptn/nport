@@ -6,8 +6,8 @@
  * drifted immediately, documenting `subdomain` and `tunnelId` as required for DELETE when both
  * were optional in the code.
  *
- * `apps/api` validates with these exact objects via `@hono/zod-validator`, and `pnpm codegen`
- * turns them into `schema/nport-api.openapi.json` and then `crates/contract`. One definition,
+ * `apps/node` validates with these exact objects via `@hono/zod-validator`, and `pnpm codegen`
+ * turns them into `schema/nport-node.openapi.json` and then `crates/contract`. One definition,
  * so runtime validation and generated types cannot disagree (ADR-0009).
  */
 
@@ -28,7 +28,7 @@ import { MAX_INPUT_LENGTH, MAX_LENGTH, MIN_LENGTH } from "./subdomain"
  *
  * **Not validated here beyond a length sanity check.** Normalization has to run first — `MyApp`
  * and `myapp.nport.link` are legal input for the same claim — and a zod `regex` would reject
- * both. `apps/api` calls `checkSubdomain` after parsing and raises `INVALID_SUBDOMAIN` with a
+ * both. `apps/node` calls `checkSubdomain` after parsing and raises `INVALID_SUBDOMAIN` with a
  * `reason`, which is a far better error than "string does not match pattern".
  *
  * The bound here exists only to stop a megabyte of text reaching the normalizer. `.nport.link`

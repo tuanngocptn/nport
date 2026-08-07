@@ -5,7 +5,7 @@ Shared TypeScript configuration bases, extended by each app and package.
 | File | For |
 | --- | --- |
 | `base.json` | strict defaults every target inherits |
-| `worker.json` | Cloudflare Workers (`apps/api`) |
+| `worker.json` | Cloudflare Workers (`apps/node`) |
 | `next.json` | Next.js (`apps/web`) |
 | `vite.json` | Vite + React (`apps/desktop`) |
 

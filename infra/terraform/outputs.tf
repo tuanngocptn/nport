@@ -21,25 +21,42 @@ output "api_rate_limit" {
   value       = "${var.api_rate_limit_requests} requests / ${var.api_rate_limit_period}s per IP per colo, blocked for ${var.api_rate_limit_timeout}s"
 }
 
-# `REQUIRED_SECRETS` in `apps/api/src/env.ts` minus `CF_API_TOKEN`, as the JSON map that
-# `wrangler secret bulk` reads.
+# Every Worker's generated runtime secrets, **keyed by Worker name**, as the JSON `wrangler secret
+# bulk` reads once the deploy has picked one out.
 #
-# Named to match that list on purpose: the Worker refuses to start when one is missing, so a key
-# renamed on one side and not the other fails at the first request rather than silently.
-# `pnpm deploy:check` compares the two lists and knows which single name the workflow adds.
+# Per Worker rather than one flat map, and the reason is not tidiness: `apps/node` and `apps/registry`
+# both require a secret called `POW_SECRET` and the two values **must differ** (ADR-0049, `secrets.tf`).
+# One flat map cannot hold both under that name, and giving one of them a distinguishing name in
+# Terraform would mean the Worker reading a key called something other than what it requires.
 #
-# **`CF_API_TOKEN` is deliberately absent.** It is the only value here that carries Cloudflare
+# The keys inside each object match that app's `REQUIRED_SECRETS` in `src/env.ts` on purpose: a Worker
+# refuses to start when one is missing, so a key renamed on one side and not the other fails at the
+# first request rather than silently. `pnpm deploy:check` compares the two lists per app and knows
+# which single name the workflow adds.
+#
+# **`CF_API_TOKEN` is deliberately absent.** It is the only value here that would carry Cloudflare
 # authority, and it is created by hand and delivered as a GitHub secret precisely so that this
 # configuration cannot mint one — which is what let the CI token drop `User -> API Tokens -> Edit`
-# (ADR-0043). The deploy workflow merges it in before calling wrangler.
+# (ADR-0043). The deploy workflow merges it into the node's set before calling wrangler.
+#
+# The gateway gets `IP_HASH_SECRET` and nothing else, and holds no Cloudflare credential at all: it
+# terminates every public request, so it is the largest attack surface in a deployment and the one
+# component that must not be able to provision anything.
 output "worker_secrets" {
-  description = "The Worker's five generated runtime secrets, as JSON. Sensitive."
+  description = "Generated runtime secrets per Worker, as JSON. Sensitive."
   sensitive   = true
   value = jsonencode({
-    POW_SECRET     = random_password.pow.result
-    IP_HASH_SECRET = random_password.ip_hash.result
-    CF_ACCOUNT_ID  = var.account_id
-    CF_ZONE_ID     = data.cloudflare_zone.this.zone_id
-    CF_DOMAIN      = var.zone_name
+    "nport-node" = {
+      POW_SECRET    = random_password.pow.result
+      CF_ACCOUNT_ID = var.account_id
+      CF_ZONE_ID    = data.cloudflare_zone.this.zone_id
+      CF_DOMAIN     = var.zone_name
+    }
+    "nport-registry" = {
+      POW_SECRET = random_password.registry_pow.result
+    }
+    "nport-gateway" = {
+      IP_HASH_SECRET = random_password.ip_hash.result
+    }
   })
 }

@@ -5,13 +5,13 @@
 Everything else is generated from here:
 
 ```
-packages/contract  ──►  schema/nport-api.openapi.json  ──►  crates/contract
+packages/contract  ──►  schema/nport-node.openapi.json  ──►  crates/contract
        │
        ├──►  docs/ERRORS.md
        └──►  apps/web  /errors/[code] pages
 ```
 
-`apps/api` imports the schemas directly and validates with `@hono/zod-validator`, so runtime validation and the generated types come from one definition and cannot drift. That drift is exactly the bug class v2 shipped — see [ADR-0009](../../docs/DECISIONS.md) and [ADR-0018](../../docs/DECISIONS.md).
+`apps/node` imports the schemas directly and validates with `@hono/zod-validator`, so runtime validation and the generated types come from one definition and cannot drift. That drift is exactly the bug class v2 shipped — see [ADR-0009](../../docs/DECISIONS.md) and [ADR-0018](../../docs/DECISIONS.md).
 
 Adding or changing an endpoint, a field, or an error code **starts here**, then `pnpm codegen`.
 

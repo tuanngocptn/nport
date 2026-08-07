@@ -174,7 +174,7 @@ export const COMPARE: readonly CompareRow[] = [
   { feature: "Price", nport: "Free", ngrok: "Free tier, limited", ships: "3.0" },
   { feature: "Custom subdomains", nport: "Always", ngrok: "Paid only", ships: "3.0" },
   { feature: "Account required", nport: "No", ngrok: "Yes", ships: "3.0" },
-  // `MAX_CONCURRENT_PER_SOURCE` in apps/api/wrangler.jsonc.
+  // `MAX_CONCURRENT_PER_SOURCE` in apps/node/wrangler.jsonc.
   { feature: "Concurrent tunnels", nport: "3", ngrok: "1 on free", ships: "3.0" },
   // `--backend`, and docs/SELF_HOSTING.md.
   { feature: "Self-hostable backend", nport: "Yes", ngrok: "No", ships: "3.0" },

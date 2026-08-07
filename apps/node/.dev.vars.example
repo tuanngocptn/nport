@@ -1,0 +1,50 @@
+# Local development secrets for `pnpm dev:node`. Copy to `.dev.vars`, which is gitignored.
+#
+#   cp apps/node/.dev.vars.example apps/node/.dev.vars
+#
+# These are NOT the production values and must never be. Production secrets are set with
+# `wrangler secret put <NAME>` and never pass through this file, the repository, or CI
+# (docs/OPERATIONS.md § Secrets).
+#
+# Without them, `GET /v1/challenge` fails: an empty HMAC key is rejected by WebCrypto, which
+# is why the Worker now refuses the request up front with a log line naming the binding.
+
+POW_SECRET="local-development-pow-secret-not-for-production"
+
+# `IP_HASH_SECRET` is not here any more: the source hash is computed by apps/gateway (ADR-0049)
+# and arrives as a header. Set it in apps/gateway/.dev.vars instead.
+
+# The Cloudflare credentials the provisioning saga needs. `POST /v1/tunnels` will refuse with a
+# logged `INTERNAL` until all four are present, which is deliberate: a control plane that answers
+# `/v1/meta` cheerfully while being unable to provision anything is the worst kind of half-working.
+#
+# The placeholders below are enough to *start* the Worker, not to provision: every Cloudflare call
+# will be rejected upstream. Use a real scoped token (`Cloudflare Tunnel Write` and `DNS Write`)
+# against a zone you own if you need the lifecycle end to end, and never a production one.
+CF_API_TOKEN="local-development-not-a-real-token"
+CF_ACCOUNT_ID="0000000000000000000000000000000o"
+CF_ZONE_ID="0000000000000000000000000000000o"
+CF_DOMAIN="nport.test"
+
+# Routes every Cloudflare call to the in-memory fake in src/cloudflare/dev-fake.ts, so
+# `POST /v1/tunnels` succeeds without credentials and `pnpm dev` provisions offline. The lease, the
+# saga, the ownerToken, the heartbeats and the URL are all real; the connector token is not, so the
+# real edge refuses it at registration and the CLI retries, gives up, and releases the lease.
+#
+# This flag can only reach a Worker through this file, which `wrangler deploy` never uploads — and
+# the fake refuses to activate anyway when CF_API_TOKEN looks like a real one, so putting a genuine
+# token above silently gets you the genuine API. Set it to "" to always use the real thing.
+FAKE_CLOUDFLARE="1"
+
+# Lowers the client-version floor to match what the workspace actually builds.
+#
+# `wrangler.jsonc` sets it to 3.0.0 for production, and `crates/cli` is version 3.0.0-dev — which
+# semver puts *below* 3.0.0, so the local CLI is refused by the local control plane with
+# CLIENT_TOO_OLD. That ordering is deliberate and must not be "fixed" in the gate: it is what stops
+# every 3.0.0-beta.N client sailing through the moment the floor moves to 3.0.0
+# (`src/middleware/client-gate.ts`).
+#
+# 3.0.0-dev rather than 0.0.0 on purpose — the gate still runs and a real 2.x client is still
+# refused, so what is being exercised locally is the production code path, not a disabled one.
+# A `.dev.vars` entry overrides the matching `vars` value, and only under `wrangler dev`.
+MIN_CLIENT_VERSION="3.0.0-dev"

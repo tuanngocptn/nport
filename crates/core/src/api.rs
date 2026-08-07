@@ -124,7 +124,7 @@ struct Backend {
 impl Backend {
     /// Parses `https://api.nport.link` or `http://localhost:8787`.
     ///
-    /// Plaintext is supported on purpose: `pnpm dev:api` serves over HTTP, and `--backend` points at
+    /// Plaintext is supported on purpose: `pnpm dev:node` serves over HTTP, and `--backend` points at
     /// it (`docs/SELF_HOSTING.md`). It is opt-in through the URL and never a fallback — a scheme
     /// that silently downgraded would put a tunnel token on the wire in the clear.
     fn parse(base: &str) -> Result<Self, ApiError> {
@@ -199,12 +199,17 @@ impl Api {
     /// The node directory, from a **registry** rather than from a node.
     ///
     /// The odd one out: every other method here talks to a node, and this one talks to the directory
-    /// that lists nodes (ADR-0031). Pointing this same client at `registry.nport.link` is deliberate
-    /// reuse of the transport — the two services speak the same HTTP, carry the same error envelope,
-    /// and gate on the same client version, so a second client would be three hundred duplicated
-    /// lines and a second place for `connection: close` handling to be subtly wrong. It is **not** a
-    /// claim that they are one service: they hold different secrets and answer different paths, which
-    /// is why they have separate OpenAPI documents (ADR-0046).
+    /// that lists nodes (ADR-0031). Reusing this client for it is deliberate — the two services speak
+    /// the same HTTP, carry the same error envelope, and gate on the same client version, so a second
+    /// client would be three hundred duplicated lines and a second place for `connection: close`
+    /// handling to be subtly wrong.
+    ///
+    /// **Since ADR-0049 they are also behind the same hostname**, which strengthens the reuse and
+    /// weakens what it used to imply. The earlier note here argued from separate hosts; that argument
+    /// is gone. They are still two services, still holding different proof-of-work secrets, and still
+    /// answering disjoint path spaces — which is why the registry's challenge lives at
+    /// `/v1/nodes/challenge` and not alongside the node's, and why they keep separate OpenAPI
+    /// documents (ADR-0046, ADR-0049).
     ///
     /// # Errors
     ///
@@ -642,7 +647,7 @@ mod tests {
         assert_eq!(https.port, 443);
         assert_eq!(https.prefix, "");
 
-        // `pnpm dev:api` serves plaintext, and `--backend` points at it.
+        // `pnpm dev:node` serves plaintext, and `--backend` points at it.
         let local = Backend::parse("http://localhost:8787").expect("parses");
         assert!(!local.tls);
         assert_eq!(local.port, 8787);
@@ -946,7 +951,7 @@ mod tests {
     fn a_nonce_that_does_not_solve_the_challenge_is_rejected() {
         // Deliberately searched for rather than hardcoded: a fixed nonce like "0" satisfies a small
         // difficulty one time in sixteen, and a test that flakes on the security control is the
-        // worst kind. This is the exact mistake `apps/api`'s suite made and had to fix.
+        // worst kind. This is the exact mistake `apps/node`'s suite made and had to fix.
         let failing = (0..1000)
             .map(|nonce| nonce.to_string())
             .find(|nonce| !satisfies("challenge", nonce, 12))

@@ -1,0 +1,29 @@
+{
+  "name": "@nport/node",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "NPort node: provisions tunnels. Hono on Cloudflare Workers, behind apps/gateway.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev --port 8788 --inspector-port 9228",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "catalog:",
+    "@nport/contract": "workspace:*",
+    "@nport/worker-kit": "workspace:*",
+    "hono": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@nport/tsconfig": "workspace:*",
+    "@cloudflare/vitest-pool-workers": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

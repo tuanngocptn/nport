@@ -2,11 +2,13 @@
 
 ## Scope
 
-The node directory at `registry.nport.link`. Hono on Cloudflare Workers. Lists nodes, accepts anonymous registrations, and probes what it lists.
+The node directory. Hono on Cloudflare Workers. Lists nodes, accepts anonymous registrations, and ages what it lists.
 
-**Not responsible for:** provisioning anything, carrying traffic, choosing a node for a client, or holding a Cloudflare credential. It has no API token, no account id and no zone id — that absence is the point of splitting it out (ADR-0031).
+**It has no hostname of its own.** Requests arrive on `/v1/nodes*` through `apps/gateway`'s service binding, and `wrangler.jsonc` declares no `routes` and sets `workers_dev: false` (ADR-0049). **Master deployments only** — a node operator deploys gateway + node and this Worker never reaches their account.
 
-**Status: written, never deployed.** Phase 5, step 2 of 4 (`docs/ROADMAP.md`). `apps/api` does not self-register yet and `crates/core` has no discovery step, so nothing calls this in anger.
+**Not responsible for:** provisioning anything, carrying traffic, choosing a node for a client, holding a Cloudflare credential, or *checking* whether a node is up. It has no API token, no account id and no zone id — that absence is the point of splitting it out (ADR-0031).
+
+**Status: written, never deployed.** `docs/ROADMAP.md` § Backend first.
 
 ## Layout
 
@@ -15,13 +17,13 @@ src/index.ts            createApp(fetcher) + { fetch, scheduled }; exports the D
 src/routes/nodes.ts     GET and POST /v1/nodes — the whole directory
 src/routes/challenge.ts proof of work for a registration; flat difficulty, and why
 src/routes/health.ts    liveness, deliberately shallow
-src/do/directory.ts     the single DO: node table, challenge ledger, probe bookkeeping
-src/upstream.ts         the only two outbound calls, and verifyNodeUrl which makes them safe
-src/probe.ts            the cron sweep: probe every node, delist the long-dead
-src/middleware/         request-id, client-gate, rate-limit, require-bindings
+src/do/directory.ts     the single DO: node table, challenge ledger, the staleness sweep
+src/upstream.ts         the one outbound call, and verifyNodeUrl which keeps it safe
+src/sweep.ts            the cron: age every listing, delist the long-silent. Fetches nothing
+src/middleware/         forwarded (reads the gateway's identity), require-bindings
 src/env.ts              which bindings are required, and why
 src/types.ts            Env and Variables — note what is absent
-test/fake-upstream.ts   in-memory DNS and node /v1/meta; throws on an unknown host
+test/fake-upstream.ts   in-memory DNS; throws on an unknown host
 ```
 
 ## Commands
@@ -37,28 +39,32 @@ pnpm --filter @nport/registry deploy    # normally CI does this
 
 1. **Every route is defined in `packages/contract` first**, then `pnpm codegen`, then implemented. Never hand-write a validator.
 2. **Never `throw new Error()`.** Throw `ApiError(code)` from `@nport/worker-kit`; `app.onError` builds the envelope.
-3. **Capacity is observed, never claimed** (ADR-0046). It comes from a node's `GET /v1/meta` and from nowhere else. A registration that carries `activeTunnels` has it stripped — and there is a test asserting the listed value is the probed one, not the sent one.
-4. **`verifyNodeUrl` runs before any subrequest.** It is the load-bearing check here: it stops the registry being an open fetch proxy, and it is what makes the DNS proof cover the URL we actually fetch. A registration whose URL is not under the proved domain must cost zero subrequests.
-5. **The TXT proof's strings come from `packages/contract`** — `nodeProofRecordName`, `nodeProofRecordValue`, `nodeProofSatisfied`. Never retype them: the registry, the operator and `docs/API.md` have to agree, and the docs quote the function rather than restating it.
-6. **No module-level mutable state.** Isolates are shared across callers. `createApp(fetcher)` and `runScheduled(env, fetcher)` take their outbound `fetch` as a parameter so tests inject a fake without one.
-7. **No CORS headers, ever.** Their absence is an abuse control.
-8. **Never log a raw IP.** Source identity is `HMAC(ip, secret)` over the address prefix, from `@nport/worker-kit` — sharing that function is what stops defect 9's IPv6 hole reappearing here.
-9. **The list is advisory.** A client caches it, so a registry that is down must never stop a tunnel being created. Anything that makes this load-bearing at provision time breaks the property the whole design rests on.
-10. **Selection is the client's.** The registry returns the list, in registration order, including `down` and full nodes. It does not rank, filter, or recommend.
+3. **Capacity is claimed, and `status` is not** (ADR-0049 reverses ADR-0046). `activeTunnels` and `maxActiveTunnels` come from the registration body; `status` is absent from the schema and is always `up` on a registration, because a node that just called is up and a node asking to be listed `down` is asking for what not calling already achieves. Absent capacity stays **absent**, never `0` — a node that looks idle is sorted to the front of every client's list.
+4. **`verifyNodeUrl` still runs, and still before anything on the network.** Nothing fetches a node's URL any more, so it is no longer an open-fetch-proxy guard — it is what keeps the DNS proof meaningful: the TXT record proves `<domain>`, so a URL outside `<domain>` is a URL the proof says nothing about, and the directory would be advertising a host the operator has shown no control of.
+5. **Nothing here fetches a node.** One outbound call exists, to a DNS resolver. Adding a fetch to a URL a stranger supplied re-opens the amplification surface ADR-0049 closed, and the thing it would learn is what the node already tells us.
+6. **The TXT proof's strings come from `packages/contract`** — `nodeProofRecordName`, `nodeProofRecordValue`, `nodeProofSatisfied`. Never retype them: the registry, the operator and `docs/API.md` have to agree, and the docs quote the function rather than restating it.
+7. **No module-level mutable state.** Isolates are shared across callers. `createApp(fetcher)` takes its outbound `fetch` as a parameter so tests inject a fake without one. `runScheduled(env)` does not, because it makes no outbound call — a parameter that exists only for tests is one a reader has to rule out.
+8. **Fail closed on a missing `x-nport-source-hash`.** `src/middleware/forwarded.ts` refuses rather than synthesising. Synthesising would work, quietly, and every caller reaching this Worker directly would share one identity — which is only impossible while rules about `routes` and `workers_dev` hold, and `pnpm deploy:check` is what holds them.
+9. **No CORS headers, ever.** Their absence is an abuse control.
+10. **This Worker never sees an IP.** The gateway hashes it and forwards the result, which is stronger than a rule about not logging one.
+11. **The list is advisory.** A client caches it, so a registry that is down must never stop a tunnel being created. Anything that makes this load-bearing at provision time breaks the property the whole design rests on.
+12. **Selection is the client's.** The registry returns the list, in registration order, including `down` and full nodes. It does not rank, filter, or recommend.
 
 ## Common tasks
 
 **Add a rejection reason** — `NODE_REJECTION_REASONS` in `packages/contract/src/node.ts` → use it in `details.reason` → assert it in `test/nodes.test.ts`. The code stays `REGISTRATION_REFUSED`; the reason is what tells an operator which check failed.
 
-**Change a probe threshold** — `wrangler.jsonc` § vars, both environments. `test/probe.test.ts` overrides them per test, so no test asserts the deployed numbers.
+**Change a staleness threshold** — `NODE_DOWN_AFTER_SECONDS` / `NODE_DELIST_AFTER_SECONDS` in `wrangler.jsonc` § vars, **both environments**. `test/sweep.test.ts` passes its own, so no test asserts the deployed numbers. Both are seconds of silence, not counts: nothing counts anything here.
 
-**Change what a probe reads** — `Observation` in `src/upstream.ts`, then `recordSuccess` in the DO. Remember `/v1/meta` publishes `minClientVersion`, not the node's own version, so a probe cannot learn a node's build.
+**Change what a node reports** — `registerNodeRequestSchema` in `packages/contract`, then `src/routes/nodes.ts` and the `node` table. A field the node cannot be trusted to assert about itself does not belong in that schema; `status` is the example, and capacity is the accepted exception (ADR-0049).
 
 ## Gotchas
 
 - **`isolatedStorage` does not exist in vitest-pool-workers 0.20** and passing it is silently ignored, so DO state leaks between tests. Every suite here clears the two tables in `beforeEach` *and* `afterEach`.
+- **Every test must send `x-nport-source-hash`**, because that is what arriving through the gateway looks like and `forwarded` refuses anything else. `test/nodes.test.ts` has a `GATEWAY` constant for it.
 - **Test difficulty is pinned to 4 bits** in `vitest.config.ts`, because a test that registers several nodes does several solves and vitest's per-test budget is 5 s. **A single 20-bit solve is about 1.2 s**, not a hang: `workerd` does ~870k `crypto.subtle.digest`/sec, measured. The earlier note here said a 20-bit solve "times out", which is wrong in a way that matters — it invites the conclusion that proof of work is infeasible inside a Worker, and node self-registration depends on it being fine.
-- **`test/fake-upstream.ts` must never be more generous than reality.** It quotes TXT `data` because a real resolver does, and answers NXDOMAIN as a 200 with no `Answer` rather than a 404. `apps/api`'s fake once invented a field Cloudflare does not send and the whole suite agreed with the resulting bug (`docs/ROADMAP.md`, defect 8).
-- **Drive the real app, not a copy of its wiring.** `createApp` exists so tests exercise the middleware stack that ships. A hand-assembled test app keeps passing after someone removes the client gate — defect 25, which this app's first probe test committed before it was caught.
-- **One Durable Object for everything.** Unlike `apps/api`, which shards per subdomain and per source: there are at most `MAX_NODES` rows and the cron reads all of them anyway, so sharding would buy nothing and cost the one property that matters — that id uniqueness is decided in one place with no `await` between the check and the insert.
+- **`test/fake-upstream.ts` must never be more generous than reality.** It quotes TXT `data` because a real resolver does, and answers NXDOMAIN as a 200 with no `Answer` rather than a 404. `apps/node`'s fake once invented a field Cloudflare does not send and the whole suite agreed with the resulting bug (`docs/ROADMAP.md`, defect 8). Its **node half is now unused** and deliberately kept: it throws on an unknown host, so a registration that somehow fetched a node would fail loudly rather than quietly pass.
+- **Drive the real app, not a copy of its wiring.** `createApp` exists so tests exercise the middleware stack that ships. A hand-assembled test app keeps passing after someone removes a middleware — defect 25, which this app's first sweep test committed before it was caught.
+- **One Durable Object for everything.** Unlike `apps/node`, which shards per subdomain and per source: there are at most `MAX_NODES` rows and the sweep reads all of them anyway, so sharding would buy nothing and cost the one property that matters — that id uniqueness is decided in one place with no `await` between the check and the insert.
+- **The `node` table's schema is the constructor.** `CREATE TABLE IF NOT EXISTS` only applies to a fresh object, so a column change takes effect nowhere that has already run — safe today **only because this Worker has never been deployed**. After the first deploy, a column change needs an explicit `ALTER TABLE`.
 - **A registration is a refresh when the domain matches.** Same id plus a different domain is `id-taken`, which is the takeover case; same id plus the same domain is an upsert, which is how a node re-registers on boot.

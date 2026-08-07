@@ -1,10 +1,11 @@
 /**
  * Runs before `turbo run dev` and does the three things that otherwise cost a confused ten minutes.
  *
- * 1. **Creates `apps/api/.dev.vars`, or reports a stale one.** Without the secrets the Worker starts
- *    and then fails every gated route with `INTERNAL` while `/v1/health` stays green — about the
- *    least diagnosable shape a misconfiguration can take (`apps/api/src/env.ts`). The *stale* case
- *    is the one that actually happens, and it happened while writing this file.
+ * 1. **Creates each Worker's `.dev.vars`, or reports a stale one.** Without the secrets a Worker
+ *    starts and then fails every gated route with `INTERNAL` while `/v1/health` stays green — about
+ *    the least diagnosable shape a misconfiguration can take (`apps/node/src/env.ts`). The *stale*
+ *    case is the one that actually happens, and it happened while writing this file. Two Workers
+ *    need one now: the node and the gateway (ADR-0049).
  * 2. **Says which ports are already in use** rather than letting each dev server fail differently.
  *    Vite is the sharp one: `strictPort` means it exits, and the Tauri window then points at
  *    nothing.
@@ -22,12 +23,35 @@ import { fileURLToPath } from "node:url"
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 
-/** Everything `pnpm dev` starts, in the order the banner lists them. */
+/**
+ * Everything `pnpm dev` starts, in the order the banner lists them.
+ *
+ * **The gateway keeps 8787**, because that is the address every doc and `pnpm dev:cli` already point
+ * at and it is the one a client should use — the node and the registry are behind it (ADR-0049).
+ * Ports are pinned in each app's `dev` script rather than left to wrangler's default, which is 8787
+ * for all three: the second and third to start would fail to bind, and `turbo run dev` starts them
+ * concurrently so which two fail is a race.
+ */
 const SURFACES = [
-  { name: "api", port: 8787, url: "http://localhost:8787", note: "wrangler dev · control plane" },
+  {
+    name: "gateway",
+    port: 8787,
+    url: "http://localhost:8787",
+    note: "wrangler dev · the front door — point clients here",
+  },
+  { name: "node", port: 8788, url: "http://localhost:8788", note: "wrangler dev · provisioning" },
+  {
+    name: "registry",
+    port: 8789,
+    url: "http://localhost:8789",
+    note: "wrangler dev · the directory",
+  },
   { name: "web", port: 3000, url: "http://localhost:3000", note: "next dev · the site" },
   { name: "desktop", port: 1420, url: "native window", note: "tauri dev · first build is slow" },
 ]
+
+/** The Workers that refuse to serve without a `.dev.vars`. */
+const NEEDS_DEV_VARS = ["node", "gateway"]
 
 async function exists(path) {
   try {
@@ -82,24 +106,24 @@ function keysIn(text) {
 }
 
 /**
- * Creates `apps/api/.dev.vars`, or reports what a **stale** one is missing.
+ * Creates `apps/node/.dev.vars`, or reports what a **stale** one is missing.
  *
  * The stale case is the one that actually bites, and it bit during this script's own development:
  * a `.dev.vars` written before `CF_*` was added to the example still exists, so nothing creates it,
  * and every gated route answers `INTERNAL` while `/v1/health` stays green. The Worker logs which
- * binding is absent — `apps/api/src/env.ts` exists for exactly this — but only once a request has
+ * binding is absent — `apps/node/src/env.ts` exists for exactly this — but only once a request has
  * already failed, which is several confused minutes later than here.
  *
  * Reported rather than merged. Appending to a file holding someone's real Cloudflare token is not a
  * thing a preflight should do unasked.
  */
-async function checkDevVars() {
-  const target = join(ROOT, "apps/api/.dev.vars")
-  const example = join(ROOT, "apps/api/.dev.vars.example")
+async function checkDevVars(app) {
+  const target = join(ROOT, `apps/${app}/.dev.vars`)
+  const example = join(ROOT, `apps/${app}/.dev.vars.example`)
 
   if (!(await exists(target))) {
     await copyFile(example, target)
-    return "created apps/api/.dev.vars from the example — local values only, and gitignored"
+    return `created apps/${app}/.dev.vars from the example — local values only, and gitignored`
   }
 
   const expected = keysIn(await readFile(example, "utf8"))
@@ -108,14 +132,16 @@ async function checkDevVars() {
   if (missing.length === 0) {
     return null
   }
-  return `apps/api/.dev.vars is missing ${missing.join(", ")} — every gated route will answer INTERNAL until you add them from .dev.vars.example`
+  return `apps/${app}/.dev.vars is missing ${missing.join(", ")} — every gated route will answer INTERNAL until you add them from .dev.vars.example`
 }
 
 const notices = []
 
-const devVars = await checkDevVars()
-if (devVars) {
-  notices.push(devVars)
+for (const app of NEEDS_DEV_VARS) {
+  const notice = await checkDevVars(app)
+  if (notice) {
+    notices.push(notice)
+  }
 }
 
 const busy = []
@@ -134,14 +160,14 @@ for (const surface of SURFACES) {
 }
 console.log("")
 console.log("    then, in another terminal:")
-console.log("      pnpm dev:cli            # tunnel the local site through the local control plane")
+console.log("      pnpm dev:cli            # tunnel the local site through the local gateway")
 console.log("")
 // Said here rather than discovered later: a run that ends in retries and TUNNEL_LOST reads like a
 // genuine incident if you do not already know the credential is a fake.
 console.log("    with FAKE_CLOUDFLARE=1 the CLI provisions for real — challenge, claim, saga, URL,")
 console.log("    heartbeats — then dials Cloudflare's edge, which refuses the fake credential with")
 console.log("    EDGE_REGISTRATION_REFUSED. It retries, gives up, and releases the lease. That is")
-console.log("    the expected ending. For a real tunnel, put a real token in apps/api/.dev.vars.")
+console.log("    the expected ending. For a real tunnel, put a real token in apps/node/.dev.vars.")
 console.log("")
 for (const notice of notices) {
   console.log(`    note: ${notice}`)

@@ -1,17 +1,17 @@
-import { ApiError, envelope, retryAfterSeconds } from "@nport/worker-kit"
+import {
+  ApiError,
+  envelope,
+  FORWARDED_REQUEST_ID,
+  FORWARDED_SOURCE_HASH,
+  retryAfterSeconds,
+} from "@nport/worker-kit"
 import { Hono } from "hono"
 
 import { requireBindings } from "./env"
 import { clientGate } from "./middleware/client-gate"
 import { rateLimit } from "./middleware/rate-limit"
 import { requestId } from "./middleware/request-id"
-import {
-  type Env,
-  FORWARDED_REQUEST_ID,
-  FORWARDED_SOURCE_HASH,
-  type ServiceBinding,
-  type Variables,
-} from "./types"
+import type { Env, ServiceBinding, Variables } from "./types"
 
 /**
  * The public front door (ADR-0049).

@@ -379,7 +379,7 @@ export function isReserved(subdomain: string, zoneSuffix: string = ZONE_SUFFIX):
  *
  * Using `isReserved` here meant the sweep skipped every orphaned generated name — the default naming
  * for any `nport 3000` without `-s`, and therefore most orphans. Three tests in
- * `apps/api/test/reconcile.test.ts` pin both halves: `nport-` and `smoke-` are reaped, `api`,
+ * `apps/node/test/reconcile.test.ts` pin both halves: `nport-` and `smoke-` are reaped, `api`,
  * `www` and `_dmarc` are not.
  */
 export function isProtectedFromCleanup(

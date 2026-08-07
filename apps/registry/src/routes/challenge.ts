@@ -7,7 +7,7 @@ import type { Env, Variables } from "../types"
  * `GET /v1/challenge` — issue a proof-of-work challenge for a registration.
  *
  * Stateless: no challenge is stored, so there is no table of outstanding challenges to fill and
- * issuing cannot be exhausted. **Cheaper than `apps/api`'s**, which reads the caller's `SourceQuota`
+ * issuing cannot be exhausted. **Cheaper than `apps/node`'s**, which reads the caller's `SourceQuota`
  * to find a per-source difficulty — the registry has no equivalent, because ADR-0028's dial escalates
  * on "this source keeps creating" and a node registers once and then refreshes. One flat floor is the
  * honest answer here rather than a control with nothing to control.

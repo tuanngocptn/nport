@@ -16,7 +16,7 @@ The strategy spans two languages, three runtimes (Node, `workerd`, native), and 
 | Tier | Where | Runner | Speed | Runs in |
 | --- | --- | --- | --- | --- |
 | Unit (TS) | `apps/*`, `packages/*` | Vitest | ms | every commit |
-| Integration (Workers) | `apps/api/test` | Vitest + `@cloudflare/vitest-pool-workers` | ~s | every commit |
+| Integration (Workers) | `apps/node/test` | Vitest + `@cloudflare/vitest-pool-workers` | ~s | every commit |
 | Integration (Workers) | `apps/registry/test` | same pool | ~s | every commit |
 | Integration (Workers) | `apps/gateway/test` | same pool, services stubbed | ~s | every commit |
 | **E2E (web)** | `apps/web/e2e` | Playwright, against the built Worker | ~50 s | every commit |
@@ -39,6 +39,12 @@ One row still describes what will exist rather than what runs: **`protocol-canar
 
 **The gateway's services are stubbed rather than bound to the real Workers.** Its `vitest.config.ts` answers `NODE` and `REGISTRY` with handlers that echo the request back, so a test can assert on the headers the gateway *set* — including that it overwrites a forged `x-nport-source-hash`. Binding the real services would test three Workers and answer a different question.
 
+**A test of an internal Worker sends `x-nport-source-hash`, not `cf-connecting-ip`.** That is what arriving through the gateway looks like, and `apps/node` and `apps/registry` both fail closed without it (ADR-0049). `apps/node/test/gateway.ts` and `apps/registry/test/nodes.test.ts`'s `GATEWAY` constant supply it.
+
+This made the per-source tests **more** honest rather than less. They used to send an address and rely on the middleware to hash it, so every concurrency-cap and quota test was silently also a test of the HMAC — and when the hashing moved, two of them started passing for a reason unrelated to their names. The hashing is now tested once end to end at the gateway and unit-tested in `packages/worker-kit/src/ip-hash.test.ts`; the caps are tested against a fixed identity, which is what they are about.
+
+**Coverage that moves must move, not evaporate.** ADR-0049 relocated nine tests out of `apps/node` and deleted four that could no longer mean anything, and each departure left a comment saying where it went and why — including the one with no new home: `POST /` is unreachable behind a gateway that routes only `/v1/*`, so the legacy path's rate-limit test is *stated as missing* rather than quietly dropped. `apps/gateway/test/legacy-gap.test.ts` is the tripwire that fails when `/` is routed again.
+
 **Workers integration, not unit** — anything touching Durable Object storage, alarms, or bindings. Mocking a DO proves nothing: the entire lease design rests on single-threaded execution, at-least-once alarms, and storage surviving isolate death. Test the real semantics in `workerd` or don't claim they work.
 
 Specifically must be integration tests: concurrent claims for the same subdomain serialize and the loser gets 409; a saga interrupted mid-flight compensates on alarm; expiry fires at `min(expires_at, last_heartbeat + 120s)`; the reconciliation cursor resumes correctly; an alarm delivered twice does not double-delete.
@@ -47,7 +53,7 @@ Specifically must be integration tests: concurrent claims for the same subdomain
 
 ### The fake Cloudflare API, and why it is not the fake edge this document rejects
 
-`apps/api/test/fake-cloudflare.ts` is a stateful in-memory Cloudflare REST API: it holds tunnels and DNS records in maps, answers lookups from them, and can be told to fail a named operation. `apps/api`'s tests install it by replacing `globalThis.fetch`, which reaches inside a Durable Object because the pool runs the Worker under test in the same isolate as the test file.
+`apps/node/test/fake-cloudflare.ts` is a stateful in-memory Cloudflare REST API: it holds tunnels and DNS records in maps, answers lookups from them, and can be told to fail a named operation. `apps/node`'s tests install it by replacing `globalThis.fetch`, which reaches inside a Durable Object because the pool runs the Worker under test in the same isolate as the test file.
 
 This looks like the thing "Deliberately untested" rules out for `crates/protocol` — a hand-built fake that encodes our assumptions and therefore passes exactly when we are wrong. The distinction is what each fake is being asked to prove:
 
@@ -58,9 +64,9 @@ What it therefore does **not** prove is that the request shapes are right. That 
 
 #### There is a second fake, and it must never be the one under test
 
-`apps/api/src/cloudflare/dev-fake.ts` is a *different* in-memory Cloudflare, for `wrangler dev`. It exists so `pnpm dev` can provision without credentials (`docs/CONTRIBUTING.md`), it has no failure injection, and it lives in `src/` rather than `test/` because it ships in the dev bundle.
+`apps/node/src/cloudflare/dev-fake.ts` is a *different* in-memory Cloudflare, for `wrangler dev`. It exists so `pnpm dev` can provision without credentials (`docs/CONTRIBUTING.md`), it has no failure injection, and it lives in `src/` rather than `test/` because it ships in the dev bundle.
 
-The two can collide, and did. `@cloudflare/vitest-pool-workers` reads `apps/api/.dev.vars` alongside `wrangler.jsonc`, so the `FAKE_CLOUDFLARE=1` that every local dev session sets also reached the test isolate — routing the saga through the dev fake and straight past `test/fake-cloudflare.ts`. Thirty-six tests failed, and every one of them pointed at the saga rather than at the configuration.
+The two can collide, and did. `@cloudflare/vitest-pool-workers` reads `apps/node/.dev.vars` alongside `wrangler.jsonc`, so the `FAKE_CLOUDFLARE=1` that every local dev session sets also reached the test isolate — routing the saga through the dev fake and straight past `test/fake-cloudflare.ts`. Thirty-six tests failed, and every one of them pointed at the saga rather than at the configuration.
 
 The fix is the rule: **anything the suite's meaning depends on is set explicitly in `vitest.config.ts`**, never inherited from whatever is on a contributor's machine. `FAKE_CLOUDFLARE` and `MIN_CLIENT_VERSION` are pinned there now for exactly that reason. When a test starts behaving differently on CI than locally, that block is the first place to look.
 
@@ -264,7 +270,7 @@ Stated so nobody mistakes a gap for an oversight:
 
 ```bash
 pnpm test                      # all TS
-pnpm --filter @nport/api test  # Workers integration only
+pnpm --filter @nport/node test  # Workers integration only
 cargo test                     # all Rust, hermetic
 cargo test -p nport-protocol   # protocol only
 cargo test -- --ignored        # live edge, needs network + token

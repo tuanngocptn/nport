@@ -221,7 +221,7 @@ describe("generated artifacts round-trip", () => {
 
   it("keeps the OpenAPI document in step with the routes", () => {
     const openapi = JSON.parse(
-      readFileSync(join(REPO, "schema", "nport-api.openapi.json"), "utf8"),
+      readFileSync(join(REPO, "schema", "nport-node.openapi.json"), "utf8"),
     ) as { paths: Record<string, Record<string, unknown>> }
 
     for (const route of ROUTES) {

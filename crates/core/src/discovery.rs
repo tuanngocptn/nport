@@ -1,6 +1,6 @@
 //! Choosing which node to provision against.
 //!
-//! `docs/ARCHITECTURE.md` §1 and ADR-0031. A **node** is one deployment of `apps/api` bound to one
+//! `docs/ARCHITECTURE.md` §1 and ADR-0031. A **node** is one deployment of `apps/node` bound to one
 //! Cloudflare account and one domain; the **registry** is a directory that lists nodes. This module
 //! is the step that goes in front of [`crate::api::Api`]: fetch the list, probe a few, pick one.
 //!
@@ -43,7 +43,11 @@ use crate::api::{Api, ApiError};
 pub const PROBE_LIMIT: usize = 4;
 
 /// The public node directory.
-pub const DEFAULT_REGISTRY: &str = "https://registry.nport.link";
+///
+/// **The same hostname as node #1**, which is not a mistake (ADR-0049). One hostname fronts a whole
+/// deployment: a gateway Worker dispatches `/v1/nodes*` to the registry and everything else to the
+/// node. It was `registry.nport.link`, which has never resolved, so nothing depends on the old value.
+pub const DEFAULT_REGISTRY: &str = "https://api.nport.link";
 
 /// How long a single probe gets before it is treated as a miss.
 ///

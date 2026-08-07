@@ -3,10 +3,14 @@
  *
  * `docs/API.md` § The registry API for the contract, `apps/registry/CLAUDE.md` for the rules. What
  * shapes this file is what the registry deliberately *is not*: it holds no Cloudflare credentials,
- * provisions nothing, and never touches a tunnel (ADR-0031). There is no saga here, no lease, and no
- * compensation — the whole Worker is a list, a probe, and two ways to read or change the list.
+ * provisions nothing, never touches a tunnel (ADR-0031), and since ADR-0049 fetches nothing except a
+ * DNS answer. There is no saga here, no lease, and no compensation — the whole Worker is a list, two
+ * ways to read or change it, and a cron that ages it.
  *
- * **No CORS headers, ever**, for the same reason `apps/api` has none: their absence stops any web page
+ * **It has no public hostname.** Requests arrive through `apps/gateway`'s service binding, which is
+ * also why `src/middleware/forwarded.ts` may believe the identity it is handed.
+ *
+ * **No CORS headers, ever**, for the same reason `apps/node` has none: their absence stops any web page
  * driving the API, which is an abuse control rather than an oversight.
  *
  * **The list is advisory.** A client caches it, so a registry that is down costs nothing — that is the
@@ -17,14 +21,12 @@
 import { ApiError, envelope, retryAfterSeconds } from "@nport/worker-kit"
 import { Hono } from "hono"
 
-import { clientGate } from "./middleware/client-gate"
-import { rateLimit } from "./middleware/rate-limit"
-import { requestId } from "./middleware/request-id"
+import { forwarded } from "./middleware/forwarded"
 import { requireBindings } from "./middleware/require-bindings"
-import { runScheduled } from "./probe"
 import { challengeRoute } from "./routes/challenge"
 import { healthRoute } from "./routes/health"
 import { createNodesRoute } from "./routes/nodes"
+import { runScheduled } from "./sweep"
 import type { Env, Variables } from "./types"
 
 export { Directory } from "./do/directory"
@@ -41,7 +43,15 @@ export { Directory } from "./do/directory"
 export function createApp(fetcher: typeof fetch = fetch) {
   const app = new Hono<{ Bindings: Env; Variables: Variables }>()
 
-  app.use("*", requestId)
+  // The gateway already applied the client gate and the rate limiter, and already derived the caller's
+  // identity (ADR-0049). This reads the results and **refuses anything that arrived without them** —
+  // see `middleware/forwarded.ts` for why failing closed is the only safe answer.
+  //
+  // On `*` rather than `/v1/*` so a route added outside that prefix cannot arrive unidentified. It
+  // exempts `/v1/health` and `GET /` itself, which is the same shape the three middlewares it replaced
+  // used and for the same reason: an exemption a reader can see beats a path pattern they have to
+  // reconstruct.
+  app.use("*", forwarded)
 
   // Bindings are checked before anything reads one, so a misconfiguration is a single clear log line
   // rather than an opaque failure inside whichever primitive needed the value first. `/v1/health` is
@@ -49,12 +59,6 @@ export function createApp(fetcher: typeof fetch = fetch) {
   // Worker from a dead one.
   app.use("/v1/nodes", requireBindings)
   app.use("/v1/nodes/*", requireBindings)
-
-  // Registered on `/v1/*` rather than per route, so adding a route cannot silently leave it ungated.
-  // A per-route list is a standing invitation to forget one, and the failure would be invisible.
-  // Both middlewares skip `/v1/health` themselves.
-  app.use("/v1/*", clientGate)
-  app.use("/v1/*", rateLimit)
 
   // **`/v1/nodes/challenge` before `/v1/nodes`**, and every registry route under that one prefix
   // (ADR-0049). The gateway dispatches on the path prefix, so a route outside it is unreachable — and
@@ -65,7 +69,13 @@ export function createApp(fetcher: typeof fetch = fetch) {
   app.route("/v1/nodes", createNodesRoute(fetcher))
   app.route("/v1/health", healthRoute)
 
-  /** Matches `apps/api`: some people hit an API host by hand. */
+  /**
+   * Matches `apps/node`: some people hit an API host by hand.
+   *
+   * Unreachable in a deployed system — the gateway answers `GET /` itself and forwards only `/v1/*` —
+   * and kept because `pnpm --filter @nport/registry dev` serves this app directly, where a bare 404 at
+   * the root is a confusing first impression of a Worker that is running fine.
+   */
   app.get("/", (context) => context.redirect("https://nport.link", 301))
 
   app.notFound((context) =>
@@ -76,7 +86,7 @@ export function createApp(fetcher: typeof fetch = fetch) {
    * The single place a failure becomes a response.
    *
    * An unrecognised throw becomes `INTERNAL` and the detail goes to logs only. Simpler than
-   * `apps/api`'s, which also has to pick between two envelope shapes for the v2 shim — the registry has
+   * `apps/node`'s, which also has to pick between two envelope shapes for the v2 shim — the registry has
    * no legacy clients, because it has never had a release.
    */
   app.onError((error, context) => {
@@ -106,9 +116,9 @@ export default {
   fetch: app.fetch,
 
   /**
-   * Probe every listed node and delist the long-dead. `src/probe.ts` holds the policy.
+   * Age every listing and delist the long-silent. `src/sweep.ts` holds the policy.
    *
-   * This is the only thing keeping the directory honest: a node's entry is a claim that goes stale
+   * This is the only thing keeping the directory honest: a node's entry is a claim it stops renewing
    * without telling anyone.
    */
   async scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {

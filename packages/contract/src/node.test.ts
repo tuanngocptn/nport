@@ -163,7 +163,7 @@ describe("the two service documents", () => {
       components: { schemas: Record<string, unknown> }
     }
 
-  const api = read("nport-api.openapi.json")
+  const api = read("nport-node.openapi.json")
   const registry = read("nport-registry.openapi.json")
 
   it("keeps the registry's routes in its own document", () => {

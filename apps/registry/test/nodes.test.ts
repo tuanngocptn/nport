@@ -3,8 +3,13 @@
  *
  * Drives the **real** app via `createApp`, with only its outbound `fetch` swapped for
  * `test/fake-upstream.ts`. Assembling a test app by hand would have been easier and is the trap
- * `docs/ROADMAP.md`'s defect 25 records: it would keep passing after someone removed the client gate
- * or the rate limiter from the app that actually ships.
+ * `docs/ROADMAP.md`'s defect 25 records: it would keep passing after someone removed a middleware from
+ * the app that actually ships.
+ *
+ * **Every request here carries `x-nport-source-hash`** (ADR-0049), because that is what arriving through
+ * the gateway looks like: the client gate and the rate limiter run there, and this Worker refuses
+ * anything that reaches it without an identity. Tests used to send a `user-agent` and rely on this
+ * Worker's own gate — which meant every registration test was also, silently, a client-gate test.
  */
 
 import { runInDurableObject, env as testEnv } from "cloudflare:test"
@@ -20,11 +25,15 @@ import { type FakeDns, type FakeNodes, fakeUpstream } from "./fake-upstream"
  * populates — and augmenting it (or `ProvidedEnv`, as older guides suggest) silently does not apply.
  * One cast here, against the app's own `Env`, beats scattering casts through the file, and it keeps
  * the property that a test reading a binding the Worker does not declare fails to compile.
- * `apps/api/test/routes.test.ts` carries the same note for the same reason.
+ * `apps/node/test/routes.test.ts` carries the same note for the same reason.
  */
 const env = testEnv as unknown as Env
 
-const UA = { "user-agent": "nport/3.0.0 (linux; x86_64)" }
+/**
+ * What the gateway forwards. Any stable string works — this Worker only keys on it, and never derives
+ * it (`packages/worker-kit/src/ip-hash.test.ts` covers the derivation).
+ */
+const GATEWAY = { "x-nport-source-hash": "test-source-hash" }
 const ORIGIN = "https://api.nport.link"
 const PROOF = "_nport-node.nport.link"
 
@@ -37,16 +46,18 @@ const REGISTRATION = {
   version: "3.0.0",
 }
 
+/**
+ * DNS only. `fakeUpstream`'s node half is unused now that nothing here probes (ADR-0049) — kept in the
+ * helper because `test/fake-upstream.ts` throws on an unknown host, and a registration that somehow
+ * fetched a node's `/v1/meta` should fail loudly rather than quietly succeed.
+ */
 function upstream(overrides: { dns?: FakeDns; nodes?: FakeNodes } = {}) {
-  return fakeUpstream(
-    overrides.dns ?? { [PROOF]: ["nport-node=hk1"] },
-    overrides.nodes ?? { [ORIGIN]: { activeTunnels: 7, maxActiveTunnels: 100 } },
-  )
+  return fakeUpstream(overrides.dns ?? { [PROOF]: ["nport-node=hk1"] }, overrides.nodes ?? {})
 }
 
 /** Fetches a real challenge and solves it, exactly as a node would. */
 async function solved(app: ReturnType<typeof createApp>) {
-  const response = await app.request("/v1/nodes/challenge", { headers: UA }, env)
+  const response = await app.request("/v1/nodes/challenge", { headers: GATEWAY }, env)
   const issued = (await response.json()) as { challenge: string; difficulty: number }
   return {
     challenge: issued.challenge,
@@ -62,7 +73,7 @@ async function register(
     "/v1/nodes",
     {
       method: "POST",
-      headers: { ...UA, "content-type": "application/json" },
+      headers: { ...GATEWAY, "content-type": "application/json" },
       body: JSON.stringify({ ...body, ...(await solved(app)) }),
     },
     env,
@@ -71,7 +82,7 @@ async function register(
 
 /**
  * `isolatedStorage` does not exist in vitest-pool-workers 0.20 and is *silently ignored*, so Durable
- * Object state leaks between tests unless every suite clears it (`apps/api/CLAUDE.md` § Gotchas).
+ * Object state leaks between tests unless every suite clears it (`apps/node/CLAUDE.md` § Gotchas).
  * Clearing by hand rather than with `reset()` because the directory is one object with two tables.
  */
 async function clearDirectory() {
@@ -89,7 +100,11 @@ describe("GET /v1/nodes", () => {
   it("is an empty list before anyone registers, not an error", async () => {
     // An empty directory is a 200. `NO_NODE_AVAILABLE` is a *client* code, raised once discovery has
     // exhausted the list — the registry never sends it.
-    const response = await createApp(upstream().fetch).request("/v1/nodes", { headers: UA }, env)
+    const response = await createApp(upstream().fetch).request(
+      "/v1/nodes",
+      { headers: GATEWAY },
+      env,
+    )
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       nodes: [],
@@ -98,16 +113,22 @@ describe("GET /v1/nodes", () => {
   })
 
   it("publishes the cache lifetime so a client does not pick one", async () => {
-    const response = await createApp(upstream().fetch).request("/v1/nodes", { headers: UA }, env)
+    const response = await createApp(upstream().fetch).request(
+      "/v1/nodes",
+      { headers: GATEWAY },
+      env,
+    )
     const body = (await response.json()) as { refreshAfterMs: number }
     expect(body.refreshAfterMs).toBeGreaterThan(0)
   })
 
   it("lists a node once it has registered", async () => {
     const app = createApp(upstream().fetch)
-    expect((await register(app)).status).toBe(201)
+    expect(
+      (await register(app, { ...REGISTRATION, activeTunnels: 7, maxActiveTunnels: 100 })).status,
+    ).toBe(201)
 
-    const response = await app.request("/v1/nodes", { headers: UA }, env)
+    const response = await app.request("/v1/nodes", { headers: GATEWAY }, env)
     const body = (await response.json()) as { nodes: Array<Record<string, unknown>> }
     expect(body.nodes).toHaveLength(1)
     expect(body.nodes[0]).toMatchObject({
@@ -117,57 +138,74 @@ describe("GET /v1/nodes", () => {
       region: "apac",
       version: "3.0.0",
       status: "up",
-      // Probed, not claimed: the registration carried no capacity at all.
+      // Claimed by the node and stored as sent (ADR-0049).
       activeTunnels: 7,
       maxActiveTunnels: 100,
     })
   })
 
-  it("needs a client version like every other route", async () => {
+  it("refuses a request that did not come through the gateway", async () => {
+    // **Replaces `needs a client version like every other route`**, which tested a gate that is the
+    // gateway's now (`apps/gateway/test/dispatch.test.ts`). What is worth asserting here is the other
+    // half of that move: this Worker declares no route, so a request with no forwarded identity should
+    // be impossible — and if one arrives, serving it would give every direct caller one shared identity
+    // and no per-source limit would apply to any of them. It fails closed.
     const response = await createApp(upstream().fetch).request("/v1/nodes", {}, env)
-    expect(response.status).toBe(400)
+    expect(response.status).toBe(500)
     const body = (await response.json()) as { error: { code: string } }
-    expect(body.error.code).toBe("INVALID_REQUEST")
+    expect(body.error.code).toBe("INTERNAL")
+  })
+
+  it("still answers health without one, for an uptime monitor", async () => {
+    const response = await createApp(upstream().fetch).request("/v1/health", {}, env)
+    expect(response.status).toBe(200)
   })
 })
 
 describe("POST /v1/nodes", () => {
-  it("registers a node that proves its domain and answers a probe", async () => {
+  it("registers a node that proves its domain", async () => {
     const fake = upstream()
-    const response = await register(createApp(fake.fetch))
+    const response = await register(createApp(fake.fetch), {
+      ...REGISTRATION,
+      activeTunnels: 7,
+      maxActiveTunnels: 100,
+    })
 
     expect(response.status).toBe(201)
     const body = (await response.json()) as { node: Record<string, unknown> }
     expect(body.node).toMatchObject({ id: "hk1", status: "up", activeTunnels: 7 })
 
-    // Both subrequests, in the documented order: the proof is cheaper than the probe, so refusing on
-    // it saves a fetch to a host nobody has yet shown they control.
-    expect(fake.calls).toHaveLength(2)
+    // **One subrequest, and it is the resolver.** It was two — the second fetched the node's own
+    // `/v1/meta` — and that probe is gone with ADR-0049. A registration must never fetch the URL it
+    // was handed: that is what made this endpoint an open fetch proxy risk in the first place, held in
+    // check only by `verifyNodeUrl`.
+    expect(fake.calls).toHaveLength(1)
     expect(fake.calls[0]).toContain("cloudflare-dns.com")
-    expect(fake.calls[1]).toBe(`${ORIGIN}/v1/meta`)
   })
 
-  it("ignores a capacity a registration tries to claim", async () => {
-    // ADR-0046: a node that could assert `activeTunnels: 0` would be picked first by every client — a
-    // free denial of service against its own operator.
-    //
-    // The schema **strips** the unknown field rather than refusing the request, which is the right
-    // choice for forward compatibility — a newer client sending a field this node has not heard of
-    // must not be turned away. So the assertion is about the *effect*: what gets listed is what the
-    // probe saw, never what was sent. Asserting a 400 here was this test's first draft, and it was
-    // testing zod's strictness rather than the property that matters.
+  it("lists the capacity a registration claims", async () => {
+    // **Inverted by ADR-0049**, which reverses ADR-0046 on this point. The old objection stands and is
+    // accepted: a node asserting `activeTunnels: 0` is picked first by every client, a free denial of
+    // service against its own operator. The probe was never much of a defence — a node can answer
+    // `/v1/meta` with anything — and a directory of parties already trusted to carry traffic is not
+    // made safer by distrusting them about a counter.
     const app = createApp(upstream().fetch)
     const response = await register(app, {
       ...REGISTRATION,
-      activeTunnels: 0,
-      maxActiveTunnels: 999_999,
-      status: "up",
+      activeTunnels: 42,
+      maxActiveTunnels: 999,
+      status: "down",
     })
     expect(response.status).toBe(201)
 
     const body = (await response.json()) as { node: Record<string, unknown> }
-    expect(body.node.activeTunnels).toBe(7)
-    expect(body.node.maxActiveTunnels).toBe(100)
+    expect(body.node.activeTunnels).toBe(42)
+    expect(body.node.maxActiveTunnels).toBe(999)
+    // **`status` is still not the node's to claim.** It is absent from the schema, so it is stripped
+    // rather than refused (forward compatibility: a newer client's unknown field must not be turned
+    // away), and a node that just called is `up` by definition. A node asking to be listed as `down`
+    // is asking for what not registering already achieves.
+    expect(body.node.status).toBe("up")
   })
 
   it("refuses a URL outside the domain being proved", async () => {
@@ -217,17 +255,22 @@ describe("POST /v1/nodes", () => {
     expect(body.error.details?.reason).toBe("proof-missing")
   })
 
-  it("refuses a node whose own /v1/meta does not answer", async () => {
-    const fake = upstream({ nodes: { [ORIGIN]: null } })
-    const response = await register(createApp(fake.fetch), REGISTRATION)
-    expect(response.status).toBe(403)
-    const body = (await response.json()) as { error: { details?: { reason?: string } } }
-    expect(body.error.details?.reason).toBe("unreachable")
+  it("lists a node that claims no capacity, without inventing a zero", async () => {
+    // **Absent means unknown, not empty.** Both fields are optional, and storing `0` for a node that
+    // said nothing would make it look idle and sort it to the front of every client's list — the exact
+    // failure the old probe's "empty observation" case existed to avoid, arriving from the other side.
+    const response = await register(createApp(upstream().fetch), REGISTRATION)
+    expect(response.status).toBe(201)
+
+    const body = (await response.json()) as { node: Record<string, unknown> }
+    expect(body.node).not.toHaveProperty("activeTunnels")
+    expect(body.node).not.toHaveProperty("maxActiveTunnels")
+    expect(body.node.status).toBe("up")
   })
 
   it("refuses an unsolved proof of work", async () => {
     const app = createApp(upstream().fetch)
-    const challenge = await app.request("/v1/nodes/challenge", { headers: UA }, env)
+    const challenge = await app.request("/v1/nodes/challenge", { headers: GATEWAY }, env)
     const issued = (await challenge.json()) as { challenge: string; difficulty: number }
 
     // A nonce verified *not* to satisfy the difficulty, rather than a hardcoded "0" — which would
@@ -242,7 +285,7 @@ describe("POST /v1/nodes", () => {
       "/v1/nodes",
       {
         method: "POST",
-        headers: { ...UA, "content-type": "application/json" },
+        headers: { ...GATEWAY, "content-type": "application/json" },
         body: JSON.stringify({ ...REGISTRATION, challenge: issued.challenge, nonce: String(bad) }),
       },
       env,
@@ -258,7 +301,7 @@ describe("POST /v1/nodes", () => {
     const app = createApp(upstream().fetch)
     const proof = await solved(app)
     const body = JSON.stringify({ ...REGISTRATION, ...proof })
-    const headers = { ...UA, "content-type": "application/json" }
+    const headers = { ...GATEWAY, "content-type": "application/json" }
 
     const first = await app.request("/v1/nodes", { method: "POST", headers, body }, env)
     expect(first.status).toBe(201)
@@ -275,7 +318,7 @@ describe("POST /v1/nodes", () => {
     // A fresh challenge, which is what a node re-registering on boot would take.
     expect((await register(app, { ...REGISTRATION, version: "3.0.1" })).status).toBe(201)
 
-    const list = await app.request("/v1/nodes", { headers: UA }, env)
+    const list = await app.request("/v1/nodes", { headers: GATEWAY }, env)
     const body = (await list.json()) as { nodes: Array<{ version: string }> }
     // Refreshed, not duplicated.
     expect(body.nodes).toHaveLength(1)
@@ -311,7 +354,7 @@ describe("POST /v1/nodes", () => {
     expect(body.error.details?.reason).toBe("id-taken")
 
     // And the original entry is untouched.
-    const list = await app.request("/v1/nodes", { headers: UA }, env)
+    const list = await app.request("/v1/nodes", { headers: GATEWAY }, env)
     const listed = (await list.json()) as { nodes: Array<{ url: string }> }
     expect(listed.nodes[0]?.url).toBe(ORIGIN)
   })

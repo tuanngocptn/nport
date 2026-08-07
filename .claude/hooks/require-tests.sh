@@ -41,7 +41,7 @@ area_of() {
   case "$1" in
     apps/desktop/src-tauri/src/*.rs | apps/desktop/src-tauri/src/*/*.rs) echo "apps/desktop/src-tauri" ;;
     crates/*/src/*) echo "$1" | cut -d/ -f1-2 ;;
-    apps/api/src/*) echo "apps/api" ;;
+    apps/node/src/*) echo "apps/node" ;;
     apps/web/src/*) echo "apps/web" ;;
     apps/desktop/src/*) echo "apps/desktop" ;;
     packages/*/src/*) echo "$1" | cut -d/ -f1-2 ;;
@@ -86,7 +86,7 @@ EOF
 while IFS= read -r path; do
   case "$path" in
     crates/*/tests/*) tested_areas="$tested_areas $(echo "$path" | cut -d/ -f1-2)" ;;
-    apps/api/test/*) tested_areas="$tested_areas apps/api" ;;
+    apps/node/test/*) tested_areas="$tested_areas apps/node" ;;
     apps/web/e2e/* | apps/web/test/*) tested_areas="$tested_areas apps/web" ;;
     apps/desktop/e2e/* | apps/desktop/test/*) tested_areas="$tested_areas apps/desktop" ;;
     apps/desktop/src-tauri/tests/*) tested_areas="$tested_areas apps/desktop/src-tauri" ;;
@@ -117,7 +117,7 @@ printf '%s\n' "$fingerprint" >>"$marker" 2>/dev/null || true
 
 expectation() {
   case "$1" in
-    apps/api) echo "Vitest with @cloudflare/vitest-pool-workers in apps/api/test/ — Durable Object storage and alarms must run in real workerd, not a mock" ;;
+    apps/node) echo "Vitest with @cloudflare/vitest-pool-workers in apps/node/test/ — Durable Object storage and alarms must run in real workerd, not a mock" ;;
     apps/web) echo "Playwright in apps/web/e2e/ — behavioural assertions plus a visual snapshot (ADR-0023)" ;;
     apps/desktop) echo "a test under apps/desktop/e2e/" ;;
     apps/desktop/src-tauri) echo "inline #[cfg(test)] tests, or apps/desktop/src-tauri/tests/" ;;

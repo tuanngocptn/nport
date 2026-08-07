@@ -60,7 +60,7 @@ gh api "repos/cloudflare/cloudflared/git/trees/$REF?recursive=1" \
 
 ## 2. Terminology
 
-- **Tunnel** — a Cloudflare resource identified by a UUID, created via the Cloudflare API by `apps/api`. Traffic reaches it through a DNS CNAME to `<tunnelID>.cfargotunnel.com`.
+- **Tunnel** — a Cloudflare resource identified by a UUID, created via the Cloudflare API by `apps/node`. Traffic reaches it through a DNS CNAME to `<tunnelID>.cfargotunnel.com`.
 - **Connector** — the client process that registers connections to a tunnel and proxies traffic. In v2 this was `cloudflared`; in v3 it is `crates/protocol` + `crates/core`.
 - **Connection index** — `0..N-1`, identifying one of the N concurrent edge connections belonging to a single connector. Default N = 4.
 - **Edge** — a Cloudflare data-centre endpoint the connector dials.
@@ -69,7 +69,7 @@ gh api "repos/cloudflare/cloudflared/git/trees/$REF?recursive=1" \
 
 ## 3. Credentials
 
-`apps/api` returns a **tunnel token**: standard padded base64 (`base64.StdEncoding`, *not* URL-safe, *not* raw) of a JSON object.
+`apps/node` returns a **tunnel token**: standard padded base64 (`base64.StdEncoding`, *not* URL-safe, *not* raw) of a JSON object.
 
 > `connection/connection.go` → `TunnelToken`, `cmd/cloudflared/tunnel/subcommands.go` → `ParseToken`
 
@@ -467,7 +467,7 @@ Upstream wraps the stream so temporary read/write errors are retried up to 3 tim
 
 Only connection index 0, and only when `ConnectionDetails.tunnelIsRemotelyManaged` is false, sends `updateLocalConfiguration(configJson)`.
 
-**NPort's tunnels are created with `config_src: "cloudflare"`** (remotely managed) by `apps/api`, so `tunnelIsRemotelyManaged` will be true and this call is skipped entirely. Routing is DNS CNAME plus the connector's own local ingress decision. Implement the method for completeness, expect never to call it.
+**NPort's tunnels are created with `config_src: "cloudflare"`** (remotely managed) by `apps/node`, so `tunnelIsRemotelyManaged` will be true and this call is skipped entirely. Routing is DNS CNAME plus the connector's own local ingress decision. Implement the method for completeness, expect never to call it.
 
 ## 10. Features and client identity
 
@@ -605,7 +605,7 @@ Two consequences:
 - **`crates/core` must not report the URL as ready the moment registration returns.** Doing so hands the user a link that 530s on their first click, which reads as NPort being broken. Either poll until a request succeeds or state that propagation takes a moment.
 - **`1033` is not our bug and not a reason to retry registration.** The connection is registered; the edge is still catching up. Distinguish it from a genuine registration failure.
 
-Separately, `apps/api` should not imply the URL is live in its create response either: the DNS record took **6–18 s** to resolve in testing, and the record is proxied, so `dig CNAME` returns nothing while A records answer.
+Separately, `apps/node` should not imply the URL is live in its create response either: the DNS record took **6–18 s** to resolve in testing, and the record is proxied, so `dig CNAME` returns nothing while A records answer.
 
 Graceful shutdown (`connection/control.go`, `connection/quic_connection.go`):
 

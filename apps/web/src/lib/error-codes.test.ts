@@ -6,7 +6,7 @@ import { codeFromSlug, errorPageParams, errorSlug, everySlug } from "./error-cod
 /**
  * The promise `/errors/[code]` exists to keep.
  *
- * Every error envelope `apps/api` returns carries a `docsUrl`, and for the seven codes `crates/cli`
+ * Every error envelope `apps/node` returns carries a `docsUrl`, and for the seven codes `crates/cli`
  * does not translate, that URL is the *entire* remedy the user is offered. Thirty-three of them existed
  * before this route did and none resolved — so the test that matters is coverage and round-tripping,
  * not layout.
@@ -45,7 +45,7 @@ describe("every code the product can emit has a page", () => {
 
   it("resolves the URL the contract actually puts in an envelope", () => {
     // Derived from `docsUrl` rather than rebuilt here, because rebuilding it is how the two spellings
-    // drift — and `docsUrl` is the function `apps/api` and `crates/cli` both call.
+    // drift — and `docsUrl` is the function `apps/node` and `crates/cli` both call.
     for (const code of ERROR_CODES) {
       const url = new URL(docsUrl(code))
       const slug = url.pathname.replace("/errors/", "")

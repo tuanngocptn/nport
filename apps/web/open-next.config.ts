@@ -15,7 +15,7 @@ import staticAssetsIncrementalCache from "@opennextjs/cloudflare/overrides/incre
  * Nothing local caught it. `next build` prerendered all 33, Vitest asserted one page per code, and the
  * home page and `/errors` index both worked because they are fully static and get inlined — so the only
  * broken routes were the ones nothing on the site links to. They are also the ones that matter most:
- * every error envelope `apps/api` returns points a user at one (`src/app/errors/[code]/page.tsx`).
+ * every error envelope `apps/node` returns points a user at one (`src/app/errors/[code]/page.tsx`).
  *
  * `staticAssetsIncrementalCache` keeps the original intent intact. It serves the prerendered payloads
  * out of Workers Static Assets — the `.open-next/assets` directory this app already deploys — so there

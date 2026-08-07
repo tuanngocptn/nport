@@ -13,7 +13,7 @@ node with a free slot. ADR-0031.
 
 > **Naming.** The design calls these "control plane" and "relay node"; the repo calls them
 > **registry** and **node** (ADR-0031). The rename is not cosmetic: `control plane` already means
-> `apps/api` everywhere in this repo — `docs/API.md` is literally titled "Control-plane API" — so
+> `apps/node` everywhere in this repo — `docs/API.md` is literally titled "Control-plane API" — so
 > reusing it for the registry would break every existing reference. `relay` is also misleading:
 > a node provisions tunnels, it does not relay their traffic.
 
@@ -31,12 +31,12 @@ node with a free slot. ADR-0031.
 - [ ] Failover when the chosen node dies mid-session
 - [ ] Private nodes — visible only to their owner
 - [ ] ~~Prevent a rogue node from registering and intercepting traffic (signed registration)~~ — **conflicts with ADR-0031**, which chose open anonymous enrolment and decided to *document* the interception exposure rather than defend against it. Open question 6 reopens it. One of the two has to give; see below
-- [ ] Never proxy tunnel traffic, and keep the registry cheap. Note it cannot be *stateless*: the node list is mutable shared state and therefore a Durable Object (`apps/api/CLAUDE.md` rule 4)
+- [ ] Never proxy tunnel traffic, and keep the registry cheap. Note it cannot be *stateless*: the node list is mutable shared state and therefore a Durable Object (`apps/node/CLAUDE.md` rule 4)
 - [ ] Public status page fed by the same health data
 
 ## 2. Node (the design's "relay node")
 
-- [x] Runs against one Cloudflare account — **`apps/api` already is this**, unchanged
+- [x] Runs against one Cloudflare account — **`apps/node` already is this**, unchanged
 - [ ] Reads its own plan and quota
 - [ ] Registers with the registry on boot, heartbeats thereafter
 - [ ] Reports capacity, usage, version, region
@@ -207,7 +207,7 @@ The design is macOS Tahoe only. Before shipping Windows and Linux:
    halves are separable: disclosing the exposure in the UI is cheap and is not the same as
    preventing it.
 7. **Is the 3 / 25 quota a Cloudflare limit or ours?** The architecture note reads "Free = 3,
-   Pro = 25". `MAX_CONCURRENT_PER_SOURCE: 3` in `apps/api/wrangler.jsonc` is **NPort's own
+   Pro = 25". `MAX_CONCURRENT_PER_SOURCE: 3` in `apps/node/wrangler.jsonc` is **NPort's own
    per-source abuse cap**, not a Cloudflare account limit — and if the 3 is that, adding accounts
    does not lift it, because it is enforced per caller rather than per account. The capacity
    argument for federation rests on this, so it is worth confirming which ceiling is meant before

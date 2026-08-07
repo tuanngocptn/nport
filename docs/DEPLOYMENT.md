@@ -56,7 +56,7 @@ which forecloses the wrong-scope mistake entirely. Nothing in this pipeline call
 endpoint (ADR-0043), so nothing here needs a user token.
 
 **Names carry no environment.** `nport-ci` and `nport-worker` in *both* accounts, exactly as the
-Workers are `nport-api` and `nport-web` in both (ADR-0038). The account is the isolation; a suffix
+Workers are `nport-gateway`, `nport-node`, `nport-registry` and `nport-web` in both (ADR-0038). The account is the isolation; a suffix
 would only make one environment read differently from the other.
 
 ### How this form works
@@ -140,8 +140,8 @@ The token the control plane uses at runtime, and nothing else uses at all.
 6. **Review token** → confirm it is those two → create → copy.
 7. Save as the GitHub secret **`WORKER_CF_API_TOKEN`** (step 4).
 
-Those two are the entire Cloudflare surface `apps/api` touches — three calls to provision a tunnel,
-four to tear one down (`apps/api/CLAUDE.md`). It never deploys anything and never reads a token.
+Those two are the entire Cloudflare surface `apps/node` touches — three calls to provision a tunnel,
+four to tear one down (`apps/node/CLAUDE.md`). It never deploys anything and never reads a token.
 
 ---
 
@@ -242,7 +242,7 @@ git push
    The subdomain is a Workers *account* prerequisite, not infrastructure: Cloudflare refuses to
    upload any script to an account that has never had one, and the dashboard normally creates it as
    a side effect of being visited. Provider v5 has no resource for it, so the job calls the API
-   directly — read first, PUT only if absent. Both Workers set `workers_dev: false`, so nothing is
+   directly — read first, PUT only if absent. Every Worker sets `workers_dev: false`, so nothing is
    ever served there; this only satisfies the upload check.
 3. **api** and **web** in parallel — `wrangler deploy`, then the six secrets are pushed with
    `wrangler secret bulk` in one call.
@@ -255,7 +255,17 @@ produce.
 
 The secrets are synced **after** the deploy because `wrangler secret bulk` targets a Worker that
 already exists. In the gap the Worker is live without them and fails closed — `missingBindings` in
-`apps/api/src/env.ts` refuses the request rather than provisioning with a missing key.
+`apps/node/src/env.ts` refuses the request rather than provisioning with a missing key.
+
+**Three backend Workers deploy in dependency order** (ADR-0049): node and registry in parallel, then
+the gateway. Cloudflare rejects a deploy whose `services` binding names a script that does not exist,
+so the gateway cannot go first — and it is the only one with a hostname, so until it lands the
+deployment answers nothing at all. That is the right failure order: a gateway pointing at Workers that
+exist beats a hostname pointing at bindings that do not.
+
+Each Worker receives only the secrets its own `REQUIRED_SECRETS` lists, filtered out of Terraform's
+per-Worker map. `pnpm deploy:check` fails the gate if any Worker requires one the deploy does not
+carry, or carries one it does not require.
 
 ## 7. Confirm
 

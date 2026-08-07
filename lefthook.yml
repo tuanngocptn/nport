@@ -30,7 +30,7 @@ commit-msg:
         case "$subject" in
           Merge*|Revert*|fixup!*|squash!*) exit 0 ;;
         esac
-        if ! printf '%s' "$subject" | grep -Eq '^(feat|fix|docs|refactor|test|chore)(\((gateway|node|registry|api|web|desktop|cli|core|protocol|contract|ci|docs)\))?!?: .+$'; then
+        if ! printf '%s' "$subject" | grep -Eq '^(feat|fix|docs|refactor|test|chore)(\((gateway|node|registry|web|desktop|cli|core|protocol|contract|ci|docs)\))?!?: .+$'; then
           echo "Commit subject must be: type(scope): description"
           echo "  types:  feat fix docs refactor test chore"
           echo "  scopes: gateway node registry api web desktop cli core protocol contract ci docs"

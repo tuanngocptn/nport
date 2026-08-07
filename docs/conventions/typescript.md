@@ -1,6 +1,6 @@
 # TypeScript conventions
 
-Applies to `apps/api`, `apps/web`, `apps/desktop/src`, and `packages/*`.
+Applies to `apps/node`, `apps/web`, `apps/desktop/src`, and `packages/*`.
 
 Carried forward from v2, which got these right. Biome enforces most of them mechanically (ADR-0013) — prefer a lint rule over a paragraph here.
 
@@ -55,7 +55,7 @@ The contract is the authority. If a route needs a new field, add it to `packages
 
 ## Errors
 
-Never `throw new Error("...")` in `apps/api`. Throw a typed error carrying a code from the registry:
+Never `throw new Error("...")` in `apps/node`. Throw a typed error carrying a code from the registry:
 
 ```ts
 throw new ApiError("SUBDOMAIN_IN_USE", { expiresAt })
@@ -81,8 +81,8 @@ No inline hex colours anywhere. Colours come from `packages/design-tokens` via T
 
 ## Tests
 
-Vitest. `apps/api` uses `@cloudflare/vitest-pool-workers` so Durable Object storage and alarms run in real `workerd` — a mocked DO proves nothing about the semantics the design depends on. See `docs/TESTING.md`.
+Vitest. `apps/node` uses `@cloudflare/vitest-pool-workers` so Durable Object storage and alarms run in real `workerd` — a mocked DO proves nothing about the semantics the design depends on. See `docs/TESTING.md`.
 
 ## Generated files
 
-Never hand-edit anything with a `@generated` banner: `schema/nport-api.openapi.json`, `apps/desktop/src/generated/bindings.ts`, `docs/ERRORS.md`. Edit the source and run `pnpm codegen`. CI fails on drift.
+Never hand-edit anything with a `@generated` banner: `schema/nport-node.openapi.json`, `apps/desktop/src/generated/bindings.ts`, `docs/ERRORS.md`. Edit the source and run `pnpm codegen`. CI fails on drift.

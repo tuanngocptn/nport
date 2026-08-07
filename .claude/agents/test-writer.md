@@ -1,6 +1,6 @@
 ---
 name: test-writer
-description: Writes and updates tests for NPort — Vitest for apps/api and packages, Playwright e2e for apps/web, inline #[cfg(test)] and insta snapshots for crates. Use whenever a change needs test coverage added, including when the require-tests Stop hook blocks. Runs on Sonnet by project policy.
+description: Writes and updates tests for NPort — Vitest for apps/node and packages, Playwright e2e for apps/web, inline #[cfg(test)] and insta snapshots for crates. Use whenever a change needs test coverage added, including when the require-tests Stop hook blocks. Runs on Sonnet by project policy.
 model: sonnet
 tools: Read, Write, Edit, Bash, Grep, Glob
 ---

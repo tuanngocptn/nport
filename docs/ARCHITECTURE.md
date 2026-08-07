@@ -1,6 +1,8 @@
 ---
 applies_to:
-  - apps/api/src/**
+  - apps/gateway/src/**
+  - apps/node/src/**
+  - apps/registry/src/**
   - crates/core/src/**
   - packages/contract/src/**
 ---
@@ -9,7 +11,9 @@ applies_to:
 
 How NPort v3 works. For *why* it is built this way, see `docs/DECISIONS.md`. For the connector wire protocol, see `docs/PROTOCOL.md`.
 
-**Status: design. Nothing in this document is implemented yet.**
+**Status: staging is live** and §3a–§3f describe code that runs. §1's federated topology and §7's
+placement of the rate limiter describe ADR-0049's shape, which is **written and not deployed** —
+`docs/ROADMAP.md` § Backend first is the difference.
 
 ## 1. System context
 
@@ -23,19 +27,36 @@ How NPort v3 works. For *why* it is built this way, see `docs/DECISIONS.md`. For
                          │                   │        myapp.nport.link   │
                          │ HTTPS             │                           │
                          └───────────────────┼─► api.nport.link          │
-                                             │     (nport-api Worker)    │
+                                             │     nport-gateway         │
+                                             │       │ service binding   │
+                                             │       └─► nport-node       │
+                                             │           (no hostname)   │
    end user ─── https://myapp.nport.link ────┼─► edge ──► the tunnel     │
                                              └───────────────────────────┘
 ```
+
+**One hostname per deployment, and one Worker behind it with a route** (ADR-0049). `nport-gateway`
+owns `api.nport.link`, applies the cross-cutting concerns once — client gate, rate limit, request id,
+source identity — and dispatches over service bindings. `nport-node` and `nport-registry` declare no
+`routes` and set `workers_dev: false`, so a request can reach them only through the binding.
 
 | Actor | Trust | Notes |
 | --- | --- | --- |
 | Developer running the CLI | untrusted | Anonymous. No account exists to authenticate. |
 | End user of a tunnel URL | untrusted | Never touches NPort infrastructure; the edge routes them straight to the tunnel. |
-| `api.nport.link` | trusted | Holds the Cloudflare API token. The only component with credentials. |
+| `nport-gateway` | trusted, holds no credential | Terminates every public request — the largest attack surface in a deployment, and deliberately unable to provision anything. |
+| `nport-node` (a node) | trusted | Holds the Cloudflare API token. The only component with credentials. Unreachable except through the gateway. |
+| `nport-registry` | trusted, holds no credential | The directory. Master deployments only. Unreachable except through the gateway. |
 | Cloudflare edge + API | external dependency | Provides TLS, DNS, DDoS protection, and the data plane. |
 
-**The trust boundary that matters:** because there are no accounts, `apps/api` cannot authenticate *who* is asking. It can only make claims verifiable and make abuse expensive. Every design decision in §7 follows from that.
+**The trust boundary that matters:** because there are no accounts, no Worker can authenticate *who* is asking. It can only make claims verifiable and make abuse expensive. Every design decision in §7 follows from that.
+
+**The second trust boundary is a deployment property, not a cryptographic one.** `nport-node` and
+`nport-registry` believe the `x-nport-source-hash` header the gateway sets, and their entire reason
+for believing it is that nothing else can reach them. A `routes` entry on either would break that
+silently: every deploy would still succeed and any caller who found the hostname could adopt any
+identity, defeating all three per-source controls at once. `checkReachability` in
+`scripts/deploy-check.mjs` fails the deploy instead.
 
 **The control plane never sees tunnel traffic.** Request bodies flow edge → connector → localhost; provisioning and reaping are the whole of its involvement, and no byte of a request transits a Worker (§3b).
 
@@ -49,34 +70,49 @@ account**, so `*.nport.link` cannot be spread across accounts. Every shard needs
 well as its own account, which is what forces the shape below (ADR-0031).
 
 ```text
-                        ┌─ registry.nport.link ──────────────┐
-   nport CLI ──────────►│  GET /v1/nodes   the directory     │◄──── nodes register
-   or desktop           │  no credentials, provisions nothing│      and are probed
-        │               └────────────────────────────────────┘
+   nport CLI ──────────► https://api.nport.link/v1/nodes   (nport-registry)
+   or desktop            the directory, behind the same hostname as node #1
+        │
         │ probes a few, picks the fastest with capacity
         │
         ├──► api.nport.link   node #1, our account   ──► *.nport.link
         ├──► api.nport.dev    node #2, someone else  ──► *.nport.dev
         └──► …                anyone may run one
+
+   each node, on its own cron:  GET  <PUBLIC_URL>/v1/health   (am I reachable?)
+                                GET  <registry>/v1/nodes/challenge
+                                POST <registry>/v1/nodes        (id, url, domain, capacity)
 ```
+
+**A node operator deploys two Workers, not three.** `nport-gateway` and `nport-node`; the registry's
+code never reaches their account. Role is a deployment, not a configuration flag — a node-only
+deployment omits the `REGISTRY` binding, so `/v1/nodes` does not exist there rather than 404ing.
 
 The registry is **advisory, not load-bearing**: the client caches the list, so a registry that is
 down costs nothing. Selection is the client's — the registry never assigns a node.
 
-Enrolment is open and anonymous, gated only by proof of work, a DNS TXT proof of domain control,
-and a liveness probe. There is no shared secret, and therefore **no assurance about who runs a
-node** — see the trust note in §1 and § Deferred in `docs/ROADMAP.md`.
+**Liveness is pushed, not polled** (ADR-0049). The registry fetches no node. It records `last_seen_at`
+from each registration and ages the list: silence past `NODE_DOWN_AFTER_SECONDS` reads as `down` and
+stays listed, silence past `NODE_DELIST_AFTER_SECONDS` deletes the row. A node that stops registering
+is presumed gone, which is a stronger claim than a probe could make — a probe proved only that the
+registry could reach the node, while a heartbeat proves the node is running, configured, and able to
+reach the registry, having first confirmed its own public URL answers.
+
+Enrolment is open and anonymous, gated by proof of work, a DNS TXT proof of domain control, and the
+node's own reachability check. There is no shared secret, and therefore **no assurance about who runs
+a node** — see the trust note in §1 and § Deferred in `docs/ROADMAP.md`.
 
 ## 2. Components
 
 | Component | Responsibility | May talk to |
 | --- | --- | --- |
 | `crates/protocol` | Connector wire protocol: edge discovery, QUIC/HTTP2 transport, capnp registration, per-stream framing | Cloudflare edge |
-| `crates/core` | `TunnelManager`: provision → connect → proxy → teardown. Connection pool, reconnect, local proxy, event stream, optional inspector. **Headless.** | `crates/protocol`, `crates/contract`, `api.nport.link`, localhost |
+| `crates/core` | `TunnelManager`: provision → connect → proxy → teardown. Connection pool, reconnect, local proxy, event stream, optional inspector. **Headless.** | `crates/protocol`, `crates/contract`, a node's public hostname, localhost |
 | `crates/cli` | Argument parsing, terminal rendering, config file, i18n, signal handling | `crates/core` |
 | `apps/desktop` | GUI, tray, traffic inspector UI, auto-update | `crates/core` via Tauri IPC |
-| `apps/api` | **A node.** Control plane: validate, claim, provision, heartbeat, reap. One Cloudflare account, one zone | Cloudflare API, its own Durable Objects, the registry |
-| `apps/registry` | **The directory.** Accepts node registrations, probes them, answers `GET /v1/nodes`. Holds no credentials and provisions nothing (ADR-0031) | the nodes it has listed |
+| `apps/gateway` | **The front door.** Owns the deployment's one route. Client gate, rate limit, request id, source identity, `/v1/health`, the `/` redirect — then dispatch by path prefix. Holds no Cloudflare credential and no storage | `NODE` and `REGISTRY` service bindings |
+| `apps/node` | **A node.** Control plane: validate, claim, provision, heartbeat, reap. One Cloudflare account, one zone. No route | Cloudflare API, its own Durable Objects, its own `PUBLIC_URL`, the registry |
+| `apps/registry` | **The directory.** Accepts node registrations, ages what it lists, answers `GET /v1/nodes`. Holds no credentials, provisions nothing, and fetches no node (ADR-0031, ADR-0049). No route | a DNS-over-HTTPS resolver |
 | `apps/web` | Marketing site, user docs, error-code pages | nothing at runtime |
 | `packages/contract` | The API contract: zod schemas, OpenAPI, error registry | — (build-time authority) |
 
@@ -87,7 +123,7 @@ node** — see the trust note in §1 and § Deferred in `docs/ROADMAP.md`.
 ### 3a. Provisioning
 
 ```
-CLI                          apps/api                    Cloudflare API
+CLI                          apps/node                    Cloudflare API
  │                               │                             │
  ├─ probe localhost:3000 ────────┤                             │
  │  (fail fast if nothing there) │                             │
@@ -125,7 +161,7 @@ end user → https://myapp.nport.link
   → (desktop only) a copy of the exchange lands in core::inspector
 ```
 
-`apps/api` is **not on this path**. Tunnel throughput does not consume Worker CPU, Worker requests, or DO time — only provisioning does. This is what makes a free tier viable.
+`apps/node` is **not on this path**. Tunnel throughput does not consume Worker CPU, Worker requests, or DO time — only provisioning does. This is what makes a free tier viable.
 
 ### 3c. Heartbeat
 
@@ -229,15 +265,15 @@ This is an invariant because v2's takeover path was a *deliberate feature*: any 
 
 ### Abuse controls
 
-| Layer | Mechanism |
-| --- | --- |
-| Edge | Cloudflare zone rate limiting on `api.nport.link` |
-| Per-source | Workers rate-limit binding keyed on `HMAC(source, rotating_secret)` + ASN, where `source` is an IPv4 address whole or an IPv6 address narrowed to its 64-bit prefix. **Raw IPs are never stored.** |
-| Cost | Stateless proof-of-work on create: `GET /v1/challenge` returns an HMAC'd challenge; create requires a nonce with N leading zero bits. ~100 ms for one user, prohibitive at scale, invisible in the CLI, difficulty raised dynamically under load |
-| Concurrency | Per-source cap on simultaneous leases and hourly creates |
-| Global | `MAX_ACTIVE_TUNNELS` → `503 CAPACITY_EXHAUSTED` |
-| Browser | **No CORS headers at all**, so no web page can drive the API |
-| Client | Required client identification with a minimum-version gate → `426 CLIENT_TOO_OLD` |
+| Layer | Where | Mechanism |
+| --- | --- | --- |
+| Edge | Cloudflare zone | Rate limiting on `api.nport.link` |
+| Per-source | **`apps/gateway`** | Workers rate-limit binding keyed on `HMAC(source, rotating_secret)` + ASN, where `source` is an IPv4 address whole or an IPv6 address narrowed to its 64-bit prefix. **Raw IPs are never stored, and no other Worker ever sees one** — the gateway forwards the hash (ADR-0049) |
+| Cost | `apps/node`, `apps/registry` | Stateless proof-of-work on create: a challenge endpoint returns an HMAC'd challenge; the write requires a nonce with N leading zero bits. ~100 ms for one user, prohibitive at scale, invisible in the CLI, difficulty raised dynamically under load. **The two services sign with different secrets**, so a node's challenge is not redeemable at the registry — which is why the registry's sits at `/v1/nodes/challenge` rather than sharing a path |
+| Concurrency | `apps/node` | Per-source cap on simultaneous leases and hourly creates, keyed on the forwarded hash |
+| Global | `apps/node` | `MAX_ACTIVE_TUNNELS` → `503 CAPACITY_EXHAUSTED` |
+| Browser | all | **No CORS headers at all**, so no web page can drive the API |
+| Client | **`apps/gateway`** | Required client identification with a minimum-version gate → `426 CLIENT_TOO_OLD`, applied once in front of both services |
 
 Proof-of-work is the load-bearing control: it is the only one that raises attacker cost without an account or a stored identifier.
 
@@ -261,7 +297,9 @@ Generated names are `nport-<base32(8 random bytes)>`. v2 used `user-<random 0..9
 
 ### Secrets
 
-`apps/api` holds the only credentials: `CF_API_TOKEN` (scoped to `Cloudflare Tunnel Write` and `DNS Write`, and nothing else), `CF_ACCOUNT_ID`, `CF_ZONE_ID`, `CF_DOMAIN`, plus the PoW and IP-hash secrets. Inventory and rotation in `docs/OPERATIONS.md`.
+**`apps/node` holds the only Cloudflare credentials**, and it is the Worker that cannot be reached from outside: `CF_API_TOKEN` (scoped to `Cloudflare Tunnel Write` and `DNS Write`, and nothing else), `CF_ACCOUNT_ID`, `CF_ZONE_ID`, `CF_DOMAIN`, plus its own `POW_SECRET`. The gateway terminates every public request and can provision nothing — which is the point of the split, since it is the largest attack surface in a deployment.
+
+`apps/gateway` holds `IP_HASH_SECRET` and nothing else. `apps/registry` holds a `POW_SECRET` that **must differ from the node's**. Inventory and rotation in `docs/OPERATIONS.md`.
 
 **No secret ships in any client artifact.** v2 shipped its GA4 measurement ID *and API secret* in the published npm bundle.
 
