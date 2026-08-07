@@ -105,7 +105,7 @@ pnpm codegen       cargo xtask codegen   # regenerate; must leave the tree clean
 @docs/conventions/typescript.md
 @docs/conventions/rust.md
 
-Commits are conventional: `type(scope): description` with types `feat|fix|docs|refactor|test|chore` and scopes `api|web|desktop|cli|core|protocol|contract|ci|docs`. Branches are prefixed `feature/`, `fix/`, `docs/`, `refactor/`, `protocol/`.
+Commits are conventional: `type(scope): description` with types `feat|fix|docs|refactor|test|chore` and scopes `gateway|node|registry|api|web|desktop|cli|core|protocol|contract|ci|docs`. The first three arrived with ADR-0049; `api` stays for the v2-era history that already used it. Branches are prefixed `feature/`, `fix/`, `docs/`, `refactor/`, `protocol/`.
 
 Every user-visible failure carries a code from the registry in `packages/contract`. Never match on an error message string — that was v2's central design mistake (see ADR-0018).
 

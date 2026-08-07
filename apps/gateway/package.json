@@ -1,0 +1,27 @@
+{
+  "name": "@nport/gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "NPort's public front door: cross-cutting middleware, and dispatch to the internal services.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nport/contract": "workspace:*",
+    "@nport/worker-kit": "workspace:*",
+    "hono": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "@nport/tsconfig": "workspace:*",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "@nport/tsconfig/worker.json",
+  "compilerOptions": {
+    // The shared worker base sets `types: []` so it forces no dependency on its consumers.
+    // This app genuinely needs both: Workers runtime globals, and the `cloudflare:test` module
+    // that the workerd test pool injects.
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "*.ts"]
+}

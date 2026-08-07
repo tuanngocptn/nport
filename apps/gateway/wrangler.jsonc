@@ -1,0 +1,76 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  // No secret belongs in this file. `IP_HASH_SECRET` is pushed by `wrangler secret bulk` from the
+  // Terraform output at deploy time (`docs/DEPLOYMENT.md`), like every other secret in the repo.
+
+  "name": "nport-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "observability": { "enabled": true },
+
+  // **The only Worker in a deployment that has one** (ADR-0049). `apps/node` and `apps/registry`
+  // deliberately declare none, so a request can reach them only through a service binding — which is
+  // what makes it safe for them to trust the `x-nport-source-hash` header this Worker sets.
+  "routes": [{ "pattern": "api.nport.link", "custom_domain": true }],
+
+  // Off for the same reason it is off elsewhere: a `workers.dev` hostname would bypass the
+  // zone-scoped edge rate-limit ruleset that `infra/terraform` attaches to the custom domain.
+  "workers_dev": false,
+
+  // Both services in production: this deployment is node #1 *and* the directory. A node-only
+  // deployment omits `REGISTRY`, and `/v1/nodes` then does not exist there rather than 404ing —
+  // `src/env.ts` requires `NODE` and deliberately does not require `REGISTRY`.
+  "services": [
+    { "binding": "NODE", "service": "nport-node" },
+    { "binding": "REGISTRY", "service": "nport-registry" }
+  ],
+
+  // 1001 is the node's and 1002 the registry's. Sharing a namespace would put unrelated callers in
+  // one bucket; this Worker now does the limiting for all three, but the namespace stays distinct so
+  // an internal service that is later given its own limiter does not collide.
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      "namespace_id": "1003",
+      "simple": { "limit": 60, "period": 60 }
+    }
+  ],
+
+  // No cron. The gateway holds no state and reconciles nothing; `apps/node` and `apps/registry` keep
+  // their own schedules, which run whether or not a request ever arrives.
+
+  "vars": {
+    // The floor for `nport/<version>` User-Agents, checked here so both internal services receive an
+    // already-gated request. Not authentication (ADR-0007) — anyone can send any header. It exists
+    // because NPort owns the connector protocol: when Cloudflare's edge changes, installed clients
+    // break in ways only a new binary fixes, and this is the only channel for saying so.
+    "MIN_CLIENT_VERSION": "3.0.0"
+  },
+
+  "env": {
+    // A separate Cloudflare account, selected by `CLOUDFLARE_ACCOUNT_ID` in CI (ADR-0038). `vars` are
+    // `notInheritable`, so every key is repeated rather than merged — `pnpm deploy:check` diffs the
+    // resolved names between environments and fails on a key that exists in one and not the other.
+    "staging": {
+      "name": "nport-gateway",
+      "routes": [{ "pattern": "api.nport.online", "custom_domain": true }],
+      "workers_dev": false,
+      "services": [
+        { "binding": "NODE", "service": "nport-node" },
+        { "binding": "REGISTRY", "service": "nport-registry" }
+      ],
+      "ratelimits": [
+        {
+          "name": "RATE_LIMITER",
+          "namespace_id": "1003",
+          "simple": { "limit": 60, "period": 60 }
+        }
+      ],
+      "vars": {
+        // Lower than production so a `3.0.0-dev` build can talk to staging at all.
+        "MIN_CLIENT_VERSION": "0.0.0"
+      }
+    }
+  }
+}

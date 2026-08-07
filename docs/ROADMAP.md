@@ -755,8 +755,12 @@ into nothing, and swallows the failure — by design, silently. That is the gap.
       Hono's own registration table. Nothing checked that before — the contract is the authority and
       the only thing verifying it was the generated OpenAPI, which describes the contract to itself.
       It failed on its first run, which is how the drift above was found rather than deployed
-- [ ] **`apps/gateway`**: the only public Worker. Middleware lifted out of `apps/api`, dispatch to
-      `NODE`/`REGISTRY` bindings, `sourceHash` forwarded as a header
+- [x] **`apps/gateway`**: the only public Worker. Middleware lifted out of `apps/api`, dispatch to
+      `NODE`/`REGISTRY` bindings, `sourceHash` forwarded as a header. 18 tests, including one that
+      forges `x-nport-source-hash` and asserts the gateway overwrites it — internal services trust
+      that header because they are unreachable, so a pass-through would hand any caller any identity
+      and defeat every per-source cap at once. Its conformance test asks what the other two cannot:
+      not whether a Worker implements its table, but whether a request for that table can reach it
 - [ ] **`apps/api` → `apps/node`**: no route of its own, reads `sourceHash`/`requestId` from headers,
       self-checks `PUBLIC_URL/v1/health` before registering, sends its capacity
 - [ ] **`apps/registry`**: probe out, staleness sweep in; `Directory` keyed on `last_seen_at`
@@ -764,6 +768,20 @@ into nothing, and swallows the failure — by design, silently. That is the gap.
       `POW_SECRET` differs from the node's — they must not match, or a node's challenge is redeemable
       at the registry
 - [ ] **Verify on staging**: node #1 registers within one cron period and `GET /v1/nodes` returns it
+
+**Two things found while building it, neither fixed there.**
+
+**The v2 shim is now unreachable, deliberately.** `apps/node` keeps `POST /` and `DELETE /` from
+`routes/legacy.ts` with ~40 passing tests, and the gateway forwards only `/v1/*` — v3 first, backward
+compatibility later. Tested-but-unreachable code is the exact shape seven defects here have been
+about, so it is stated rather than left to be found: `apps/gateway/test/legacy-gap.test.ts` asserts
+the gap and **starts failing the day `/` is routed**, which is why it is a test and not a note.
+
+**`GET /v1/health` is not in `packages/contract`.** `docs/API.md` documents it as a public endpoint
+and three Workers serve it, but no route table defines it — so invariant 7 does not hold for it, and
+none of the three conformance tests covers it. Found by TypeScript rejecting a comparison against a
+path the `ROUTES` union does not contain. Not fixed with the gateway: it predates this Worker, and
+reopening the contract mid-step would widen a commit that is about something else.
 
 `crates/core`'s `DEFAULT_REGISTRY` and the user-facing docs follow after. A node registering does not
 need the client to have moved, and sequencing them first would delay the only thing that proves any of
