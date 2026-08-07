@@ -91,6 +91,7 @@ pub fn run() -> Result<(), String> {
     problems.extend(check_line_caps(&repo)?);
     problems.extend(check_self_hosting_vars(&repo)?);
     problems.extend(check_adr_references(&repo)?);
+    problems.extend(check_adr_supersessions(&repo)?);
 
     if problems.is_empty() {
         println!("verify-docs: documentation matches the repository");
@@ -607,6 +608,97 @@ fn check_adr_references(repo: &Path) -> Result<Vec<String>, String> {
         }
     }
     Ok(problems)
+}
+
+/// A supersede is recorded on **both** ADRs, not just the newer one.
+///
+/// **Written because I broke it, again, in the same session.** ADR-0049's header said "Supersedes part
+/// of ADR-0046 · Refines ADR-0031" and neither of those two said anything back: both still read
+/// **Status** Accepted, and ADR-0046 went on asserting that capacity is probed — which had just stopped
+/// being true. A reader landing on an ADR reads its own status; nobody greps forward for who overruled
+/// it.
+///
+/// The direction that matters is exactly this one. A newer ADR naming an older one is the easy half,
+/// because you are writing it while thinking about it. The pointer back is the half you forget, and it
+/// is the half a reader needs.
+///
+/// Only the header lines are compared, and only for the `Supersedes`/`Refines` verbs — the prose body
+/// of an ADR is allowed to mention any other ADR freely, which is what [`check_adr_references`] covers.
+/// Deliberately narrow, for the reason [`check_self_hosting_vars`] gives at length: a claim with one
+/// spelling and one authority can be checked, and prose cannot.
+fn check_adr_supersessions(repo: &Path) -> Result<Vec<String>, String> {
+    let decisions = std::fs::read_to_string(repo.join("docs/DECISIONS.md"))
+        .map_err(|error| format!("reading docs/DECISIONS.md: {error}"))?;
+
+    // Each ADR's number paired with its header block: the `## ADR-NNNN` line and the `**Date** …` line
+    // beneath it, which is where a status and its cross-references live.
+    let mut headers: Vec<(String, String)> = Vec::new();
+    let lines: Vec<&str> = decisions.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        let Some(rest) = line.strip_prefix("## ADR-") else {
+            continue;
+        };
+        let Some(number) = rest.get(..4) else {
+            continue;
+        };
+        // The status may be on the `**Date**` line or in a `**Status.**` paragraph a few lines down,
+        // and both spellings are in use. Take the next handful of lines and look at all of them.
+        let block = lines[index..lines.len().min(index + 8)].join("\n");
+        headers.push((number.to_owned(), block));
+    }
+
+    let mut problems = Vec::new();
+
+    for (number, block) in &headers {
+        for verb in ["Supersedes", "Refines"] {
+            for target in cross_referenced(block, verb) {
+                if &target == number {
+                    continue;
+                }
+                let Some((_, other)) = headers.iter().find(|(candidate, _)| candidate == &target)
+                else {
+                    // A dangling target is `check_adr_references`' business, not this one's.
+                    continue;
+                };
+                // The older ADR has to name the newer one somewhere in its own header block. How it
+                // words that is its own affair — "Superseded in part by ADR-0049", "Refined by
+                // ADR-0049", "Superseded by ADR-0049, 2026-08-06" are all in the file already, and a
+                // check that insisted on one phrasing would be a style rule pretending to be a
+                // correctness one.
+                if !other.contains(&format!("ADR-{number}")) {
+                    problems.push(format!(
+                        "docs/DECISIONS.md: ADR-{number} {} ADR-{target}, and ADR-{target}'s header \
+                         does not mention ADR-{number} — a reader who lands on the older one is told \
+                         nothing",
+                        verb.to_lowercase(),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(problems)
+}
+
+/// The ADR numbers following `**<verb>**` on one header block, e.g. `**Supersedes** part of ADR-0046`.
+///
+/// Stops at the next `·` separator or end of line, so `**Supersedes** part of ADR-0046 · **Refines**
+/// ADR-0031` attributes each number to the right verb rather than to both.
+fn cross_referenced(block: &str, verb: &str) -> Vec<String> {
+    let marker = format!("**{verb}**");
+    let mut out = Vec::new();
+    let mut index = 0;
+    while let Some(offset) = block[index..].find(&marker) {
+        let start = index + offset + marker.len();
+        let rest = &block[start..];
+        let end = rest
+            .find('·')
+            .or_else(|| rest.find('\n'))
+            .unwrap_or(rest.len());
+        out.extend(adr_numbers(&rest[..end]));
+        index = start;
+    }
+    out
 }
 
 /// The four digits after each `ADR-` in a body of text.

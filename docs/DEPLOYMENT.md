@@ -85,7 +85,7 @@ The token Terraform and `wrangler deploy` act with.
 
    | Permission group | Why |
    | --- | --- |
-   | Workers Scripts | `wrangler deploy` uploads both Workers |
+   | Workers Scripts | `wrangler deploy` uploads all four Workers |
 
 3. **+ Add policy**, and change the new policy's resource from Entire Account to the zone —
    `nport.online`. Search for and set to **Edit**:
@@ -198,8 +198,9 @@ mechanism for production, rather than a separate workflow.
 git push
 ```
 
-That is the whole step. The pipeline applies the infrastructure, deploys both Workers, syncs the
-secrets and verifies the result.
+That is the whole step. The pipeline applies the infrastructure, deploys the four Workers — node and
+registry in parallel, then the gateway, then the site — syncs each one's own secrets and verifies the
+result.
 
 ### Running the plan locally first, if you want to read it
 

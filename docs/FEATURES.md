@@ -7,32 +7,37 @@ Design source: `docs/mockup/NPort Desktop.dc.html`. Marketing site: `docs/mockup
 which are blocked and why. Nothing here is scheduled by being listed here.
 
 **Architecture:** a **registry** holds the list of **nodes**. Each node is an independent Cloudflare
-account with its own domain and its own quota. The registry never carries traffic — it health-checks
-nodes, collects their quotas, and serves the list to the desktop app and CLI, which pick the best
-node with a free slot. ADR-0031.
+account with its own domain and its own quota. The registry never carries traffic and **never fetches a
+node**: nodes report themselves on a cron, and the registry ages what it was told, serving the list to
+the desktop app and CLI, which pick the best node with a free slot. ADR-0031, ADR-0049.
+
+Each deployment is **three Workers behind one hostname** — a `gateway` that owns the route, a `node`
+that provisions, and (on the master deployment only) the `registry`. The two behind the gateway have no
+hostname of their own. ADR-0049, `docs/ARCHITECTURE.md` §1.
 
 > **Naming.** The design calls these "control plane" and "relay node"; the repo calls them
-> **registry** and **node** (ADR-0031). The rename is not cosmetic: `control plane` already means
-> `apps/node` everywhere in this repo — `docs/API.md` is literally titled "Control-plane API" — so
-> reusing it for the registry would break every existing reference. `relay` is also misleading:
+> **registry** and **node** (ADR-0031). The rename is not cosmetic, and ADR-0049 finished it: the
+> provisioning service is `apps/node`, not `apps/api`, because "api" belonged to the hostname and
+> `api.nport.link` is the gateway's. `docs/API.md` keeps its "Control-plane API" title, since it
+> documents the API a client speaks rather than the service behind it. `relay` is also misleading:
 > a node provisions tunnels, it does not relay their traffic.
 
 ---
 
 ## 1. Registry (the design's "control plane")
 
-- [ ] Node registry: register, deregister, authenticate a node
-- [ ] Node self-registration — a new node announces its API domain and credentials
-- [ ] Health checks on an interval; mark up / degraded / down
-- [ ] Collect per-node quota (plan tier, capacity, current usage)
+- [ ] Node registry: register, deregister, authenticate a node. **Two of the three are answered and the third is refused**: `POST /v1/nodes` registers *and* heartbeats, deregistration is "stop calling" (ADR-0049), and authentication stays out by invariant 1 — proof of work plus a DNS TXT proof stand in for it
+- [x] Node self-registration — a new node announces its domain, URL and capacity on a cron, having first confirmed its own public URL answers. **No credentials**: there are none to announce (invariant 1)
+- [x] Mark up / degraded / down on an interval — **not by health-checking**. The registry ages each node's own `last_seen_at`: silence past `NODE_DOWN_AFTER_SECONDS` reads as `down` and stays listed, past `NODE_DELIST_AFTER_SECONDS` the row goes. ADR-0049 replaced the probe this line assumed, because a fan-out that grows with the directory bought nothing a heartbeat does not
+- [ ] Collect per-node quota (plan tier, capacity, current usage) — **claimed by the node, not probed** (ADR-0049 reverses ADR-0046); plan tier is still unmodelled
 - [ ] Serve the node list to clients, sorted and filterable
 - [ ] Latency hints — either client-measured or edge-region derived
 - [ ] Node selection policy: fastest with free capacity, with a documented tie-break
 - [ ] Failover when the chosen node dies mid-session
 - [ ] Private nodes — visible only to their owner
 - [ ] ~~Prevent a rogue node from registering and intercepting traffic (signed registration)~~ — **conflicts with ADR-0031**, which chose open anonymous enrolment and decided to *document* the interception exposure rather than defend against it. Open question 6 reopens it. One of the two has to give; see below
-- [ ] Never proxy tunnel traffic, and keep the registry cheap. Note it cannot be *stateless*: the node list is mutable shared state and therefore a Durable Object (`apps/node/CLAUDE.md` rule 4)
-- [ ] Public status page fed by the same health data
+- [ ] Never proxy tunnel traffic, and keep the registry cheap. Note it cannot be *stateless*: the node list is mutable shared state and therefore a Durable Object (`apps/registry/CLAUDE.md`)
+- [ ] Public status page fed by the same liveness data — which is now `last_seen_at` per node, not a probe result (ADR-0049)
 
 ## 2. Node (the design's "relay node")
 

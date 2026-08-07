@@ -38,7 +38,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0028 | Proof-of-work difficulty escalates per source, not globally | Accepted |
 | 0029 | The control-plane client speaks HTTP itself, rather than adding an HTTP stack | Accepted |
 | 0030 | Tauri's transitive licences and advisories, scoped rather than blanket-allowed | Accepted |
-| 0031 | A registry of independent nodes, rather than one control plane | Accepted |
+| 0031 | A registry of independent nodes, rather than one control plane | Accepted, refined by 0049 |
 | 0032 | The connector token is fetched from its own endpoint, and an inline one still accepted | Accepted |
 | 0033 | Source identity is keyed on an IPv6 prefix, not a full address | Accepted |
 | 0034 | Resource bounds on request input live in the contract, not in callers | Accepted |
@@ -53,7 +53,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0043 | Terraform generates secrets, but never a Cloudflare credential | Accepted |
 | 0044 | Federation comes next, ahead of the website and the desktop app | Accepted |
 | 0045 | The subdomain mirror is hand-written logic over generated constants | Accepted |
-| 0046 | The registry gets its own OpenAPI document, and capacity is probed rather than claimed | Accepted |
+| 0046 | The registry gets its own OpenAPI document, and capacity is probed rather than claimed | Superseded in part by 0049 |
 | 0047 | Worker plumbing shared in a package, rather than imported across deployables | Accepted |
 | 0048 | Prerendered pages are served from Workers Static Assets, and e2e drives the Worker | Accepted |
 | 0049 | One hostname per deployment: a gateway Worker, service bindings, and heartbeat registration | Accepted |
@@ -130,7 +130,11 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 
 ## ADR-0006 — Next.js + OpenNext on Workers, retiring Pages
 
-**Date** 2026-08-03 · **Status** Accepted
+**Date** 2026-08-03 · **Status** Accepted · **Refined by** ADR-0048
+
+ADR-0048 adds the piece this one got wrong by omission: OpenNext needs an incremental cache to *serve*
+prerendered pages, not only to revalidate them. Without one, every `generateStaticParams` route 404s on
+the deployed Worker while building and testing clean.
 
 **Context.** v2's site was `home.html` minified into a **committed** `index.html` artifact by a custom `minify.js`. CI ran `npm run minify` but never `build:css`, and the CSS it inlined was gitignored — so deploys depended on a file that had to have been built locally.
 
@@ -379,7 +383,11 @@ Plus six calls worth writing down:
 
 ## ADR-0023 — Frontend e2e with visual regression; tests enforced by a Stop hook
 
-**Date** 2026-08-03 · **Status** Accepted · **Supersedes** part of `docs/TESTING.md` § Deliberately untested
+**Date** 2026-08-03 · **Status** Accepted · **Supersedes** part of `docs/TESTING.md` § Deliberately untested · **Refined by** ADR-0048
+
+ADR-0048 pins down what "asserting a deployed route end to end" has to mean for `apps/web`: the e2e
+tier drives the **built Worker**, not `next dev`. No tier that reads `.next/` can see a fault in how
+the Worker reads its own output, which is the fault that prompted it.
 
 **Context.** `docs/TESTING.md` covers the API, the connector, and shared validators well, but `apps/web` had no test tier at all — its only entry under "Deliberately untested" read *"Marketing page visual appearance. No screenshot tests; the churn cost exceeds the value."* That reasoning was about **appearance**, and it quietly left **behaviour** uncovered too: whether `/docs/[slug]` resolves, whether `/errors/[code]` renders for a real code, whether the dark-mode toggle works, whether the four JSON-LD blocks are actually emitted. Those are load-bearing for a site whose entire job is discovery and self-service support.
 
@@ -579,7 +587,15 @@ The `quick-xml` ignore rests on reachability, not on severity. `plist` parses th
 
 ## ADR-0031 — A registry of independent nodes, rather than one control plane
 
-**Date** 2026-08-05 · **Status** Accepted
+**Date** 2026-08-05 · **Status** Accepted · **Refined by** ADR-0049
+
+**Two sentences below are no longer true, and the design they describe is otherwise intact.** ADR-0049
+gave a deployment one hostname instead of two, so the registry has no `registry.nport.link` and no
+hostname of its own — it answers `/v1/nodes*` behind the same gateway as node #1. And the third
+enrolment gate, "a liveness probe of its `/v1/meta`", is now the node's own check of its public URL
+before it registers; nothing here fetches a node. Left as written, because what this ADR argues for —
+a directory that holds no credentials and is advisory rather than load-bearing — is unchanged and is
+the part worth reading.
 
 **Context.** The control plane is one Worker bound to one Cloudflare account and one zone — `docs/SELF_HOSTING.md` states it outright: "One zone per deployment." Three ceilings bind at once and every one of them is per-account or per-zone.
 
@@ -768,7 +784,7 @@ The consequence is that **the server could not shorten its own grace period**. D
 - Two accounts to pay for and two to keep in the runbook. Both are free-plan eligible.
 - `wrangler.jsonc` names no account id; `CLOUDFLARE_ACCOUNT_ID` in the deploy environment selects it. Editing a constant cannot send a deploy to the wrong account.
 - The staging zone gets the *same* subdomain deny list, so `api`, `www` and the rest stay unclaimable there too. `staging` is already on that list, which is why `staging.nport.link` would have been an odd name to hand to a real tunnel.
-- **The Worker names are identical in both accounts** — `nport-node` and `nport-web`, not a `-staging` variant. Once the account is the isolation, a name suffix isolates nothing and only makes the two deployments differ in a way nothing else does; dashboards, log queries and runbooks then read the same in both places. Wrangler defaults an environment's `name` to `<name>-<env>`, so each environment states its name explicitly and `pnpm deploy:check` fails if one drifts — an unset `name` is a silent rename, not an error, and the symptom is a second Worker that nothing routes to.
+- **The Worker names are identical in both accounts** — `nport-node` and `nport-web` at the time of writing, `nport-gateway` and `nport-registry` since ADR-0049, and never a `-staging` variant. Once the account is the isolation, a name suffix isolates nothing and only makes the two deployments differ in a way nothing else does; dashboards, log queries and runbooks then read the same in both places. Wrangler defaults an environment's `name` to `<name>-<env>`, so each environment states its name explicitly and `pnpm deploy:check` fails if one drifts — an unset `name` is a silent rename, not an error, and the symptom is a second Worker that nothing routes to.
 
 ## ADR-0039 — Terraform manages infrastructure; it never mints a credential CI could use
 
@@ -922,7 +938,14 @@ Length is counted in **UTF-16 code units**, matching JavaScript's `String.length
 
 ## ADR-0046 — The registry gets its own OpenAPI document, and capacity is probed rather than claimed
 
-**Date** 2026-08-06 · **Status** Accepted
+**Date** 2026-08-06 · **Status** Superseded in part by ADR-0049, 2026-08-07
+
+**Half of this is reversed and half survives on new grounds.** The two OpenAPI documents stay, but not
+for the reason argued below: both now carry the same `servers` entry, and the split rests on disjoint
+path spaces and per-document component reachability. **Capacity is claimed rather than probed**, which
+reverses the second half directly — ADR-0049 accepts the objection this ADR raises and explains why it
+is worth accepting. Kept in full because that objection is the cost of the decision that replaced it,
+and a reader deciding whether to reintroduce a probe should read the argument for one first.
 
 **Context.** ADR-0031 splits the control plane into many **nodes** and one **registry**, and ADR-0044 made that the next phase, contract first. Writing the contract raised three questions ADR-0031 did not have to answer, because they are about the shape of the description rather than about the architecture.
 

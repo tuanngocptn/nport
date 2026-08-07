@@ -38,14 +38,17 @@ froze first because it is the serializing dependency (the Phase 1.5 argument, ap
 registry came next because the node schema is what it is written against, `apps/node` third because a
 directory with nothing in it is not testable, and discovery last because it consumes all three.
 
-The whole chain is exercisable offline: a node registers with a fake registry in `apps/node`'s tests, a
-registry probes a fake node in its own, and a client fails over between two loopback nodes in
-`crates/core`'s.
+The whole chain is exercisable offline: a node registers with a fake registry in `apps/node`'s tests, the
+registry ages a seeded listing in its own, a client fails over between two loopback nodes in
+`crates/core`'s, and `pnpm smoke` boots gateway + node and provisions through the binding.
 
-**What is not yet true.** Nothing is deployed, so no node has ever registered with a real registry and
-no client has ever discovered one. G5 wants two nodes on two Cloudflare accounts and two domains, both
-listed, with a client failing over when the first is stopped mid-run — which means a second account, a
-second domain, and `registry.nport.link` existing. `docs/DEPLOYMENT.md` owns that.
+**What is not yet true.** Neither the gateway nor the registry is deployed, so no node has ever
+registered with a real registry and no client has ever discovered one. G5 wants two nodes on two
+Cloudflare accounts and two domains, both listed, with a client failing over when the first is stopped
+mid-run — which means a second account and a second domain. **It no longer means a second hostname for
+the registry**: since ADR-0049 it answers `/v1/nodes*` behind the same gateway as node #1, so the thing
+G5 waits on is one deploy of the existing three Workers plus one more account.
+`docs/DEPLOYMENT.md` owns that.
 
 **The zone-suffix gap is closed** (defect 36): the suffix is a parameter, a node passes its own
 `CF_DOMAIN`, and the client defers a hostname it cannot normalize rather than refusing it. The decision

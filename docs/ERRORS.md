@@ -82,7 +82,7 @@ Four consumers reference these codes, which is why they live in one registry rat
 | `LOCAL_PORT_INVALID` | no | — | Port is not in `1..=65535` | Fix the argument |
 | `LOCAL_REQUEST_FAILED` | no | — | The local server refused or reset a proxied request | The tunnel is fine; the local app is not |
 | `NO_NODE_AVAILABLE` | yes | — | Discovery found no listed node that answered and had capacity | Try again shortly, or pass `--backend <url>` to use a node directly |
-| `NODE_UNREACHABLE` | yes | `nodeId` | A node's `GET /v1/meta` probe failed or timed out | Usually transient, and nport moves on to the next node. Only fatal when `--node` pinned this one |
+| `NODE_UNREACHABLE` | yes | `nodeId` | The client's own probe of a node's `GET /v1/meta` failed or timed out | Usually transient, and nport moves on to the next node. Only fatal when `--node` pinned this one |
 | `SHUTDOWN_TIMEOUT` | no | — | Graceful shutdown exceeded its deadline | Informational; the lease still expires server-side |
 | `TUNNEL_LOST` | no | — | All edge connections dropped and reconnection was exhausted | Check the network; the CLI exits non-zero |
 

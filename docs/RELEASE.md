@@ -12,7 +12,7 @@ The CLI version is the one users mean by "NPort version". npm `nport`, the eight
 
 The desktop app versions independently: it ships on a slower clock and its releases are gated on manual per-platform verification.
 
-`apps/node` and `apps/web` deploy on every merge to `main` that touches them. They have no version because there is only ever one live copy, and the API's compatibility surface is `/v1` (`docs/API.md`).
+`apps/gateway`, `apps/node`, `apps/registry` and `apps/web` deploy on every merge to `main` that touches them. They have no version because there is only ever one live copy, and the API's compatibility surface is `/v1` (`docs/API.md`).
 
 ## CLI release
 
@@ -88,6 +88,8 @@ Remove or revert `latest.json` in R2 **first** — that stops the update rolling
 Merging to `main` deploys. Verification is CI plus `GET /v1/health`.
 
 To roll back: revert the commit and let CI deploy, or `wrangler rollback` for an immediate revert to the previous deployment.
+
+**Rolling back one of three Workers needs the deploy order in reverse** (ADR-0049). A deploy goes node and registry first, then the gateway, because Cloudflare rejects a `services` binding naming a script that does not exist. A rollback that removes a binding's target while the gateway still names it leaves the gateway answering `INTERNAL` on every forwarded path while `/v1/health` stays green — so roll the **gateway back first**, then the services behind it. Rolling back only the gateway is always safe.
 
 **Durable Object migrations do not roll back.** A `wrangler rollback` reverts code, not schema. Any migration must be forward-compatible with the previous code, deployed in two steps: first a release that tolerates both shapes, then the one that requires the new shape. Removing a DO class is effectively irreversible — think before adding a migration tag.
 

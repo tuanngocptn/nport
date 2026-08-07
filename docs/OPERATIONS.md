@@ -57,7 +57,7 @@ hostname.
 
 `CF_API_TOKEN` must be a **scoped, account-owned** token — Manage Account → Account API Tokens, not My Profile (ADR-0043). v2 supported the legacy Global API Key as a fallback, which grants full account control; v3 does not.
 
-Only `CF_API_TOKEN` is typed by a person. `infra/terraform/secrets.tf` generates the two HMAC keys and the other three are identifiers Terraform already has; the deploy merges the hand-made token in and pipes the whole set into `wrangler secret bulk`, so it lands in one call and a partial application is not a state the Worker can be left in. That one exception is deliberate: a Terraform configuration that can create a Cloudflare token requires a CI credential that can create *any* Cloudflare token (ADR-0043).
+Only `CF_API_TOKEN` is typed by a person. `infra/terraform/secrets.tf` generates the **three** HMAC keys — two proof-of-work keys that must differ, and the gateway's `IP_HASH_SECRET` — and the other three values are identifiers Terraform already has. The output is keyed **per Worker**, because two of them require a secret called `POW_SECRET` whose values must not match; each deploy job picks out its own set, merges the hand-made token where it belongs, and pipes it into one `wrangler secret bulk` call, so a partial application is not a state any Worker can be left in. That one exception is deliberate: a Terraform configuration that can create a Cloudflare token requires a CI credential that can create *any* Cloudflare token (ADR-0043).
 
 **The Terraform state still holds secrets.** `random_password` keeps its result in state — Terraform must know a value to detect drift — so whoever can read the workspace's state can read both HMAC keys and the three identifiers. It can no longer read a Cloudflare credential, because there is none in there. The HCP workspace and its token remain a boundary to protect; they are simply no longer the boundary protecting the account.
 
@@ -65,7 +65,7 @@ Only `CF_API_TOKEN` is typed by a person. `infra/terraform/secrets.tf` generates
 
 `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `NPM_TOKEN`, `CARGO_REGISTRY_TOKEN`, `HOMEBREW_TAP_TOKEN`, `APPLE_ID` + `APPLE_TEAM_ID` + `APPLE_APP_PASSWORD` + `APPLE_CERTIFICATE` (+ password), `WINDOWS_CERTIFICATE` (+ password), `TAURI_SIGNING_PRIVATE_KEY` (+ password).
 
-**Actions holds four values, one of which is a Worker secret** (ADR-0042, ADR-0043): `CLOUDFLARE_API_TOKEN` for Terraform and wrangler to act with, `CLOUDFLARE_ACCOUNT_ID`, `TF_API_TOKEN` for the state backend, and `WORKER_CF_API_TOKEN` — the control plane's own Cloudflare credential, which is made by hand and passes through Actions on its way to `wrangler secret bulk`. Everything else the Worker runs on is derived by `terraform apply`.
+**Actions holds four values, one of which is a Worker secret** (ADR-0042, ADR-0043): `CLOUDFLARE_API_TOKEN` for Terraform and wrangler to act with, `CLOUDFLARE_ACCOUNT_ID`, `TF_API_TOKEN` for the state backend, and `WORKER_CF_API_TOKEN` — **the node's** own Cloudflare credential, which is made by hand and passes through Actions on its way to `wrangler secret bulk`. It goes to `nport-node` and nowhere else: the gateway terminates every public request and deliberately cannot provision (ADR-0049). Everything else the Workers run on is derived by `terraform apply`.
 
 The consequence, stated rather than buried: a compromised runner can deploy arbitrary Worker code, change zone settings, and read `WORKER_CF_API_TOKEN` — so it can provision tunnels. It cannot *create* a Cloudflare credential, because nothing in the pipeline holds that permission (ADR-0043). Separate accounts (ADR-0038) bound the rest.
 
@@ -94,9 +94,9 @@ For a fresh deployment (also the basis of `docs/SELF_HOSTING.md`):
 2. The `nport-worker` token: `Cloudflare Tunnel Write` and `DNS Write`, and nothing else.
 3. `wrangler deploy` in `apps/node`; DO migrations apply automatically on first deploy.
 4. `terraform apply` — generates the runtime secrets; the deploy merges in `WORKER_CF_API_TOKEN` and syncs the set (ADR-0040, ADR-0043).
-5. Confirm `api.<domain>` resolves to the Worker and `GET /v1/health` returns 200.
+5. Confirm `api.<domain>` resolves to `nport-gateway` and `GET /v1/health` returns 200. **That proves the front door only** — the gateway answers health itself and never forwards it, so follow it with `GET /v1/meta`, which is the first request that crosses a service binding. A healthy `/v1/health` beside an `INTERNAL` on `/v1/meta` means a binding did not resolve, not that the node is down (ADR-0049).
 6. `wrangler deploy` in `apps/web`.
-7. Zone rate-limiting rule on `api.<domain>` — `infra/terraform` applies it: 600 requests / 60 s per IP per colo, blocked for 10 minutes. Deliberately well above the Worker's own 60/min per-source limiter, which it sits outside rather than replaces.
+7. Zone rate-limiting rule on `api.<domain>` — `infra/terraform` applies it: 600 requests / 60 s per IP per colo, blocked for 10 minutes. Deliberately well above the **gateway's** own 60/min per-source limiter, which it sits outside rather than replaces. The node and the registry have no limiter of their own; applying one twice would charge a caller against two counters for one request.
 8. Verify `api` and the rest of the reserved list cannot be claimed.
 
 ## Verifying the Cloudflare API surface
@@ -181,7 +181,9 @@ See `docs/RELEASE.md` — differs per artifact.
 
 ## Dashboards and alerts
 
-Workers observability is enabled on both Workers.
+Workers observability is enabled on every Worker.
+
+**Three of the four share one hostname**, so a log query scoped to `api.<domain>` sees the gateway and not the services behind it. A forwarded request appears in two Workers' logs under the same `x-nport-request-id`, which is what that header is for — the gateway prefers Cloudflare's `cf-ray`, so the id a user quotes matches Cloudflare's own logs as well.
 
 Alerts to configure: canary failure (**page**), API 5xx rate above baseline, `UPSTREAM_CLOUDFLARE_ERROR` rate, `CAPACITY_EXHAUSTED` occurring at all, `DNS_CONFLICT` occurring at all (it should be near-zero), DO alarm failures, smoke-test failure.
 

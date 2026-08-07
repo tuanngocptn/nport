@@ -293,7 +293,7 @@ export const ERRORS = {
     status: null,
     retryable: true,
     message: "That NPort node did not answer.",
-    cause: "A node's `GET /v1/meta` probe failed or timed out",
+    cause: "The client's own probe of a node's `GET /v1/meta` failed or timed out",
     action:
       "Usually transient, and nport moves on to the next node. Only fatal when `--node` pinned this one",
     details: ["nodeId"],
