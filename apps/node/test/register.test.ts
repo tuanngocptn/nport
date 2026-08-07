@@ -211,6 +211,43 @@ describe("registerWithRegistry", () => {
     expect(posted).not.toHaveProperty("status")
   })
 
+  it("logs which check the registry refused on, not just that it refused", async () => {
+    // **Every refusal is `REGISTRATION_REFUSED`**, so the code alone says nothing an operator can act
+    // on — `proof-missing` means publish a TXT record, `id-taken` means somebody else holds the id,
+    // `invalid-url` means the URL is not under the proved domain. This logged only the code for a
+    // while, and the docblock above it claimed the reason "names which check failed" while the code
+    // fetched and discarded it. Staging spent a debugging session on a node that said `403
+    // REGISTRATION_REFUSED` and nothing else (`docs/ROADMAP.md` defect 41).
+    const logged: unknown[][] = []
+    const error = console.error
+    console.error = (...args: unknown[]) => {
+      logged.push(args)
+    }
+    try {
+      const registry = fakeRegistry({
+        postStatus: 403,
+        postBody: {
+          error: {
+            code: "REGISTRATION_REFUSED",
+            details: { reason: "invalid-url", detail: "not-under-domain" },
+          },
+        },
+      })
+      await registerWithRegistry(federated(), registry.fetch)
+    } finally {
+      console.error = error
+    }
+
+    const refusal = logged.find(([message]) => message === "node registration refused")
+    expect(refusal, "nothing logged the refusal").toBeDefined()
+    expect(refusal?.[1]).toMatchObject({
+      status: 403,
+      code: "REGISTRATION_REFUSED",
+      reason: "invalid-url",
+      detail: "not-under-domain",
+    })
+  })
+
   it("does not register when its own URL does not answer", async () => {
     // **The gate that replaced the registry's probe.** A cron that fires proves the Worker runs; it
     // proves nothing about whether anyone can reach it. With no probe on the other side, a heartbeat

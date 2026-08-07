@@ -160,14 +160,19 @@ export async function registerWithRegistry(env: Env, fetcher: typeof fetch = fet
     })
 
     if (!response.ok) {
-      // The body carries a `details.reason` naming which check failed — `proof-missing` if the TXT
-      // record is absent, `id-taken` if someone else holds the id. Logged as a status and a code
-      // rather than the whole body, so an upstream that answers HTML cannot fill the log.
-      const code = await refusalCode(response)
+      // **The `reason` is the diagnosis; the code is not.** Every refusal here is
+      // `REGISTRATION_REFUSED`, and which check failed lives in `details.reason` —
+      // `proof-missing` if the TXT record is absent, `id-taken` if someone else holds the id,
+      // `invalid-url` if the URL is not under the proved domain. This logged only the code for a
+      // while, and the docblock above it claimed the reason "names which check failed" while the
+      // code fetched and discarded it, so a refused node said `403 REGISTRATION_REFUSED` and
+      // nothing else. Still a code and a reason rather than the whole body, so an upstream that
+      // answers HTML cannot fill the log.
+      const refusal = await refusalDetail(response)
       console.error("node registration refused", {
         nodeId: identity.id,
         status: response.status,
-        code,
+        ...refusal,
       })
       return
     }
@@ -194,11 +199,19 @@ export async function registerWithRegistry(env: Env, fetcher: typeof fetch = fet
  * the reason `docs/ARCHITECTURE.md` §7 keeps `GET /v1/meta` reporting real numbers on the request
  * path — a node that lies about being up gets found out by the first client that tries it.
  *
- * A **subrequest to your own hostname is a real request through the edge**, not a loopback, so this
- * costs one of the 50 the cron budget allows and genuinely exercises the path a client would take.
+ * A subrequest to your own hostname costs one of the 50 the cron budget allows and is meant to exercise
+ * the path a client would take.
+ *
+ * **On a master deployment it is a same-zone round trip, and that is not proven to be reliable.**
+ * `PUBLIC_URL` and `REGISTRY_URL` are both the gateway's hostname there, so all three of this cron's
+ * subrequests leave the node Worker and re-enter the same zone. Staging registered on roughly two ticks
+ * in twenty-four while the identical code registered first time from a laptop — see `docs/ROADMAP.md`
+ * defect 41. Whether the failure is here or in the two registry calls is not yet known; the logging
+ * above is what will say.
  */
 async function selfCheck(publicUrl: string, fetcher: typeof fetch): Promise<boolean> {
   const target = registryEndpoint(publicUrl, "/v1/health")
+  const started = Date.now()
   try {
     const response = await fetcher(target, {
       // No NPort headers: health is exempt from the client gate precisely so an uptime monitor can
@@ -207,14 +220,27 @@ async function selfCheck(publicUrl: string, fetcher: typeof fetch): Promise<bool
       signal: AbortSignal.timeout(SELF_CHECK_TIMEOUT_MS),
     })
     if (!response.ok) {
-      console.error("node self-check failed; not registering", { status: response.status })
+      // **The edge answered and refused.** That is a real signal about the outside world.
+      console.error("node self-check failed; not registering", {
+        target,
+        status: response.status,
+        elapsedMs: Date.now() - started,
+      })
       return false
     }
     return true
   } catch (error) {
-    // A node that cannot reach itself must not tell the directory it is up. Staying silent for a tick
-    // is how it delists itself, which is the whole design: no ping, no node.
-    console.error("node self-check failed; not registering", { error: String(error) })
+    // **The edge did not answer.** A timeout or a network error here proves far less than a status
+    // does — on a master deployment this fetch leaves the Worker and comes back into its own zone,
+    // so a failure may say nothing about whether a *client* could reach the same URL. The elapsed
+    // time is what separates the two: at or near `SELF_CHECK_TIMEOUT_MS` it timed out, well under it
+    // the request was refused outright.
+    console.error("node self-check failed; not registering", {
+      target,
+      error: String(error),
+      elapsedMs: Date.now() - started,
+      timedOut: Date.now() - started >= SELF_CHECK_TIMEOUT_MS - 250,
+    })
     return false
   }
 }
@@ -311,12 +337,23 @@ function nodeUserAgentVersion(env: Env): string {
   return String(env.MIN_CLIENT_VERSION)
 }
 
-/** The registry's error code, or `undefined` if the body was not an envelope. */
-async function refusalCode(response: Response): Promise<string | undefined> {
+/** The registry's error code and the reason behind it, or `{}` if the body was not an envelope. */
+async function refusalDetail(
+  response: Response,
+): Promise<{ code?: string; reason?: string; detail?: string }> {
   try {
-    const body = (await response.json()) as { error?: { code?: string; details?: unknown } }
-    return body.error?.code
+    const body = (await response.json()) as {
+      error?: { code?: string; details?: { reason?: unknown; detail?: unknown } }
+    }
+    const details = body.error?.details
+    return {
+      ...(body.error?.code === undefined ? {} : { code: body.error.code }),
+      ...(typeof details?.reason === "string" ? { reason: details.reason } : {}),
+      // `invalid-url` carries a second level — `not-under-domain`, `not-https`, `unparseable` —
+      // and which of those it is changes what an operator has to fix.
+      ...(typeof details?.detail === "string" ? { detail: details.detail } : {}),
+    }
   } catch {
-    return undefined
+    return {}
   }
 }

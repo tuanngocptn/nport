@@ -786,11 +786,38 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
 - [x] **Deployed to staging**, 2026-08-07: ten jobs green, `api.nport.online` reassigned from the old
       `nport-api` script to `nport-gateway` without a custom-domain conflict, `/v1/meta` crossing the
       service binding, and real tunnels passing smoke on all three operating systems
-- [x] **Verified on staging**, 2026-08-07. `GET /v1/nodes` returns node #1 — `nport-online-1`,
-      `status: up`, capacity `0/100` — and a real `nport 3311 --registry https://api.nport.online`
-      with **no `--backend`** discovered it, cached the list to `~/.nport/nodes.json`, provisioned
-      through the gateway, brought up four QUIC connections (hkg01/08/09/12) and released its lease
-      on Ctrl+C. **The first time any client has ever reached a node through the directory**
+- [x] **The path works, once.** `GET /v1/nodes` returned node #1 and a real
+      `nport 3311 --registry https://api.nport.online` with **no `--backend`** discovered it, cached
+      the list to `~/.nport/nodes.json`, provisioned through the gateway, brought up four QUIC
+      connections (hkg01/08/09/12) and released its lease on Ctrl+C. **The first time any client has
+      ever reached a node through the directory**
+- [ ] **Steady state is broken — defect 41 below.** The node registers on roughly two cron ticks in
+      twenty-four, so within ten minutes the registry ages it to `down` and a discovering client
+      would skip it. G5 waits on this, not on a second account
+
+**41. The node stops registering, and nothing said so.** Staging's `GET /v1/nodes` showed
+`nport-online-1` as `down` while its own `GET /v1/meta` answered normally — the registry ageing an
+entry the node had stopped renewing, with the node itself serving fine. Measured rather than guessed:
+`lastSeenAt` advanced twice in an hour where the `*/5` cron allows twelve, and a fifteen-minute watch
+after a manual registration saw three ticks pass with no update while the *registry's* sweep on the
+same schedule ran on time. So the cron fires and the registration fails.
+
+Reproduced from the other side: the same code, same node id, same proof, run from a laptop against the
+live staging registry, registered first time. What differs is that on a **master deployment all three
+of the cron's subrequests are same-zone** — `PUBLIC_URL` and `REGISTRY_URL` are both the gateway's
+hostname, so the node's self-check and its two registry calls leave the Worker and re-enter its own
+zone. A node-only deployment points `REGISTRY_URL` at somebody else's gateway and has no such loop.
+`register.ts` asserted that this "is a real request through the edge, not a loopback"; that claim is
+what is now in doubt.
+
+**Which of the three fails is not yet known, and that is the second half of the defect.** Every refusal
+carries `details.reason` — the difference between "publish a TXT record" and "somebody else holds your
+id" — and `register.ts` fetched it and logged only the code, while the docblock directly above claimed
+the reason "names which check failed". So a node that could not register said `403
+REGISTRATION_REFUSED` and nothing more. Fixed: the reason and its sub-detail are logged, the
+self-check reports elapsed time and whether it timed out, and a test pins it. **Reading the deployed
+log now needs one `wrangler tail nport-node --env staging`, which needs credentials this session does
+not have.**
 
 **The empty directory, and what it cost to see.** The first deploy was green everywhere and
 `GET /v1/nodes` returned `[]`. Nothing was wrong with any of the three Workers: **nobody had ever
