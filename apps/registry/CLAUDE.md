@@ -8,7 +8,7 @@ The node directory. Hono on Cloudflare Workers. Lists nodes, accepts anonymous r
 
 **Not responsible for:** provisioning anything, carrying traffic, choosing a node for a client, holding a Cloudflare credential, or *checking* whether a node is up. It has no API token, no account id and no zone id — that absence is the point of splitting it out (ADR-0031).
 
-**Status: written, never deployed.** `docs/ROADMAP.md` § Backend first.
+**Status: deployed to staging** since 2026-08-07, listing node #1 at `api.nport.online/v1/nodes`. Still the only registry in the world, by design — a node deployment has none.
 
 ## Layout
 

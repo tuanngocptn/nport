@@ -11,9 +11,11 @@ applies_to:
 
 How NPort v3 works. For *why* it is built this way, see `docs/DECISIONS.md`. For the connector wire protocol, see `docs/PROTOCOL.md`.
 
-**Status: staging is live** and §3a–§3f describe code that runs. §1's federated topology and §7's
-placement of the rate limiter describe ADR-0049's shape, which is **written and not deployed** —
-`docs/ROADMAP.md` § Backend first is the difference.
+**Status: staging is live and federated**, and every section here describes code that runs. ADR-0049's
+shape — §1's topology and §7's placement of the rate limiter — was deployed on 2026-08-07: three Workers
+behind one hostname, and a real client has reached a node through the directory. What §1 still describes
+ahead of reality is **more than one node**: there is one, and G5 wants two on two accounts
+(`docs/ROADMAP.md` § Backend first).
 
 ## 1. System context
 

@@ -2,16 +2,18 @@
 
 Runbook for the production service. v2 ran for years with no runbook; this is the correction.
 
-**Status: written ahead of deployment.** Values marked _TBD_ get filled in when Phase 2 deploys.
+**Status: staging is live and the inventory below is real for it.** Production is not deployed, so the `nport.link` rows describe what `wrangler.jsonc` will create rather than what exists. Values marked _TBD_ belong to Phase 3 and have no owner yet.
 
 ## Inventory
 
 | Resource | Identifier | Managed by |
 | --- | --- | --- |
 | Cloudflare zone | `nport.link` | dashboard |
-| Worker (API) | `nport-node` → `api.nport.link` | `apps/node/wrangler.jsonc` |
+| Worker (front door) | `nport-gateway` → `api.nport.link` | `apps/gateway/wrangler.jsonc` |
+| Worker (node) | `nport-node` — **no route**, reached only by the gateway's binding | `apps/node/wrangler.jsonc` |
+| Worker (registry) | `nport-registry` — **no route**, reached only by the gateway's binding | `apps/registry/wrangler.jsonc` |
 | Worker (site) | `nport-web` → `nport.link`, `www.nport.link` | `apps/web/wrangler.jsonc` |
-| Durable Objects | `SubdomainLease`, `Registry` | `apps/node` migrations |
+| Durable Objects | `SubdomainLease`, `Registry`, `SourceQuota` (node) · `Directory` (registry) | each app's migrations |
 | npm | `nport` + 8 `@nport/cli-*` | `release-cli.yml` |
 | crates.io | `nport`, `nport-core`, `nport-protocol` | `release-cli.yml` |
 | Homebrew tap | `tuanngocptn/homebrew-tap` | `release-cli.yml` |
@@ -19,7 +21,9 @@ Runbook for the production service. v2 ran for years with no runbook; this is th
 | Desktop updater manifest | R2 bucket, `latest.json` | `release-desktop.yml` |
 | Retired | Pages project `nport-site`, GA4 `G-8MYXZL6PGD` | delete after cutover |
 
-Unlike v2, both custom domains are declared in `wrangler.jsonc` `routes` with `custom_domain: true` — not configured by hand in the dashboard. The repo is the source of truth.
+**Only two Workers have a hostname**, and which one owns `api.` matters during an incident: it is the **gateway**, not the node. A node with no route cannot be curled, so a symptom reported as "the API is down" is always the gateway or a binding behind it — `GET /v1/health` is answered by the gateway alone and `GET /v1/meta` is the first request that crosses a service binding, which is how you tell those two apart in one command each (ADR-0049).
+
+Unlike v2, every custom domain is declared in `wrangler.jsonc` `routes` with `custom_domain: true` — not configured by hand in the dashboard. The repo is the source of truth.
 
 ### Staging
 
@@ -29,7 +33,9 @@ A **separate Cloudflare account** on a separate domain (ADR-0038), so nothing in
 | --- | --- | --- |
 | Cloudflare account | staging-only, distinct from production | — |
 | Cloudflare zone | `nport.online` | added by hand; settings by `infra/terraform` |
-| Worker (API) | `nport-node` → `api.nport.online` | `apps/node/wrangler.jsonc` § `env.staging` |
+| Worker (front door) | `nport-gateway` → `api.nport.online` | `apps/gateway/wrangler.jsonc` § `env.staging` |
+| Worker (node) | `nport-node` — no route | `apps/node/wrangler.jsonc` § `env.staging` |
+| Worker (registry) | `nport-registry` — no route | `apps/registry/wrangler.jsonc` § `env.staging` |
 | Worker (site) | `nport-web` → `nport.online`, `www.nport.online` | `apps/web/wrangler.jsonc` § `env.staging` |
 | Edge rate limit | ruleset on `api.nport.online` | `infra/terraform` (same config as production) |
 | Terraform state | HCP Terraform workspace `nport-staging` | app.terraform.io, local execution mode (ADR-0042) |

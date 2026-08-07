@@ -18,7 +18,7 @@ applies_to:
 
 Only the gateway has a hostname. The two services behind it declare no `routes` and set `workers_dev: false`, so nothing can reach them except the gateway's service binding — which is what makes it safe for them to trust the identity it forwards. **None of it is on the tunnel data path** (`docs/ARCHITECTURE.md` §3b).
 
-**Status: `/v1/*` implemented and deployed to staging**, serving real tunnels since 2026-08-06. The gateway and the registry are **written and not deployed** (`docs/ROADMAP.md` § Backend first). This said "design, not implemented" for two phases after it stopped being true.
+**Status: all three Workers are deployed to staging** — the node serving real tunnels since 2026-08-06, the gateway and the registry since 2026-08-07, with `GET /v1/nodes` listing a live node that a real client has discovered and tunnelled through. This said "design, not implemented" for two phases after it stopped being true, and then "written and not deployed" for a day after that (`docs/ROADMAP.md`, defect 46) — the recurrence is why the status line now names dates rather than a stage.
 
 Under ADR-0031 the provisioning Worker is **a node**: one deployment bound to one Cloudflare account and one domain.
 

@@ -23,7 +23,7 @@ that disagrees with its section is a bug in this table.
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
 | ⬜ | 4 · `apps/desktop` | — | A booting scaffold, and now **unblocked**: it was waiting on a stable `crates/core` and on discovery, and both exist. Still deliberately last |
-| 🚧 | **5 · Federation — registry and nodes** | **G5** ⬜ | **All four steps written and tested; nothing deployed.** Contract (ADR-0046), `apps/registry`, `apps/node`'s node fields, and `crates/core::discovery`. What is left is the gate itself: two nodes on two accounts and two domains, and a real failover |
+| 🚧 | **5 · Federation — registry and nodes** | **G5** ⬜ | **Deployed to staging and proven once**: a real client discovered node #1 through `GET /v1/nodes` and tunnelled through it with no `--backend`. All four code steps are done — contract (ADR-0046), `apps/registry`, `apps/node`'s node fields, `crates/core::discovery`. What is left is the gate itself: a **second** node on a second account and domain, and a real failover |
 | ⬜ | 6 · v2 sunset | — | Waits on 3.0 being `latest` |
 
 **What to build next: Gate G5 — but it is an operations task, and everything else is blocked on access
@@ -62,7 +62,7 @@ Building two apps against a shape that is about to change is the cost being avoi
 
 ## Current position
 
-**Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b code-complete, and staging is deployed.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented, tested in real `workerd`, and **running at `api.nport.online`**. Federation is written but not deployed, and 2c has no code left in it: the site's pages, copy, SEO, OpenGraph card, MDX docs and e2e tier are built, and the visual baselines are armed. Only the deploy remains.
+**Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b code-complete, and staging is deployed.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented, tested in real `workerd`, and **running at `api.nport.online`**. Federation is deployed to staging and has carried a real client from directory to tunnel; 2c has no code left in it either: the site's pages, copy, SEO, OpenGraph card, MDX docs and e2e tier are built, and the visual baselines are armed. Only the deploy remains.
 
 **A port has been opened to the internet** (2026-08-06). The first tunnel provisioned, opened four HA connections to Cloudflare's edge, served a byte-identical body over HTTP/2, and tore down leaving NXDOMAIN — see Gate G2 below for exactly which criteria that did and did not cover. Getting there found four defects nothing offline could have found: `fetch` called with the wrong receiver, so *every* Cloudflare call raised `Illegal invocation`; the site's build script invoking itself until the runner died; staging's client-version floor refusing the only build that would ever point at it; and a Workers account with no `workers.dev` subdomain, which blocks all script uploads.
 
@@ -741,7 +741,7 @@ deployment and no users on it is as cheap as it will ever be. ADR-0031 owns the 
 **Reshaped by ADR-0049, mid-phase.** The four code steps below all landed against a two-hostname design — a node on `api.nport.link`, a registry on `registry.nport.link` — and none of it had been deployed. Rather than deploy that and migrate later, the topology changed first: one hostname per deployment, a **gateway** Worker dispatching to internal services over service bindings, and liveness inverted from registry-pull to node-push. The steps below are marked done against what they set out to do; the work tracking that reshape is in **§ Backend first**, immediately after this list.
 
 - [x] `packages/contract`: `nodeSchema`, the list and registration schemas, `activeTunnels` on `GET /v1/meta`, and three codes — `NO_NODE_AVAILABLE`, `NODE_UNREACHABLE`, `REGISTRATION_REFUSED`. **Done**, then **revised by ADR-0049** — the two claims this bullet used to make are both reversed. It said a second OpenAPI document *because the registry is a separate host*: both documents now carry the same `servers` entry and the split rests on disjoint path spaces instead. And it said capacity **probed rather than claimed**: the node claims it now, the registry fetches nothing. What survived unchanged: both `/v1/meta` capacity fields optional so an older node still parses, and the DNS TXT proof's record name and value derived from one function so the registry, the operator and the docs cannot spell them differently
-- [x] `apps/registry`: the `Directory` DO, open registration behind proof of work and a DNS TXT domain proof, and a cron that probes and delists. **Written and tested, never deployed** — and **ADR-0049 took the probe back out**, so the cron is now a staleness sweep over `last_seen_at` and the three-state `PROBE_FAILURES_BEFORE_*` pair became two silence thresholds. What survived, and was the thing ADR-0031 did not anticipate: registration must refuse a URL that is not under the proved domain. That was written as an open-fetch-proxy guard and remains load-bearing for a different reason once nothing fetches — the TXT record proves `<domain>`, so a URL outside it is a URL the proof says nothing about. Shared Worker plumbing moved to `packages/worker-kit` first (ADR-0047), so the registry is a small app rather than a copy of `apps/node`'s abuse controls
+- [x] `apps/registry`: the `Directory` DO, open registration behind proof of work and a DNS TXT domain proof, and a cron that probes and delists. **Deployed to staging 2026-08-07** — and **ADR-0049 took the probe back out**, so the cron is now a staleness sweep over `last_seen_at` and the three-state `PROBE_FAILURES_BEFORE_*` pair became two silence thresholds. What survived, and was the thing ADR-0031 did not anticipate: registration must refuse a URL that is not under the proved domain. That was written as an open-fetch-proxy guard and remains load-bearing for a different reason once nothing fetches — the TXT record proves `<domain>`, so a URL outside it is a URL the proof says nothing about. Shared Worker plumbing moved to `packages/worker-kit` first (ADR-0047), so the registry is a small app rather than a copy of `apps/node`'s abuse controls
 - [x] `apps/node`: `NODE_ID`, `PUBLIC_URL`, `REGISTRY_URL`, self-registration on the existing `scheduled` export, and current usage on `/v1/meta`. **Done.** `REGISTRY_URL` is the switch — unset it and the node never registers, which is the private deployment `docs/SELF_HOSTING.md` describes, reached by setting nothing rather than by opting out. Registration is a **schedule rather than a boot-time task**: a Worker has no boot, and a node the registry delisted after an outage has to relist itself unattended
 - [x] `crates/core::discovery`: fetch, cache to `~/.nport/nodes.json`, probe a few in parallel, pick the fastest with capacity, fail over — but **never after `POST /v1/tunnels` has been sent**, which is not idempotent. **Done.** Two rules came out of writing it that the bullet did not imply. Failover is allowed only when a node *answered* that it could not serve: a refusal about the **caller** (`CONCURRENCY_LIMIT`, `CREATE_QUOTA_EXCEEDED`) must not be shopped to another node, because per-source caps are enforced per node and trying elsewhere multiplies the cap by the size of the directory — `docs/ARCHITECTURE.md` §7's controls defeated by politely asking somebody else. And a network failure is never a reason to move, because "died mid-request" is indistinguishable from "never sent". `--backend` skips discovery entirely, which is what keeps every self-hosted deployment on the path it was already on
 
@@ -796,6 +796,33 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
 - [ ] **Steady state is broken — defect 41 below.** The node registers on roughly two cron ticks in
       twenty-four, so within ten minutes the registry ages it to `down` and a discovering client
       would skip it. G5 waits on this, not on a second account
+
+**46. Eight places said federation was not deployed, on a deployment that had been federated and
+serving for a day — and the operations runbook named the wrong Worker as the front door.** The root
+`CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/API.md`, `apps/registry/CLAUDE.md` and three separate lines
+of this file all said some form of "written and not deployed". `GET /v1/nodes` had been listing node #1
+as `up` throughout, and this document's own Phase 5 checklist said `[x] **Deployed to staging**,
+2026-08-07` eight lines above a table row saying nothing was.
+
+`docs/API.md`'s line is the one worth keeping as an exhibit. It read: *"The gateway and the registry are
+**written and not deployed**. This said 'design, not implemented' for two phases after it stopped being
+true."* A sentence apologising for having been stale, while being stale. The status line there now names
+dates rather than a stage, because a date cannot quietly stop being true.
+
+**The runbook was the part that mattered.** `docs/OPERATIONS.md`'s inventory — the table someone reads
+during an incident — listed two Workers where there are four, and attributed `api.nport.link` to
+`nport-node`. Under ADR-0049 the node has **no route at all**; the hostname is the gateway's. Somebody
+debugging a reported outage would have gone looking for a Worker that cannot be curled, and the
+Durable Object row named two classes where four exist across two Workers. Its *Secrets* section was
+correct and even cites ADR-0049 by name, which is how the inventory survived: the file had been
+half-updated, and the updated half made it look done.
+
+**The seventh instance of the shape** (34, 35, 37, 38, 42, 44), and the first where the false claim was
+about *this repository's own running infrastructure* rather than about code. That makes it the cheapest
+of all of them to have checked — one `curl` answered it — and it survived a day anyway, because nothing
+routine re-reads a status line. Found by grepping every `Status:` heading in the repo and checking each
+against the live deployment, which took about four minutes and is worth repeating after any deploy that
+changes topology.
 
 **45. A rate-limit test could be split across two counting windows and prove nothing, and it took two
 CI workflows disagreeing about the same commit to show it.** `dispatch.test.ts` sent up to 90 requests

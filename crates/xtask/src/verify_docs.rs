@@ -27,6 +27,11 @@
 //!    the narrowest check here on purpose — see [`check_self_hosting_vars`] for the general version that
 //!    was prototyped and rejected.
 //!
+//! 7. **`docs/OPERATIONS.md`'s inventory lists every Worker the repository deploys.** That table is
+//!    what someone reads during an incident, and it named two Workers where there are four — attributing
+//!    `api.nport.link` to `nport-node`, which under ADR-0049 has no route at all (defect 46). The check
+//!    runs in the direction that catches it: every `name` in an `apps/*/wrangler.jsonc` must appear.
+//!
 //! Deliberately not checked: prose accuracy, and external URLs (a network call would make CI flaky
 //! and fail on someone else's outage).
 
@@ -93,6 +98,7 @@ pub fn run() -> Result<(), String> {
     problems.extend(check_adr_references(&repo)?);
     problems.extend(check_source_references(&repo)?);
     problems.extend(check_adr_supersessions(&repo)?);
+    problems.extend(check_operations_inventory(&repo)?);
 
     if problems.is_empty() {
         println!("verify-docs: documentation matches the repository");
@@ -1000,6 +1006,111 @@ fn top_level_var(wrangler: &str, var: &str) -> Option<String> {
     None
 }
 
+/// Every Worker the repository deploys is named in `docs/OPERATIONS.md`'s inventory.
+///
+/// **The runbook listed two Workers where there are four**, and attributed `api.nport.link` to
+/// `nport-node` — which under ADR-0049 declares no `routes` and cannot be curled at all. Somebody
+/// working an incident would have gone looking for a Worker with no hostname while the front door,
+/// `nport-gateway`, was absent from the table entirely (defect 46).
+///
+/// **Checked in one direction only: config → doc.** A Worker that exists and is undocumented is the
+/// failure that hurts, because the reader cannot know to look for it. The reverse — a documented name
+/// no config declares — is left alone deliberately, since the table legitimately carries rows for
+/// things `wrangler` does not own: an R2 bucket, a Homebrew tap, a retired Pages project.
+///
+/// **The unit is the whole Inventory section, not a single table.** A Worker named only in the staging
+/// table satisfies it — established by removing one row and watching the check stay green, which is the
+/// sort of thing worth knowing about a check before trusting it. Tightening it to per-table would mean
+/// deciding which table a row belongs to from its heading, and production rows describe Workers that do
+/// not exist yet, so the stricter version would fail honestly-written docs.
+///
+/// It cannot check that the *route* beside a name is right, which was the more dangerous half of
+/// defect 46. Parsing "→ `api.nport.link`" out of a prose cell and resolving it against `routes` and
+/// `env.*.routes` is a small parser for one table, and the same argument [`check_self_hosting_vars`]
+/// makes against the general prose sweep applies: it would earn its keep only if the table's shape
+/// never changed, and a check that silently stops matching is worse than none. Naming every Worker is
+/// the part that is mechanically true, so it is the part that is mechanised.
+fn check_operations_inventory(repo: &Path) -> Result<Vec<String>, String> {
+    let mut problems = Vec::new();
+
+    let doc = std::fs::read_to_string(repo.join("docs/OPERATIONS.md"))
+        .map_err(|error| format!("reading docs/OPERATIONS.md: {error}"))?;
+
+    let Some(inventory) = inventory_section(&doc) else {
+        // The section vanishing is how a check quietly stops checking — say so rather than pass.
+        problems.push(
+            "docs/OPERATIONS.md: no `## Inventory` section — `check_operations_inventory` is keyed \
+             on that heading and has just stopped verifying anything"
+                .to_owned(),
+        );
+        return Ok(problems);
+    };
+
+    let apps = repo.join("apps");
+    let entries = std::fs::read_dir(&apps).map_err(|error| format!("reading apps/: {error}"))?;
+
+    let mut names = BTreeSet::new();
+    for entry in entries {
+        let path = entry
+            .map_err(|error| format!("reading apps/: {error}"))?
+            .path()
+            .join("wrangler.jsonc");
+        let Ok(config) = std::fs::read_to_string(&path) else {
+            // Not every app is a Worker — `apps/desktop` is Tauri and has no wrangler config.
+            continue;
+        };
+        if let Some(name) = worker_name(&config) {
+            names.insert(name);
+        }
+    }
+
+    if names.is_empty() {
+        problems.push(
+            "no apps/*/wrangler.jsonc declared a `name` — check_operations_inventory found nothing \
+             to verify, which means its parser is wrong, not that there are no Workers"
+                .to_owned(),
+        );
+    }
+
+    for name in names {
+        if !inventory.contains(&format!("`{name}`")) {
+            problems.push(format!(
+                "docs/OPERATIONS.md § Inventory does not mention `{name}`, which apps/*/wrangler.jsonc \
+                 deploys — the runbook would send an incident responder looking for the wrong Worker"
+            ));
+        }
+    }
+
+    Ok(problems)
+}
+
+/// The `## Inventory` section of `docs/OPERATIONS.md`, production and staging tables together.
+///
+/// Runs to the next `##` rather than the next heading of any level, because the staging table is a
+/// `###` subsection of Inventory and belongs to it.
+fn inventory_section(doc: &str) -> Option<&str> {
+    let start = doc.find("\n## Inventory")?;
+    let rest = &doc[start + 1..];
+    let end = rest[1..]
+        .find("\n## ")
+        .map_or(rest.len(), |offset| offset + 1);
+    Some(&rest[..end])
+}
+
+/// The top-level `"name"` from a `wrangler.jsonc`.
+///
+/// Deliberately the *first* `"name"` in the file, which is the top-level one: `env.staging.name` is set
+/// to the same value on purpose (`apps/web/wrangler.jsonc` explains why), and a `services` binding also
+/// carries a `name`-shaped key. Taking the first avoids both without a JSONC parser, and the top level
+/// is what the inventory documents.
+fn worker_name(config: &str) -> Option<String> {
+    let at = config.find("\"name\"")?;
+    let rest = &config[at + 6..];
+    let open = rest.find('"')? + 1;
+    let close = rest[open..].find('"')? + open;
+    Some(rest[open..close].to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     /// The tuning-table parsers, on input this crate does not have to read off disk.
@@ -1192,6 +1303,36 @@ mod tests {
             !problems.iter().any(|p| p.contains("gone-c.md")),
             "node_modules was walked: {problems:?}"
         );
+    }
+
+    /// The inventory check fails when a deployed Worker is missing, and passes when it is not.
+    ///
+    /// Written against the shape of defect 46 rather than a synthetic one: the row that vanished named
+    /// the front door, and its absence is what would have misdirected an incident responder.
+    #[test]
+    fn the_inventory_check_notices_a_worker_that_is_not_listed() {
+        let full = "\n## Inventory\n\n\
+             | Worker (front door) | `nport-gateway` | apps/gateway |\n\
+             | Worker (node) | `nport-node` | apps/node |\n\
+             \n## Secrets\n`nport-gateway` holds no credential.\n";
+
+        assert!(inventory_section(full).is_some_and(|section| section.contains("`nport-gateway`")));
+
+        // The section stops at the next `##`, so a name appearing only under Secrets does not count —
+        // otherwise any mention anywhere in the file would satisfy the runbook's table.
+        let missing = full.replace(
+            "| Worker (front door) | `nport-gateway` | apps/gateway |\n",
+            "",
+        );
+        assert!(!inventory_section(&missing).is_some_and(|s| s.contains("`nport-gateway`")));
+    }
+
+    #[test]
+    fn a_worker_name_is_read_from_the_top_level_not_a_binding() {
+        // `services` bindings and `env.staging` both carry a name-shaped key; the first one wins, and
+        // the first one is the top-level Worker. Getting this wrong would check the wrong string.
+        let config = "{\n  \"name\": \"nport-gateway\",\n  \"services\": [{ \"binding\": \"NODE\", \"service\": \"nport-node\" }],\n  \"env\": { \"staging\": { \"name\": \"nport-gateway\" } }\n}";
+        assert_eq!(worker_name(config).as_deref(), Some("nport-gateway"));
     }
 
     /// Built with `join` so the input uses whatever separator the platform does, asserted with
