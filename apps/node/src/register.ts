@@ -127,7 +127,8 @@ export async function registerWithRegistry(env: Env, fetcher: typeof fetch = fet
   const { identity } = resolved
 
   try {
-    if (!(await selfCheck(identity.url, fetcher))) {
+    // **Only a refusal stops a registration; an unanswered check does not.** See `selfCheck`.
+    if ((await selfCheck(identity.url, fetcher)) === "refused") {
       return
     }
 
@@ -186,30 +187,39 @@ export async function registerWithRegistry(env: Env, fetcher: typeof fetch = fet
 }
 
 /**
- * Fetches this node's own public URL and reports whether it answered.
+ * Fetches this node's own public URL and reports what it learned — which is not always an answer.
  *
- * **The gate the registry's probe used to be** (ADR-0049). It asks a narrower question than a probe
- * could — "can I be reached from the outside" is not answerable from inside a Worker — but it covers
- * every failure that a probe covered *and* is affordable on every tick rather than once per node per
- * five minutes across the whole directory.
+ * **Three outcomes, not two, and that distinction is the whole point** (`docs/ROADMAP.md` defect 41).
  *
- * `GET /v1/health` is the right target because it is the one endpoint the gateway answers itself: a
- * 200 proves DNS resolves, the route is bound, and the gateway is deployed and serving. It does not
- * prove this Worker's own service binding is healthy, which is the honest limit of a self-check and
- * the reason `docs/ARCHITECTURE.md` §7 keeps `GET /v1/meta` reporting real numbers on the request
- * path — a node that lies about being up gets found out by the first client that tries it.
+ * - `reachable` — the URL answered. Register.
+ * - `refused` — the edge answered and said no: a 4xx or 5xx. That is real evidence that a client
+ *   would fail too, so do not register.
+ * - `unknown` — nothing answered: a timeout, a DNS failure, a dropped subrequest. **This proves
+ *   nothing**, and registering anyway is the right response.
  *
- * A subrequest to your own hostname costs one of the 50 the cron budget allows and is meant to exercise
- * the path a client would take.
+ * The last one is the correction. This used to be a boolean and `unknown` fell in with `refused`, so
+ * a node that could not complete a request *to itself* removed itself from the directory — while
+ * serving traffic perfectly well to everyone else. That is what happened to node #1 on staging: it
+ * dropped out of `GET /v1/nodes` within ten minutes of every registration, with `GET /v1/meta`
+ * answering the whole time.
  *
- * **On a master deployment it is a same-zone round trip, and that is not proven to be reliable.**
- * `PUBLIC_URL` and `REGISTRY_URL` are both the gateway's hostname there, so all three of this cron's
- * subrequests leave the node Worker and re-enter the same zone. Staging registered on roughly two ticks
- * in twenty-four while the identical code registered first time from a laptop — see `docs/ROADMAP.md`
- * defect 41. Whether the failure is here or in the two registry calls is not yet known; the logging
- * above is what will say.
+ * **A node cannot honestly test its own public URL from inside itself.** On a master deployment
+ * `PUBLIC_URL` is the gateway's hostname on the same zone, so this fetch leaves the Worker and comes
+ * straight back into the account. Whether that round trip completes says as much about Cloudflare's
+ * internal routing as about whether a stranger could reach the same URL — and when the two disagree,
+ * the stranger's experience is the one that matters. Failing closed on evidence you do not have is
+ * how a healthy node deletes itself.
+ *
+ * What survives is the case the gate was actually written for: a node whose DNS record is gone or
+ * whose route is unbound gets a *status* back from Cloudflare's edge, not silence, and that still
+ * stops the registration.
+ *
+ * `GET /v1/health` remains the right target — the gateway answers it directly, so a 200 proves DNS
+ * resolves, the route is bound, and the gateway is serving.
  */
-async function selfCheck(publicUrl: string, fetcher: typeof fetch): Promise<boolean> {
+type SelfCheck = "reachable" | "refused" | "unknown"
+
+async function selfCheck(publicUrl: string, fetcher: typeof fetch): Promise<SelfCheck> {
   const target = registryEndpoint(publicUrl, "/v1/health")
   const started = Date.now()
   try {
@@ -220,28 +230,24 @@ async function selfCheck(publicUrl: string, fetcher: typeof fetch): Promise<bool
       signal: AbortSignal.timeout(SELF_CHECK_TIMEOUT_MS),
     })
     if (!response.ok) {
-      // **The edge answered and refused.** That is a real signal about the outside world.
-      console.error("node self-check failed; not registering", {
+      console.error("node self-check refused; not registering", {
         target,
         status: response.status,
         elapsedMs: Date.now() - started,
       })
-      return false
+      return "refused"
     }
-    return true
+    return "reachable"
   } catch (error) {
-    // **The edge did not answer.** A timeout or a network error here proves far less than a status
-    // does — on a master deployment this fetch leaves the Worker and comes back into its own zone,
-    // so a failure may say nothing about whether a *client* could reach the same URL. The elapsed
-    // time is what separates the two: at or near `SELF_CHECK_TIMEOUT_MS` it timed out, well under it
-    // the request was refused outright.
-    console.error("node self-check failed; not registering", {
+    // Registering anyway. A node that cannot reach *itself* has learned nothing about whether anyone
+    // else can, and the registry ages out a node that has genuinely gone away regardless.
+    console.error("node self-check unanswered; registering anyway", {
       target,
       error: String(error),
       elapsedMs: Date.now() - started,
       timedOut: Date.now() - started >= SELF_CHECK_TIMEOUT_MS - 250,
     })
-    return false
+    return "unknown"
   }
 }
 

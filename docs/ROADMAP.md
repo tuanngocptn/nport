@@ -810,6 +810,21 @@ zone. A node-only deployment points `REGISTRY_URL` at somebody else's gateway an
 `register.ts` asserted that this "is a real request through the edge, not a loopback"; that claim is
 what is now in doubt.
 
+**Measured, not guessed.** Registration succeeds on a minority of ticks: one in the 42 minutes from
+12:08, against a `*/5` cron that allows eight. Earlier gaps were 15, 55 and 65 minutes. Two hypotheses
+died on the evidence — the cron *is* firing (the registry's sweep runs on the same schedule and is on
+time, and the successes land on `*/5` boundaries), and warmth is irrelevant (sixteen minutes with the
+node kept warm across three ticks produced nothing). What is left is a subrequest that usually does not
+complete.
+
+**First fix, and a bisect.** The self-check failed closed on *any* failure, so a check that could not
+complete removed a node that was serving fine. It is now tri-state: a **refusal** — a status from the
+edge, which is real evidence a client would fail too — still stops the registration; **silence** does
+not. If registration becomes reliable, the self-check was the blocker and the two registry calls are
+fine; if it stays flaky, the loopback affects those too. Either way the change stands on its own: a
+node cannot honestly test its own public URL from inside itself, so treating the attempt as conclusive
+was wrong before it was inconvenient.
+
 **Which of the three fails is not yet known, and that is the second half of the defect.** Every refusal
 carries `details.reason` — the difference between "publish a TXT record" and "somebody else holds your
 id" — and `register.ts` fetched it and logged only the code, while the docblock directly above claimed

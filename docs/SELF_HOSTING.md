@@ -167,7 +167,7 @@ _nport-node.<your domain>   TXT   "nport-node=<your NODE_ID>"
 
 The registry resolves that record and lists you. `PUBLIC_URL` has to be under your domain because that record proves control of the domain and nothing else — a URL outside it would be a listing the proof does not cover.
 
-**The registry never fetches you** (ADR-0049). Your node registers on its own cron, every five minutes, having first fetched its own `PUBLIC_URL/v1/health` to confirm the public path works — so a deployment whose DNS is gone or whose gateway is undeployed simply stops calling and ages out of the list. Coming back is one proof of work on the next tick, from `down` and from delisted alike.
+**The registry never fetches you** (ADR-0049). Your node registers on its own cron, every five minutes, having first fetched its own `PUBLIC_URL/v1/health`. A *refusal* there — an unbound route, a missing DNS record — stops the registration, so a broken deployment ages out of the list. Silence does not: a check that times out has learned nothing about whether your users can reach you, and it registers anyway rather than delisting a node that is serving fine. Coming back is one proof of work on the next tick, from `down` and from delisted alike.
 
 That inverts one thing worth knowing: **if you stop registering, you are gone.** Silence past the registry's `NODE_DOWN_AFTER_SECONDS` shows you as `down` to clients, and past `NODE_DELIST_AFTER_SECONDS` removes the row. There is nothing to deregister with — stopping is how you leave.
 

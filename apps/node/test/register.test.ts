@@ -260,10 +260,29 @@ describe("registerWithRegistry", () => {
     expect(registry.posts).toEqual([])
   })
 
-  it("does not register when its own URL cannot be reached at all", async () => {
-    // The DNS-is-gone case, distinct from the answering-503 one above: a throw rather than a status.
+  it("registers anyway when its own URL does not answer at all", async () => {
+    // **The correction that cost node #1 its listing** (`docs/ROADMAP.md` defect 41). A throw here —
+    // a timeout, a DNS failure, a dropped subrequest — is not a status, and it is not evidence. The
+    // node has learned that *it* could not complete a request to itself, which on a master deployment
+    // is a round trip out of the Worker and straight back into the same zone. Whether a stranger could
+    // reach the same URL is a different question, and the stranger's answer is the one that matters.
+    //
+    // This used to return early, so a node serving traffic perfectly well removed itself from the
+    // directory within ten minutes of every registration. Failing closed on evidence you do not have
+    // is how a healthy node deletes itself.
     const registry = fakeRegistry({ health: "down" })
     await expect(registerWithRegistry(federated(), registry.fetch)).resolves.toBeUndefined()
+    expect(registry.posts, "an unanswered self-check must not stop the registration").toHaveLength(
+      1,
+    )
+  })
+
+  it("still refuses to register when its own URL answers with an error", async () => {
+    // The other half, and the case the gate was written for: a node whose route is unbound or whose
+    // DNS record is gone gets a *status* back from the edge rather than silence. That is real evidence
+    // a client would fail too, so it still fails closed.
+    const registry = fakeRegistry({ health: 503 })
+    await registerWithRegistry(federated(), registry.fetch)
     expect(registry.posts).toEqual([])
   })
 
