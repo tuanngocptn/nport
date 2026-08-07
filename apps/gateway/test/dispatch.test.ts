@@ -1,4 +1,4 @@
-import { SELF } from "cloudflare:test"
+import { SELF, env as testEnv } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 
 import { app } from "../src/index"
@@ -11,6 +11,26 @@ import { app } from "../src/index"
  */
 
 const UA = { "user-agent": "nport/3.0.0 (linux; x86_64)" }
+
+/**
+ * How many requests it takes to *prove* the limiter engages, derived from its real ceiling.
+ *
+ * `RATE_LIMIT` is injected by `vitest.config.ts` straight from `wrangler.jsonc`, so this cannot drift
+ * from the limiter being tested. It is test-only — the Worker reads the `RATE_LIMITER` binding, never
+ * a number — which is why it is cast here rather than added to `Env`.
+ *
+ * **Why twice the limit and one more, rather than a comfortable margin.** Cloudflare's limiter counts
+ * in a fixed window aligned to the wall clock, not a sliding one. A loop that straddles a boundary has
+ * its requests split across two windows, and if neither side exceeds the limit the ceiling is never
+ * reached — 90 requests against a limit of 60 splits as 40 + 50 and trips nothing. That is a real
+ * failure this suite had: green locally, green on one CI workflow, red on another, on the same commit.
+ *
+ * At `2 × limit + 1`, one boundary anywhere in the loop still leaves one side above the limit, because
+ * two sides summing to more than twice it cannot both be at or under it. A second boundary would need
+ * the loop to span a whole period, which is four seconds of requests against sixty of window.
+ */
+const { RATE_LIMIT } = testEnv as unknown as { RATE_LIMIT: number }
+const ATTEMPTS_TO_TRIP = RATE_LIMIT * 2 + 1
 
 interface Echo {
   service: string
@@ -174,7 +194,7 @@ describe("the request-rate limiter", () => {
    */
   it("engages before a request crosses a binding", async () => {
     let limited: Response | undefined
-    for (let index = 0; index < 90; index += 1) {
+    for (let index = 0; index < ATTEMPTS_TO_TRIP; index += 1) {
       const response = await call("/v1/meta", { headers: { "cf-connecting-ip": "198.51.100.7" } })
       if (response.status === 429) {
         limited = response
@@ -191,7 +211,7 @@ describe("the request-rate limiter", () => {
   })
 
   it("leaves another source unaffected when one is limited", async () => {
-    for (let index = 0; index < 90; index += 1) {
+    for (let index = 0; index < ATTEMPTS_TO_TRIP; index += 1) {
       const response = await call("/v1/meta", { headers: { "cf-connecting-ip": "198.51.100.8" } })
       if (response.status === 429) {
         break
@@ -204,7 +224,7 @@ describe("the request-rate limiter", () => {
   })
 
   it("does not limit health, so an uptime monitor cannot poll itself out of existence", async () => {
-    for (let index = 0; index < 90; index += 1) {
+    for (let index = 0; index < ATTEMPTS_TO_TRIP; index += 1) {
       await call("/v1/meta", { headers: { "cf-connecting-ip": "198.51.100.10" } })
     }
     const health = await SELF.fetch("https://api.nport.link/v1/health", {

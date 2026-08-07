@@ -8,7 +8,7 @@ The public front door for a deployment: `api.nport.link` (production), `api.npor
 
 **Not responsible for:** provisioning anything, storing anything, or holding a Cloudflare credential. It has no Durable Object and no cron. If a change here needs either, it belongs in a service.
 
-**Status: written, never deployed.** `docs/ROADMAP.md` § Backend first.
+**Status: deployed to staging** since 2026-08-06, fronting real tunnels on `api.nport.online`.
 
 ## Layout
 
@@ -44,6 +44,7 @@ pnpm --filter @nport/gateway deploy   # normally CI does this
 ## Gotchas
 
 - **Hono context does not cross a service binding.** `c.var.sourceHash` is meaningless on the other side; that is why it travels as a header.
+- **The rate limiter counts in a fixed window aligned to the wall clock, not a sliding one.** A test that sends `limit + 1` requests can therefore see them split across two windows and trip nothing — which is what made `dispatch.test.ts` pass locally, pass on one CI workflow and fail on another, on the same commit (`docs/ROADMAP.md`, defect 45). Anything asserting the limiter *engages* must send more than **twice** the limit, and `vitest.config.ts` injects the real ceiling so the loop cannot be sized against a number that has since changed.
 - **`namespace_id` for the rate limiter must be unique per Worker.** 1003 is this one, and it is now the only `ratelimits` binding in the repo — the node's 1001 and the registry's 1002 went with their limiters. The numbers stay reserved so a service later given its own limiter does not collide.
 - **A service binding still counts against the subrequest budget** (50 on the free plan). It skips DNS and TLS, not accounting.
 - **The stubs in `vitest.config.ts` echo the request back**, which is what lets a test assert on the headers the gateway set rather than on a status code. Binding to the real services would test three Workers and answer a different question.

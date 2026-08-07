@@ -797,6 +797,33 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       twenty-four, so within ten minutes the registry ages it to `down` and a discovering client
       would skip it. G5 waits on this, not on a second account
 
+**45. A rate-limit test could be split across two counting windows and prove nothing, and it took two
+CI workflows disagreeing about the same commit to show it.** `dispatch.test.ts` sent up to 90 requests
+from one source against a limit of 60 and asserted a 429 arrived. Cloudflare's limiter counts in a
+**fixed window aligned to the wall clock**, not a sliding one, so a loop that straddles a boundary has
+its requests split — 40 in one window, 50 in the next — and neither side reaches the ceiling. The
+assertion then fails having demonstrated nothing about the limiter.
+
+Rare by construction: it needs a boundary to land inside a loop that takes about four seconds, and then
+to land in the middle third of it. That is why it survived. The run that caught it was **green on `CI`
+and red on `Deploy staging` for the same commit**, which is the only signature this class of fault has —
+a test that fails for a reason unrelated to the code cannot be distinguished from one that found
+something, except by noticing the same code passed elsewhere.
+
+The bound is now `2 × limit + 1`, which one boundary cannot defeat: two counts summing to more than
+twice the limit cannot both be under it. And the limit is **read from `wrangler.jsonc`** by
+`vitest.config.ts` and injected as a test-only binding, rather than written into the test. A copy
+would fail silently in the more dangerous direction — raise the limit to 200 and a loop of 121 stops
+tripping, so the test goes green *by never exercising the thing it names*.
+
+**It is self-validating in the right direction**, which is worth more than the comment explaining it:
+if the injected binding ever goes missing the bound becomes `NaN`, the loop runs zero times, and the
+test fails. A test whose scaffolding breaks loudly is the only kind worth deriving a number for.
+
+`docs/TESTING.md` already argues that a flaky test is worse than no test — made about a Playwright spec
+that raced React's float management. This is the same argument in the backend tier, and the same fix:
+find the nondeterminism and remove it, rather than widening a margin until it stops being noticed.
+
 **44. The deploy pipeline's only check on the site was `curl /`, which is green for the one failure the
 site has actually had.** ADR-0048 exists because all 33 `/errors/<slug>` pages 404ed *from the Worker*
 while `next build` prerendered every one and the unit tests passed. `pnpm test:e2e` was the answer, and

@@ -1,6 +1,26 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers"
 import { defineConfig } from "vitest/config"
 
+import { loadWranglerConfig } from "../../scripts/lib/wrangler-config.mjs"
+
+/**
+ * The limiter's own configured ceiling, read rather than repeated.
+ *
+ * `ratelimits` is not a `var`, so nothing in the isolate can see it, and the one test that asserts the
+ * limiter *engages* has to send more than this many requests to prove anything. Hand-copying the number
+ * is how that test silently stops testing when someone raises the limit — it would simply never trip
+ * and never say so. This is the same arrangement `apps/node`'s abuse-control tests use for their caps.
+ */
+const limiter = loadWranglerConfig("apps/gateway/wrangler.jsonc").ratelimits?.find(
+  (entry) => entry.name === "RATE_LIMITER",
+)
+
+if (typeof limiter?.simple?.limit !== "number") {
+  throw new Error(
+    "apps/gateway/wrangler.jsonc has no RATE_LIMITER limit — the rate tests are blind",
+  )
+}
+
 /**
  * Real `workerd`, with the two internal services replaced by stubs.
  *
@@ -27,6 +47,9 @@ export default defineConfig({
           // that file alongside `wrangler.jsonc`, which is how `apps/node` once had 36 tests fail for
           // a reason that had nothing to do with the code.
           MIN_CLIENT_VERSION: "3.0.0",
+          // Not a binding the Worker reads — a fact about the binding it does read, handed to the
+          // tests so they can size their loops from the real ceiling instead of a copy of it.
+          RATE_LIMIT: limiter.simple.limit,
         },
         serviceBindings: {
           // Echo back what arrived, so an assertion can read the forwarded request rather than infer
