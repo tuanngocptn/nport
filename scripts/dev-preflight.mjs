@@ -36,13 +36,21 @@ const SURFACES = [
   {
     name: "gateway",
     port: 8787,
+    inspector: 9227,
     url: "http://localhost:8787",
     note: "wrangler dev · the front door — point clients here",
   },
-  { name: "node", port: 8788, url: "http://localhost:8788", note: "wrangler dev · provisioning" },
+  {
+    name: "node",
+    port: 8788,
+    inspector: 9228,
+    url: "http://localhost:8788",
+    note: "wrangler dev · provisioning",
+  },
   {
     name: "registry",
     port: 8789,
+    inspector: 9229,
     url: "http://localhost:8789",
     note: "wrangler dev · the directory",
   },
@@ -50,8 +58,19 @@ const SURFACES = [
   { name: "desktop", port: 1420, url: "native window", note: "tauri dev · first build is slow" },
 ]
 
-/** The Workers that refuse to serve without a `.dev.vars`. */
-const NEEDS_DEV_VARS = ["node", "gateway"]
+/**
+ * The Workers that refuse to serve without a `.dev.vars`. **All three of them.**
+ *
+ * The registry was missing from this list and had no `.dev.vars.example` at all, which went unnoticed
+ * because it was not in the dev stack until it was given a port. The symptom is the one this whole
+ * function exists to prevent: the Worker starts, `/v1/health` answers 200, and every `/v1/nodes`
+ * request fails with a logged `INTERNAL` because `POW_SECRET` is unset.
+ *
+ * `pnpm smoke` does not cover it either — it boots gateway and node on its own ports and never starts a
+ * registry — so the whole gate stayed green. Exactly the hazard `apps/node/CLAUDE.md` records about
+ * `src/cloudflare/dev-fake.ts`, one directory over.
+ */
+const NEEDS_DEV_VARS = ["node", "gateway", "registry"]
 
 async function exists(path) {
   try {
@@ -144,10 +163,27 @@ for (const app of NEEDS_DEV_VARS) {
   }
 }
 
+/**
+ * **The inspector ports count, and leaving them out cost half an hour.**
+ *
+ * Each `wrangler dev` binds two: the service port and a devtools inspector, pinned here so three
+ * concurrent sessions cannot collide on the 9229 default. A leaked `workerd` holding only an inspector
+ * port produces the least helpful failure in this whole stack — the preflight reports every port free,
+ * and wrangler then dies with `Address already in use (127.0.0.1:9227)` naming a port nothing told you
+ * about. `workerd` outlives the `wrangler` wrapper that spawned it, so this happens whenever a dev
+ * session is killed rather than stopped, which is most of the time.
+ */
 const busy = []
 for (const surface of SURFACES) {
-  if (await inUse(surface.port)) {
-    busy.push(surface)
+  const ports = [surface.port, surface.inspector].filter((port) => port !== undefined)
+  const held = []
+  for (const port of ports) {
+    if (await inUse(port)) {
+      held.push(port)
+    }
+  }
+  if (held.length > 0) {
+    busy.push({ ...surface, held })
   }
 }
 
@@ -155,7 +191,8 @@ console.log("")
 console.log("  nport · starting every surface")
 console.log("")
 for (const surface of SURFACES) {
-  const clash = busy.includes(surface) ? "  ← port already in use" : ""
+  const clashing = busy.find((entry) => entry.name === surface.name)
+  const clash = clashing ? `  ← in use: ${clashing.held.join(", ")}` : ""
   console.log(`    ${surface.name.padEnd(8)} ${surface.url.padEnd(24)} ${surface.note}${clash}`)
 }
 console.log("")
@@ -174,7 +211,9 @@ for (const notice of notices) {
 }
 if (busy.length > 0) {
   console.log(
-    `    note: ${busy.map((s) => s.port).join(", ")} already in use — stop the other process, or that surface will fail to start`,
+    `    note: ${busy.flatMap((surface) => surface.held).join(", ")} already in use — stop the other` +
+      ` process, or that surface will fail to start. An inspector port (92xx) is usually a leaked` +
+      ` \`workerd\` from a killed dev session: pkill -9 -f workerd`,
   )
 }
 if (notices.length > 0 || busy.length > 0) {

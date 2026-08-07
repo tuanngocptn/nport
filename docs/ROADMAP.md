@@ -795,6 +795,24 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       twenty-four, so within ten minutes the registry ages it to `down` and a discovering client
       would skip it. G5 waits on this, not on a second account
 
+**43. `pnpm dev` brought up a registry that answered `INTERNAL` to everything, and the whole gate was
+green.** `apps/registry` had no `.dev.vars.example` and was not in the preflight's list, so `POW_SECRET`
+was unset: `/v1/health` answered 200 and every `/v1/nodes` request failed with a logged `INTERNAL`. The
+gap predates the gateway — the registry was not in the dev stack until it was given a port — which is
+also why nothing noticed.
+
+**Found by running `pnpm dev`, which nothing else does.** `pnpm smoke` boots gateway and node on its own
+ports and never starts a registry, so no tier covered the dev stack. That is exactly the hazard
+`apps/node/CLAUDE.md` records about `src/cloudflare/dev-fake.ts` — a change that breaks `pnpm dev` for
+everyone while `pnpm test` stays green — one directory over and with nobody watching for it.
+
+**A second finding from the same session, and it cost more time than the first.** Each `wrangler dev`
+binds a devtools inspector port as well as its service port, and those were pinned when the three Workers
+were given fixed ports. `workerd` outlives the `wrangler` wrapper that spawns it, so a killed dev session
+leaks one holding both. The preflight checked only service ports — so it reported every port free and
+wrangler then died with `Address already in use (127.0.0.1:9227)`, naming a port nothing had mentioned.
+It now checks both and names the leaked one, with the `pkill` that clears it.
+
 **42. Two files said `apps/desktop/src/generated/bindings.ts` was generated. Nothing generates it, and
 it does not exist.** `apps/desktop/CLAUDE.md` rule 3 stated it as fact and its command block said
 `pnpm codegen` regenerates it; `docs/conventions/typescript.md` listed it among the files carrying a

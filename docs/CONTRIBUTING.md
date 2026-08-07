@@ -58,13 +58,15 @@ Each is startable alone — `pnpm dev:gateway`, `dev:node`, `dev:registry`, `dev
 
 Ports are pinned in each app's `dev` script rather than left to wrangler, whose default is 8787 for all three; `turbo run dev` starts them at once, so which two failed to bind would otherwise be a race.
 
-A preflight runs first. It creates `apps/node/.dev.vars` and `apps/gateway/.dev.vars` if either is missing, says which ports are already taken, and prints what is starting. It never refuses to start the stack: a preflight that blocks on a warning is one people route around, and then they lose the warnings too.
+A preflight runs first. It creates `.dev.vars` for all three Workers if any is missing, says which ports are already taken — **including each `wrangler dev`'s inspector port**, because a leaked `workerd` holding only one of those makes wrangler die naming a port nothing else mentions — and prints what is starting. It never refuses to start the stack: a preflight that blocks on a warning is one people route around, and then they lose the warnings too.
 
 **`apps/web` and `apps/desktop` are scaffolds.** One page and one window respectively, existing so the whole stack comes up together. The site is Phase 2c and the app is Phase 4 (`docs/ROADMAP.md`); each says so on itself, so nobody mistakes the placeholder for the product.
 
 ### Provisioning without a Cloudflare account
 
 `apps/node/.dev.vars` and `apps/gateway/.dev.vars` are created from their examples on first run. Both are gitignored, hold no real secret, and `wrangler deploy` never uploads them — which is what makes them the right place for settings that must never exist in production.
+
+**The registry needs its own `POW_SECRET`, and it must differ from the node's.** Both services issue and verify proof-of-work challenges with the same algorithm, so one shared key makes a challenge issued by the node redeemable at the registry — enrolling a node into the directory would then cost whatever the cheapest tunnel create in the world costs. The two examples carry different values, Terraform keeps two independent `random_password` resources, and `pnpm deploy:check` fails if they ever come from one.
 
 **Both must agree on `MIN_CLIENT_VERSION`.** The gateway *enforces* the floor and the node *publishes* it on `GET /v1/meta`, so a mismatch means a client reads one number and is refused by another. Both examples say `0.0.0`, because the local build calls itself `3.0.0-dev` and the gate sorts a pre-release below its release. `pnpm deploy:check` holds the same pair equal in the committed configs.
 
