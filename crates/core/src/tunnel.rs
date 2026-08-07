@@ -756,7 +756,7 @@ mod tests {
     async fn a_cap_on_the_caller_is_not_shopped_to_another_node() {
         let (first, _) = routed(vec![
             ("/v1/challenge", leak(json("200 OK", CHALLENGE))),
-            ("/v1/meta", leak(json("200 OK", META))),
+            ("/v1/meta", leak(json("200 OK", META_ROOMY))),
             (
                 "/v1/tunnels",
                 leak(json(
@@ -769,7 +769,7 @@ mod tests {
 
         let (second, second_seen) = routed(vec![
             ("/v1/challenge", leak(json("200 OK", CHALLENGE))),
-            ("/v1/meta", leak(json("200 OK", META))),
+            ("/v1/meta", leak(json("200 OK", META_TIGHT))),
             (
                 "/v1/tunnels",
                 leak(json("201 Created", r#"{"subdomain":"x","url":"https://x.test","tunnelId":"11111111-2222-3333-4444-555555555555","tunnelToken":"t","ownerToken":"o","expiresAt":1}"#)),

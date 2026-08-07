@@ -32,6 +32,11 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # `cargo xtask codegen` builds `nport` now (it reads `Args`'s clap definition to generate
+      # `schema/cli.json`), which pulls in `nport-protocol`, whose `build.rs` shells out to `capnp`.
+      # Before that dependency this job needed no system toolchain at all — the commit that added it
+      # claimed "the drift workflow already pays for" a Rust build, and this is that claim being wrong.
+      - uses: ./.github/actions/install-capnp
       - run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@v2
 

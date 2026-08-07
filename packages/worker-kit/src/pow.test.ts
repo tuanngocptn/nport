@@ -200,7 +200,26 @@ describe("verifyChallenge", () => {
     // Nonces are bound to their challenge, so a solution cannot be reused across them.
     const first = await issueChallenge(SECRET, 8, NOW)
     const second = await issueChallenge(SECRET, 8, NOW)
-    const nonce = await solveChallenge(first.challenge, 8)
+
+    // **Searched, not taken from `solveChallenge` directly.** At 8 bits any given nonce also satisfies
+    // an unrelated challenge about once in 256 tries, so the obvious version of this test — solve for
+    // `first`, assert it fails against `second` — is a coin flip weighted 255:1, and it lost on the run
+    // that pushed it. A 1-in-256 failure is worse than a 1-in-2 one: it survives review, passes locally
+    // for weeks, and teaches whoever finally sees it red that the suite is flaky rather than that the
+    // code is wrong. So the nonce is one that provably solves `first` and provably does not solve
+    // `second`, which is exactly the claim in the sentence above.
+    let nonce = ""
+    for (let candidate = 0; ; candidate += 1) {
+      const value = String(candidate)
+      if (
+        (await hasLeadingZeroBits(`${first.challenge}.${value}`, 8)) &&
+        !(await hasLeadingZeroBits(`${second.challenge}.${value}`, 8))
+      ) {
+        nonce = value
+        break
+      }
+    }
+
     const result = await verifyChallenge(SECRET, second.challenge, nonce, NOW)
     expect(result).toEqual({ ok: false, reason: "insufficient-work" })
   })
