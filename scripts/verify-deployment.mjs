@@ -172,6 +172,45 @@ if (
     console.error(`  ✗ /v1/nodes answered without a \`nodes\` array: ${JSON.stringify(directory)}`)
     failures += 1
   }
+
+  /**
+   * **A node listed as `down` whose own `/v1/meta` just answered is a contradiction**, and it is the
+   * shape defect 41 took: the registry ages an entry the node stopped renewing, while the node itself
+   * serves normally. Nothing noticed for hours, because each side looks healthy on its own — you have
+   * to hold both up at once, which no check did until this one.
+   *
+   * Only this deployment's own node is checked, by `NODE_ID`. Other operators' nodes going quiet is
+   * the directory working, not our deploy failing.
+   *
+   * **Absence is not a failure and staleness is.** Straight after a deploy the node has not had a cron
+   * tick yet, so "not listed" is the expected transient — warned about, never failed. Listed-but-`down`
+   * is different: something registered it and then stopped, which no amount of waiting fixes.
+   */
+  const nodeId = vars.NODE_ID
+  const self = Array.isArray(directory.nodes)
+    ? directory.nodes.find((node) => node.id === nodeId)
+    : undefined
+
+  if (nodeId === undefined) {
+    console.log(
+      "  – node listing not checked: this deployment sets no NODE_ID, so it never registers",
+    )
+  } else if (self === undefined) {
+    console.log(
+      `  ! \`${nodeId}\` is not listed yet — expected right after a deploy, since registration waits` +
+        ` for the next cron tick. If it is still missing in ten minutes, that is defect 41`,
+    )
+  } else if (self.status === "down") {
+    console.error(
+      `  ✗ the registry lists \`${nodeId}\` as \`down\`, and /v1/meta answered above — so this node is` +
+        ` serving while it has stopped registering (docs/ROADMAP.md defect 41).` +
+        ` Last registered ${Math.round((Date.now() - self.lastSeenAt) / 1000)}s ago`,
+    )
+    failures += 1
+  } else {
+    const age = Math.round((Date.now() - self.lastSeenAt) / 1000)
+    console.log(`  ✓ \`${nodeId}\` is listed and ${self.status}, last registered ${age}s ago`)
+  }
 } else {
   console.log(
     "  – /v1/nodes not checked: this deployment binds no REGISTRY, so it has no directory",

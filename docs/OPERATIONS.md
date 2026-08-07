@@ -193,7 +193,9 @@ Workers observability is enabled on every Worker.
 
 **Three of the four share one hostname**, so a log query scoped to `api.<domain>` sees the gateway and not the services behind it. A forwarded request appears in two Workers' logs under the same `x-nport-request-id`, which is what that header is for — the gateway prefers Cloudflare's `cf-ray`, so the id a user quotes matches Cloudflare's own logs as well.
 
-Alerts to configure: canary failure (**page**), API 5xx rate above baseline, `UPSTREAM_CLOUDFLARE_ERROR` rate, `CAPACITY_EXHAUSTED` occurring at all, `DNS_CONFLICT` occurring at all (it should be near-zero), DO alarm failures, smoke-test failure.
+Alerts to configure: canary failure (**page**), API 5xx rate above baseline, `UPSTREAM_CLOUDFLARE_ERROR` rate, `CAPACITY_EXHAUSTED` occurring at all, `DNS_CONFLICT` occurring at all (it should be near-zero), DO alarm failures, smoke-test failure, and **`node registration refused` or `node self-check failed` on any node's cron** — registration swallows its failures by design, so those log lines are the only thing that says a node is quietly dropping out of the directory.
+
+**The contradiction worth watching for: a node listed `down` whose own `GET /v1/meta` answers.** Each side looks healthy alone — the registry is correctly ageing an entry nobody renewed, and the node is correctly serving traffic — and only holding both up at once shows the fault. That is defect 41's shape, and it went unnoticed for hours. `scripts/verify-deployment.mjs` now fails the deploy on it for the deployment's own node; nothing yet watches it continuously.
 
 Watch weekly: active tunnels, creates/hour, create→active success rate, lease-expiry vs explicit-delete ratio, PoW rejection rate, client version distribution (informs `MIN_CLIENT_VERSION`).
 
