@@ -42,10 +42,11 @@ The whole chain is exercisable offline: a node registers with a fake registry in
 registry ages a seeded listing in its own, a client fails over between two loopback nodes in
 `crates/core`'s, and `pnpm smoke` boots gateway + node and provisions through the binding.
 
-**What is not yet true.** Neither the gateway nor the registry is deployed, so no node has ever
-registered with a real registry and no client has ever discovered one. G5 wants two nodes on two
-Cloudflare accounts and two domains, both listed, with a client failing over when the first is stopped
-mid-run — which means a second account and a second domain. **It no longer means a second hostname for
+**What is not yet true.** All three Workers are deployed, a node has registered with a real registry,
+and a client has discovered one and tunnelled through it — all of that happened on 2026-08-07. What has
+never happened is **two** of anything. G5 wants two nodes on two Cloudflare accounts and two domains,
+both listed, with a client failing over when the first is stopped mid-run — which means a second account
+and a second domain. **It no longer means a second hostname for
 the registry**: since ADR-0049 it answers `/v1/nodes*` behind the same gateway as node #1, so the thing
 G5 waits on is one deploy of the existing three Workers plus one more account.
 `docs/DEPLOYMENT.md` owns that.
@@ -793,9 +794,18 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       the list to `~/.nport/nodes.json`, provisioned through the gateway, brought up four QUIC
       connections (hkg01/08/09/12) and released its lease on Ctrl+C. **The first time any client has
       ever reached a node through the directory**
-- [ ] **Steady state is broken — defect 41 below.** The node registers on roughly two cron ticks in
-      twenty-four, so within ten minutes the registry ages it to `down` and a discovering client
-      would skip it. G5 waits on this, not on a second account
+- [ ] **Steady state is still cron-bound for an idle node — defect 41 below.** The traffic-driven
+      heartbeat fixed the case that matters: a node serving requests re-registers off the Durable
+      Object hop `/v1/meta` already makes. A node with **no** traffic still depends on the `*/5` cron,
+      and that cron is still missing ticks. **Measured 2026-08-08 over 21 minutes, touching only the
+      registry so the traffic path stayed cold: 2 registrations where 4 were due**, gaps of 298 s and
+      899 s. Longest silence 903 s against a 600 s `down` threshold — and the node was still listed
+      `up`, so the registry's own sweep did not demote it either, though the window where it could
+      have was only about four minutes and one missed tick is not proof of a pattern.
+
+      **This no longer blocks G5.** Node #1 carries traffic during a failover test by definition, and
+      a listed-then-idle node slipping out of a directory nobody is reading harms nobody. What it
+      blocks is trusting `/v1/nodes` as a health display for a quiet node
 
 **46. Eight places said federation was not deployed, on a deployment that had been federated and
 serving for a day — and the operations runbook named the wrong Worker as the front door.** The root
@@ -946,7 +956,10 @@ what is now in doubt.
 
 **Measured over 90 minutes: 4 registrations where a `*/5` cron allows about 18.** Gaps of 15, 40, 10
 and 5 minutes. With `NODE_DOWN_AFTER_SECONDS` at 600 that leaves node #1 listed as `down` more than half
-the time, so a discovering client would skip it — which is why this blocks G5 rather than being cosmetic.
+the time, so a discovering client would skip it — which is why this blocked G5 rather than being
+cosmetic. **Superseded**: the traffic-driven heartbeat below covers the node a failover test actually
+exercises, and the Phase 5 checklist records what is left. Kept because the measurement is still the
+evidence for how unreliable the cron is.
 
 **One hypothesis is dead.** Warmth is irrelevant: sixteen minutes keeping the node's isolate warm across
 three ticks produced nothing.
@@ -1005,6 +1018,19 @@ back with named its reason, which is this morning's logging fix paying for itsel
 
 **Still open:** whether the earlier two-hour silence was Cloudflare dropping invocations or something
 about that account. The fix does not depend on the answer, which is why it did not wait for one.
+
+**Measured again 2026-08-08, deliberately with the traffic path cold** — 21 minutes of polling
+`/v1/nodes` only, which reaches the registry and never wakes the node. Two registrations where the
+cron allows four, with gaps of 298 s and 899 s: one tick landed, three did not, and then one did. So
+the cron is not dead and is not reliable, on an account doing nothing else. That is the same shape as
+the original 90-minute measurement (4 where 18 were due) and it rules out the isolate having gone cold
+from disuse, since the same account had been deploying and serving all day.
+
+One thing the measurement could not settle: the node sat 903 s past its last registration against a
+600 s `down` threshold and was still listed `up`, which means the *registry's* sweep did not run in the
+roughly four-minute window where it would have demoted it. A four-minute window against a five-minute
+schedule is not evidence of a missed tick — it is one sample of a coin that lands the wrong way often
+enough. Worth re-measuring deliberately if the directory's `status` field is ever load-bearing.
 
  `wrangler tail nport-node --env staging`
 for six minutes answers it outright: a line every five minutes — `node registered`, or a refusal, or an
