@@ -1,26 +1,34 @@
 import { expect, test } from "@playwright/test"
 
 /**
- * Visual baselines (ADR-0023) — **specified and wired, not yet armed.**
+ * Visual baselines (ADR-0023) — **armed**, on Linux only.
  *
  * The ADR pins baselines to one OS because font rasterisation differs per platform, and names Linux:
- * "Linux is the baseline; local runs compare behaviour only". No Linux baseline exists in the repository
- * yet, and one cannot honestly be produced on the macOS machine this was written on — recording it here
- * would commit a snapshot that every CI run then fails against, which is precisely the churn the original
- * objection to screenshot tests was about.
+ * "Linux is the baseline; local runs compare behaviour only". Those baselines now exist, recorded on
+ * the `ubuntu-latest` runner that compares them — `docs/TESTING.md` § Frontend e2e has the how and the
+ * review rule for a changed one.
  *
- * So this spec is skipped unless `NPORT_VISUAL=1`. `docs/TESTING.md` § Frontend e2e carries the one
- * command that records the baseline on Linux and the review rule for a changed one. The alternative —
- * omitting the file until then — would have left nothing to describe what "armed" means.
+ * **Skipped off Linux rather than off a flag**, which is what "local runs compare behaviour only"
+ * means in practice. `snapshotPathTemplate` puts the platform in the path, so a macOS run looks for
+ * `__screenshots__/darwin/` and fails on a missing snapshot — a failure about nothing, on every local
+ * `pnpm test:e2e`. Recording one to satisfy it would be worse: a second baseline drifting from the
+ * first, telling you the page changed when the machine did.
+ *
+ * `NPORT_VISUAL=1` still forces a run, which is how the recording job arms itself in CI and how
+ * somebody on Linux can check a change locally.
  *
  * `animations: "disabled"` and the two masks below are the churn controls the ADR asks for, applied up
  * front rather than after the first intermittent failure.
  */
 
-const ARMED = process.env.NPORT_VISUAL === "1"
+const LINUX = process.platform === "linux"
+const FORCED = process.env.NPORT_VISUAL === "1"
 
 test.describe("visual baselines", () => {
-  test.skip(!ARMED, "no Linux baseline recorded yet — see docs/TESTING.md § Frontend e2e")
+  test.skip(
+    !LINUX && !FORCED,
+    `baselines are Linux-only (ADR-0023); this is ${process.platform}. Behaviour specs still ran.`,
+  )
 
   test("the home page matches its baseline", async ({ page }) => {
     await page.goto("/")

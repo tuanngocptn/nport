@@ -9,7 +9,7 @@ applies_to:
 
 The strategy spans two languages, three runtimes (Node, `workerd`, native), and a live external service. That is why it lives in one document instead of being scattered across five `CLAUDE.md` files.
 
-**Status: implemented for every app and crate except `apps/desktop`**, which is untested and waits on Phase 4. `apps/web` now has both its tiers: Vitest over `src/lib` and `src/content`, and Playwright against the built Worker. Its **visual baselines are wired but not armed** — see § Frontend e2e.
+**Status: implemented for every app and crate except `apps/desktop`**, which is untested and waits on Phase 4. `apps/web` now has both its tiers: Vitest over `src/lib` and `src/content`, and Playwright against the built Worker. Its **visual baselines are armed**, on Linux — see § Frontend e2e.
 
 ## Tiers
 
@@ -113,7 +113,7 @@ A changed fixture means one of: our encoder changed (justify it), the pinned clo
 
 ## Frontend e2e and visual regression
 
-`apps/web` is tested with Playwright: behavioural assertions plus `toHaveScreenshot()` visual baselines (ADR-0023). **The behavioural half is implemented — 23 specs in `apps/web/e2e` — and the visual baselines are not armed**; see below for what that means and how to arm them.
+`apps/web` is tested with Playwright: behavioural assertions plus `toHaveScreenshot()` visual baselines (ADR-0023). **Both halves are live**: 32 specs in `apps/web/e2e`, and two baselines recorded on the runner that compares them. See below for the review rule and why they do not run on your laptop.
 
 **It drives the built Worker, not `next dev`** (ADR-0048). `playwright.config.ts` runs `opennextjs-cloudflare build && preview`, which is slower and is the entire point: the first thing this tier found was that **all 33 `/errors/[code]` pages returned 404 from the Worker** while `next build` prerendered every one and the unit tests passed. No tier that reads `.next/` can see a fault in how the Worker reads its own output.
 
@@ -144,13 +144,11 @@ The original objection to screenshot tests was churn, and it was correct. Three 
 
 A changed baseline is reviewed like a changed golden fixture: decide whether the intent changed, the browser changed, or the site broke. Never re-record on red without deciding which. Baselines live at `apps/web/e2e/__screenshots__/<platform>/`, with the platform in the path so a locally recorded snapshot cannot be mistaken for the committed Linux one.
 
-**Arming them.** `apps/web/e2e/visual.spec.ts` is skipped unless `NPORT_VISUAL=1`, because no Linux baseline exists yet and one cannot honestly be recorded on macOS — committing a macOS snapshot would fail every CI run, which is the churn the original objection was about.
+**They run on Linux and are skipped everywhere else** — `visual.spec.ts` guards on `process.platform`, not on a flag. That is what constraint 1 means in practice: `snapshotPathTemplate` puts the platform in the path, so a macOS run looks for `__screenshots__/darwin/` and fails on a missing snapshot — a failure about nothing, on every local `pnpm test:e2e`. Recording one to satisfy it would be worse: a second baseline drifting from the first, telling you the page changed when the machine did. `NPORT_VISUAL=1` forces a run regardless, which is how the recording job arms itself and how somebody on Linux checks a change locally.
 
-**Record them on the runner that will compare them**, which means CI. `pnpm --filter @nport/web test:e2e:update` is the command, and where it runs is the part that matters: a Playwright container on an arm64 laptop is still the wrong image and the wrong architecture, so its output fails here just as a macOS one would. The `web-e2e` job records and uploads them when a commit message contains `[record-baselines]` — a marker rather than a `workflow_dispatch`, because a dispatch only appears once the workflow reaches the default branch, and recording is rare enough that a marker is the right weight.
+**Re-recording them happens on the runner that will compare them**, which means CI. `pnpm --filter @nport/web test:e2e:update` is the command, and where it runs is the part that matters: a Playwright container on an arm64 laptop is still the wrong image and the wrong architecture, so its output fails here just as a macOS one would. The `web-e2e` job records and uploads them when a commit message contains `[record-baselines]` — a marker rather than a `workflow_dispatch`, because a dispatch only appears once the workflow reaches the default branch, and recording is rare enough that a marker is the right weight.
 
-The job **uploads** the images; it does not commit them. A workflow that wrote screenshots into the tree could rewrite what it is judged against. Download `visual-baselines-linux`, *look at the images*, commit `__screenshots__/linux/`, then drop the `NPORT_VISUAL` guard in that spec — and from then on `web-e2e` compares every push against them.
-
-Until that happens, "visual regression" is wired and unarmed — stated here rather than implied by the ADR, so nobody assumes a snapshot is watching the page.
+The job **uploads** the images; it does not commit them. A workflow that wrote screenshots into the tree could rewrite what it is judged against. Download `visual-baselines-linux`, *look at the images* — a blank page and a broken build both produce a perfectly stable snapshot — then commit `__screenshots__/linux/`. That is how the two in the tree got there, and it is the whole procedure for replacing them.
 
 `apps/desktop` is **not** covered by this. Playwright cannot drive a Tauri WebView; that needs `tauri-driver` with WebdriverIO and arrives with Phase 4. The manual per-platform pass below still stands for it.
 

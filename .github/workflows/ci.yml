@@ -38,8 +38,9 @@ jobs:
   web-e2e:
     name: Web e2e
     # Pinned to Linux, and it must stay pinned: ADR-0023 makes Linux the visual baseline platform
-    # because font rasterisation differs per OS. The baselines are not recorded yet — see
-    # `apps/web/e2e/visual.spec.ts` — but the runner they will be recorded on is decided here.
+    # because font rasterisation differs per OS. The baselines in `apps/web/e2e/__screenshots__/linux/`
+    # were recorded here and are compared here; moving this job to another OS silently stops comparing
+    # them, because `visual.spec.ts` skips off Linux rather than failing.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -68,8 +69,8 @@ jobs:
       # ── Recording the visual baselines ────────────────────────────────────────────────
       #
       # **On this runner, or not at all.** ADR-0023 pins baselines to Linux because font rasterisation
-      # differs per OS, and the job above is where they will be compared — so they have to be produced
-      # by the same image and the same architecture. A baseline recorded in a Playwright container on an
+      # differs per OS, and the job above is where they are compared — so they have to be produced by
+      # the same image and the same architecture. A baseline recorded in a Playwright container on an
       # arm64 laptop fails every run here, which is the churn the original objection to screenshot tests
       # was about.
       #

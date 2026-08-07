@@ -19,7 +19,7 @@ that disagrees with its section is a bug in this table.
 | ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
 | ✅ | 2a · `apps/node` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
 | ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
-| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Code-complete**: error pages, marketing page, SEO surface, MDX docs, and a Playwright tier against the built Worker. Left is the gate — armed visual baselines, which need Linux, and the deploy |
+| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Code-complete**, visual baselines included. Error pages, marketing page, SEO surface, MDX docs, and a Playwright tier against the built Worker that now compares two Linux snapshots on every push. What is left is the deploy, which is an ops step |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
 | ⬜ | 4 · `apps/desktop` | — | A booting scaffold, and now **unblocked**: it was waiting on a stable `crates/core` and on discovery, and both exist. Still deliberately last |
@@ -62,7 +62,7 @@ Building two apps against a shape that is about to change is the cost being avoi
 
 ## Current position
 
-**Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b code-complete, and staging is deployed.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented, tested in real `workerd`, and **running at `api.nport.online`**. Federation is written but not deployed, and 2c is in progress: the site's pages, copy, SEO and e2e tier are built, with the OpenGraph image, the MDX docs and armed visual baselines left.
+**Phase 1 done, Phase 1.5 closed and tagged, Phase 2a feature-complete, 2b code-complete, and staging is deployed.** The whole control plane — lease lifecycle, abuse controls, reconciliation, and the v2 compatibility shim — is implemented, tested in real `workerd`, and **running at `api.nport.online`**. Federation is written but not deployed, and 2c has no code left in it: the site's pages, copy, SEO, OpenGraph card, MDX docs and e2e tier are built, and the visual baselines are armed. Only the deploy remains.
 
 **A port has been opened to the internet** (2026-08-06). The first tunnel provisioned, opened four HA connections to Cloudflare's edge, served a byte-identical body over HTTP/2, and tore down leaving NXDOMAIN — see Gate G2 below for exactly which criteria that did and did not cover. Getting there found four defects nothing offline could have found: `fetch` called with the wrong receiver, so *every* Cloudflare call raised `Illegal invocation`; the site's build script invoking itself until the runner died; staging's client-version floor refusing the only build that would ever point at it; and a Workers account with no `workers.dev` subdomain, which blocks all script uploads.
 
@@ -660,6 +660,8 @@ Two of the new specs are there because a unit test cannot reach them: **every** 
 
 **Visual baselines are wired and not armed.** ADR-0023 pins them to Linux; none has been recorded, because a macOS-recorded snapshot would fail every CI run, which is exactly the churn the original objection described. `apps/web/e2e/visual.spec.ts` is skipped behind `NPORT_VISUAL=1` and `docs/TESTING.md` carries the one command that records it. Same category as G5: the remaining step needs a machine this is not.
 
+> **Armed, 2026-08-08.** The machine turned out to be reachable after all: the runner that compares the baselines can record them. `web-e2e` records and uploads on a `[record-baselines]` marker, the artifact was downloaded and **both images were looked at** — the doc's own rule, and the one step that a blank page or a broken build would otherwise pass — and `__screenshots__/linux/` is committed. The guard is now `process.platform === "linux"` rather than `NPORT_VISUAL=1`: dropping it outright would have made every local `pnpm test:e2e` fail on a missing `darwin/` snapshot, and recording one to satisfy that would have committed the drifting second baseline ADR-0023 exists to prevent.
+
 **Defect 38: three files said the CLI flag reference was generated onto the site. Nothing generates it, and there is no page for it.** The root `CLAUDE.md` listed it among the things "generated because a human and a program must both agree on" them; `crates/CLAUDE.md` told anyone adding a flag to "run `pnpm codegen` to refresh the generated flag reference on the site"; `apps/web/CLAUDE.md` said "also generated". The word *flag* does not appear anywhere in either codegen script, `schema/` holds five artifacts and none is a flag reference, and `/docs` does not exist. The three claims are corrected to say so, using the same "not yet" convention the layout blocks use.
 
 **This is the fourth instance of one shape**, after defects 34, 35 and 37: *a document asserting work that lives somewhere else in the pipeline*. The pattern is specific enough now to name — a cross-file claim is only as true as the last person who checked it, and none of the four was caught by a test, because in each case the thing asserted was the absence of code rather than the behaviour of code. `verify-docs` catches a path that does not exist; it cannot catch a *capability* that does not exist. That is the gap worth closing next, and it may not be closable mechanically.
@@ -686,7 +688,7 @@ Troubleshooting is organised by **symptom rather than by code**, and links nine 
 
 `docs-links.test.ts` checks every internal link in the MDX against the routes the app actually serves. Nine of them are error slugs, and a typo'd slug is a 404 handed to somebody already debugging — defect 37 with the arrow reversed. `verify-docs` checks relative links in `docs/`; it does not read MDX, so this is the same guarantee for the other half of the documentation.
 
-**Still open in 2c:** arming the visual baselines, which needs a Linux runner. G2c also wants the site deployed, which is an ops step (`docs/DEPLOYMENT.md`).
+**2c has no code left open.** The visual baselines are armed (above), which was the last item. G2c wants the site deployed, which is an ops step (`docs/DEPLOYMENT.md`).
 
 **Defect 40: the PR template asked contributors to confirm a file compiles that has never existed.** `.github/pull_request_template.md`'s protocol section carried the checkbox "`src/h2.rs` still compiles (ADR-0017)", and `docs/CONTRIBUTING.md` and `crates/protocol/CLAUDE.md` rule 6 both stated it as a present obligation. `crates/protocol/CLAUDE.md`'s own layout block says `NOT YET WRITTEN` eight lines above the rule.
 

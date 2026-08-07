@@ -10,7 +10,7 @@ The public site at `nport.link`: marketing page, user documentation, and generat
 
 **The approved design is `docs/mockup/NPort Site.dc.html`.** Read `docs/mockup/README.md` before building or changing anything visual — that file is what UI, UX, and behaviour are checked against. It is reference only: never imported, never hand-edited, excluded from every check.
 
-**Status: 2c is code-complete.** `/errors/[code]` (33 generated pages), the marketing page with `#compare` and `#faq`, the SEO surface including a build-time OpenGraph card, four MDX doc pages with a **generated CLI reference**, and Playwright driving the built Worker (32 specs — how the 404 in the gotcha below was found). **One thing left**: arming the visual baselines, which needs a Linux runner (`docs/TESTING.md`). G2c also wants a deploy, which is an ops step.
+**Status: 2c is code-complete.** `/errors/[code]` (33 generated pages), the marketing page with `#compare` and `#faq`, the SEO surface including a build-time OpenGraph card, four MDX doc pages with a **generated CLI reference**, and and Playwright driving the built Worker (32 specs — how the 404 in the gotcha below was found), with the **visual baselines armed on Linux**. **What is left is the deploy**, which is an ops step, not code.
 
 **The design's copy is not shippable as written, and that is recorded rather than worked around.** `docs/mockup` was drawn for the finished product, so its hero and four of its eight features advertise a desktop app (Phase 4), a request inspector (Phase 4), and request replay (**Deferred**). `src/content/site.ts` keeps every one of those claims with a `ships` tag and the reason it is held back; the page renders only what is true, and `site.test.ts` fails if it ever renders more. Phase 4 is a status flip. The mockup's own README rule 4 is what licenses this — the design is not the authority on behaviour.
 
@@ -31,11 +31,11 @@ src/app/opengraph-image.tsx           the social card, rendered at build time fr
 src/lib/cli-reference.ts              reads schema/cli.json; src/components/cli-table.tsx renders it
 src/lib/inline-markdown.tsx           the two markdown constructs the registry's prose uses
 e2e/ playwright.config.ts             Playwright against the built Worker (ADR-0048)
+e2e/__screenshots__/linux/            visual baselines: recorded in CI, compared in CI only
 open-next.config.ts next.config.ts postcss.config.mjs vitest.config.ts wrangler.jsonc
 
 # Planned and not yet written — parenthesised so the block cannot be read as a
 # description of the tree as it stands:
-(e2e/__screenshots__/linux/           visual baselines — not recorded yet, docs/TESTING.md)
 (public/.well-known/security.txt)
 ```
 
