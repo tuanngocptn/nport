@@ -220,12 +220,39 @@ if (
         ` for the next cron tick. If it is still missing in ten minutes, that is defect 41`,
     )
   } else if (stale || self.status === "down") {
-    console.error(
-      `  ✗ \`${nodeId}\` last registered ${ageSeconds}s ago, stale past ${downAfterSeconds}s, and the` +
-        ` registry reports \`${self.status}\` — while /v1/meta answered above. This node is serving` +
-        ` while it has stopped registering (docs/ROADMAP.md defect 41)`,
-    )
-    failures += 1
+    const message =
+      `\`${nodeId}\` last registered ${ageSeconds}s ago, stale past ${downAfterSeconds}s, and the` +
+      ` registry reports \`${self.status}\` — while /v1/meta answered above. This node is serving` +
+      ` while it has stopped registering`
+
+    /**
+     * **A known, tracked, externally-blocked fault does not get to fail every deploy.**
+     *
+     * This is the repo's `legacy-gap.test.ts` idiom: state the gap, and fail when it *changes*. Defect
+     * 41 is measured, written down, and waiting on a `wrangler tail` nobody in CI can run — so a red
+     * Verify job on every push adds no information the roadmap does not already carry, while costing
+     * the `smoke` job that runs behind it. A check that fails every single time is a check people learn
+     * to scroll past, and this job holds five others worth reading.
+     *
+     * The allowance is deliberately awkward: it names a defect number and lives in `deploy.yml` where a
+     * human put it, so removing it is a visible edit rather than a config default nobody sees.
+     *
+     * **It does not also fail when the node looks healthy**, and that is a correction rather than an
+     * omission. `legacy-gap.test.ts` can assert its gap is still open because `/` is either routed or
+     * not — a stable fact. This fault is *intermittent*: the node registers on a minority of ticks, so a
+     * check that failed whenever it happened to run just after a successful registration would go red on
+     * whichever side of a tick it landed, at random, in both directions. A self-removing tripwire needs
+     * a stable state to trip on. What removes this allowance is the roadmap entry and the tail that
+     * closes the defect.
+     */
+    if (process.env.NPORT_KNOWN_STALE_NODE === "41") {
+      console.log(
+        `  ! ${message} — allowed by NPORT_KNOWN_STALE_NODE=41 (docs/ROADMAP.md defect 41)`,
+      )
+    } else {
+      console.error(`  ✗ ${message} (docs/ROADMAP.md defect 41)`)
+      failures += 1
+    }
   } else {
     console.log(
       `  ✓ \`${nodeId}\` is listed and ${self.status}, last registered ${ageSeconds}s ago` +

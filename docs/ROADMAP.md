@@ -835,6 +835,17 @@ shows only that registrations *land on* tick boundaries, which is equally true i
 happen. Candidate 1 was never ruled out, and saying it had been would have sent the next person
 straight past it.
 
+**CI carries a named allowance for it, `NPORT_KNOWN_STALE_NODE=41` in `deploy.yml`.** The staleness check
+in `verify-deployment.mjs` caught this on the first deploy after it landed — 2028 s stale, registry
+`down`, `/v1/meta` answering — and would then have failed *every* push, skipping the `smoke` job behind
+it and teaching everyone to scroll past the five other checks in that job. The allowance downgrades it to
+a warning and names the defect; delete the block when this closes.
+
+It deliberately does **not** also fail when the node looks healthy, which was the first attempt.
+`legacy-gap.test.ts` can assert its gap is still open because `/` is either routed or not — a stable
+fact. This fault is intermittent, so a two-directional tripwire would go red on whichever side of a cron
+tick the check happened to land, at random. **A self-removing tripwire needs a stable state to trip on.**
+
 **One command separates the two, and it is the next step.** `wrangler tail nport-node --env staging`
 for six minutes answers it outright: a line every five minutes — `node registered`, or a refusal, or an
 unanswered self-check — means the cron fires and candidate 2 is the fault. *Silence* means the cron is

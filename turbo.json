@@ -1,6 +1,17 @@
 {
   "$schema": "https://turborepo.com/schema.json",
   "globalDependencies": [".nvmrc", "biome.jsonc", "pnpm-workspace.yaml"],
+
+  // Declared so Biome's `noUndeclaredEnvVars` is satisfied and Turborepo's caching stays correct.
+  //
+  // **`globalPassThroughEnv`, not `globalEnv`**: these are read by scripts the pipeline runs directly
+  // (`scripts/verify-deployment.mjs`, Playwright), never by a cached task, so they should reach a
+  // process without becoming part of any cache key. Listing them under `globalEnv` would invalidate
+  // every cached build whenever one changed, for no gain.
+  //
+  // NPORT_KNOWN_STALE_NODE — a named allowance for one open defect; see .github/workflows/deploy.yml.
+  // NPORT_VISUAL          — arms the visual baselines (ADR-0023), which need a Linux runner.
+  "globalPassThroughEnv": ["NPORT_KNOWN_STALE_NODE", "NPORT_VISUAL"],
   "tasks": {
     // `pnpm dev` — every long-running surface at once. `persistent` tells Turborepo these never
     // exit, so it must not wait on them; `cache: false` because a dev server has no output to
