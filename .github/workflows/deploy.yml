@@ -170,11 +170,22 @@ jobs:
       - run: terraform init -input=false
       - run: terraform validate
 
+      # `node_id` is **read from `apps/node/wrangler.jsonc`**, not passed in, because the node Worker
+      # already reads it at runtime to register itself and Terraform needs the same value to publish the
+      # `_nport-node` TXT record that proves the zone. A second home for it is a second thing to keep in
+      # step, and a mismatch is silent: the proof names one node, the registration another, the registry
+      # refuses `proof-missing`, and `src/register.ts` swallows it by design.
       - name: Plan
+        working-directory: .
         run: |
+          set -euo pipefail
+          node_id="$(node scripts/wrangler-var.mjs --app node --env ${{ inputs.environment }} --var NODE_ID)"
+          echo "node id: ${node_id}"
+          cd infra/terraform
           terraform plan -input=false -out=tfplan \
             -var "account_id=${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" \
-            -var "zone_name=${{ inputs.zone }}"
+            -var "zone_name=${{ inputs.zone }}" \
+            -var "node_id=${node_id}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 

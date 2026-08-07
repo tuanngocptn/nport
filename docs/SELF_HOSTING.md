@@ -155,7 +155,11 @@ Optional, and only if you want strangers' tunnels on your Cloudflare account and
 | `REGISTRY_URL` | the directory. `https://api.nport.link` for the public one |
 | `NODE_VERSION` | display-only, and never verified |
 
-Then publish a TXT record proving you control the domain, which is what stands in for an account:
+Then publish a TXT record proving you control the domain, which is what stands in for an account. **On
+a self-hosted node this is yours to create**, in whatever manages your DNS; NPort's own deployments
+create it in `infra/terraform` from the same `NODE_ID`, because leaving it manual is a step that gets
+forgotten once and then looks like a bug in the registry — which is precisely how staging's first
+federated deploy produced an empty directory and no error anywhere:
 
 ```text
 _nport-node.<your domain>   TXT   "nport-node=<your NODE_ID>"

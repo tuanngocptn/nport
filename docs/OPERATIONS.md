@@ -96,7 +96,11 @@ For a fresh deployment (also the basis of `docs/SELF_HOSTING.md`):
 4. `terraform apply` — generates the runtime secrets; the deploy merges in `WORKER_CF_API_TOKEN` and syncs the set (ADR-0040, ADR-0043).
 5. Confirm `api.<domain>` resolves to `nport-gateway` and `GET /v1/health` returns 200. **That proves the front door only** — the gateway answers health itself and never forwards it, so follow it with `GET /v1/meta`, which is the first request that crosses a service binding. A healthy `/v1/health` beside an `INTERNAL` on `/v1/meta` means a binding did not resolve, not that the node is down (ADR-0049).
 6. `wrangler deploy` in `apps/web`.
-7. Zone rate-limiting rule on `api.<domain>` — `infra/terraform` applies it: 600 requests / 60 s per IP per colo, blocked for 10 minutes. Deliberately well above the **gateway's** own 60/min per-source limiter, which it sits outside rather than replaces. The node and the registry have no limiter of their own; applying one twice would charge a caller against two counters for one request.
+7. `_nport-node.<domain>` TXT record — `infra/terraform` applies it, content `nport-node=<NODE_ID>`.
+   The registry resolves it on **every** registration, so deleting it delists the node within
+   `NODE_DELIST_AFTER_SECONDS` rather than at the next deploy. That is the intended way to withdraw a
+   node from the directory.
+8. Zone rate-limiting rule on `api.<domain>` — `infra/terraform` applies it: 600 requests / 60 s per IP per colo, blocked for 10 minutes. Deliberately well above the **gateway's** own 60/min per-source limiter, which it sits outside rather than replaces. The node and the registry have no limiter of their own; applying one twice would charge a caller against two counters for one request.
 8. Verify `api` and the rest of the reserved list cannot be claimed.
 
 ## Verifying the Cloudflare API surface

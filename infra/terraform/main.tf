@@ -36,6 +36,45 @@ data "cloudflare_zone" "this" {
 
 locals {
   api_hostname = "${var.api_subdomain}.${var.zone_name}"
+
+  # `nodeProofRecordName` and `nodeProofRecordValue` from `packages/contract/src/node.ts`, which is the
+  # authority for both strings (`apps/registry/CLAUDE.md`). Restated here because Terraform cannot
+  # import TypeScript, and held equal to the contract by `pnpm deploy:check` — which reads the two
+  # functions and this file and fails the deploy if they disagree.
+  node_proof_name  = "_nport-node.${var.zone_name}"
+  node_proof_value = "nport-node=${var.node_id}"
+}
+
+# ── The node's own domain proof ─────────────────────────────────────────────────────────
+#
+# **The registry refuses a registration whose domain is not proved, and this is the proof** (ADR-0031,
+# ADR-0049). It resolves `_nport-node.<domain>` over DNS-over-HTTPS and requires a TXT record naming
+# the node id; without one, the node registers every five minutes, is refused `proof-missing`, and
+# swallows the failure by design — a directory that stays empty and a log line nobody is reading.
+#
+# That is exactly what happened on staging's first deploy of this design: gateway, node and registry
+# all green, `/v1/nodes` returning `[]`, and nothing anywhere saying why. `docs/SELF_HOSTING.md` calls
+# publishing this record "the operator's job", which is right for a third party and wrong for us — we
+# *are* the operator of node #1, we own the zone in Terraform already, and a manual DNS entry is a
+# step that gets forgotten once and then looks like a bug in the registry.
+#
+# **It is not self-certifying.** Only someone holding a zone-scoped Cloudflare credential can create
+# this record, which is precisely the control the proof tests for. What it removes is the *manual*
+# step, not the authority requirement.
+#
+# `_`-prefixed, so no tunnel claim can ever collide with it: underscores never pass
+# `SUBDOMAIN_PATTERN`, the same reasoning `_acme-challenge` rests on.
+resource "cloudflare_dns_record" "node_proof" {
+  zone_id = data.cloudflare_zone.this.zone_id
+  name    = local.node_proof_name
+  type    = "TXT"
+  # The provider takes the unquoted string and adds the wire quoting itself. `nodeProofSatisfied`
+  # strips quotes on the way back in anyway, because resolvers disagree about returning them.
+  content = local.node_proof_value
+  # Short, because a node id change should take effect within a cron period rather than a day. The
+  # record is not on any request path — only the registry reads it, once per registration.
+  ttl     = 300
+  comment = "Proves this zone to the NPort node directory. Managed by infra/terraform."
 }
 
 # ── Zone settings ──────────────────────────────────────────────────────────────────────

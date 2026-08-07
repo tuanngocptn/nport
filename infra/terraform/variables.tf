@@ -18,6 +18,19 @@ variable "zone_name" {
   }
 }
 
+variable "node_id" {
+  description = "This deployment's node id in the public directory. Must equal NODE_ID in apps/node/wrangler.jsonc for this environment; `pnpm deploy:check` fails if it drifts."
+  type        = string
+
+  validation {
+    # Mirrors NODE_ID_PATTERN and the length bounds in packages/contract/src/node.ts. Duplicated here
+    # on purpose — Terraform cannot import TypeScript — and held equal to the contract's own regex by
+    # `pnpm deploy:check`, which reads both.
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]{1,30}[a-z0-9])?$", var.node_id))
+    error_message = "A node id is 3-32 characters of [a-z0-9-], starting and ending alphanumeric."
+  }
+}
+
 variable "api_subdomain" {
   description = "Hostname prefix for the control plane. The Worker's own route in wrangler.jsonc must agree with this."
   type        = string

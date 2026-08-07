@@ -202,6 +202,13 @@ That is the whole step. The pipeline applies the infrastructure, deploys the fou
 registry in parallel, then the gateway, then the site — syncs each one's own secrets and verifies the
 result.
 
+**Terraform also publishes the node's domain proof**, the `_nport-node` TXT record the registry
+resolves before it will list a node (ADR-0031). Its content comes from `NODE_ID` in
+`apps/node/wrangler.jsonc`, read by `scripts/wrangler-var.mjs` at plan time rather than passed in, so
+the record and the Worker cannot name different nodes. Nothing published it before 2026-08-07, which is
+why staging's first federated deploy came up entirely green with an empty directory: registration is
+refused `proof-missing` and swallowed by design.
+
 ### Running the plan locally first, if you want to read it
 
 Optional, and worth it the first time — the plan is where a wrong token scope or a pending zone

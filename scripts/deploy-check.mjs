@@ -258,6 +258,97 @@ function trustsForwardedIdentity(relative) {
   }
 }
 
+// ── Terraform's domain proof matches the contract's ────────────────────────────────────
+//
+// **`infra/terraform` publishes the `_nport-node` TXT record, and `packages/contract` decides what it
+// must say.** `apps/registry/CLAUDE.md` requires both strings to come from `nodeProofRecordName` and
+// `nodeProofRecordValue` and to be retyped nowhere — three parties have to agree on the exact record:
+// the registry that resolves it, the operator who publishes it, and the docs that say what to publish.
+// Terraform cannot import TypeScript, so it is the one place that *has* to restate them, and this is
+// what keeps the restatement honest.
+//
+// Compared by rendering both sides for a sample zone and id: the contract's functions against
+// Terraform's HCL templates with `${var.…}` substituted. Comparing the template text would fail on
+// harmless formatting; comparing rendered output tests the thing that reaches DNS.
+//
+// The failure it exists for is silent in the worst way. A record naming one node while the node
+// registers as another is refused `proof-missing`, and `src/register.ts` swallows every failure by
+// design — so the symptom is an empty directory, five minutes of cron, and no error anywhere a person
+// is looking. Staging shipped exactly that on its first deploy of ADR-0049's design, for the simpler
+// reason that nothing published the record at all.
+{
+  const contract = readFileSync(join(ROOT, "packages/contract/src/node.ts"), "utf8")
+  const label = contract.match(/NODE_PROOF_LABEL = "([^"]+)"/)?.[1]
+  const valuePrefix = contract.match(/return `([^$]*)\$\{nodeId\}`/)?.[1]
+
+  const main = readFileSync(join(ROOT, "infra/terraform/main.tf"), "utf8")
+  const tfName = main.match(/node_proof_name\s*=\s*"([^"]+)"/)?.[1]
+  const tfValue = main.match(/node_proof_value\s*=\s*"([^"]+)"/)?.[1]
+
+  if (!label || !valuePrefix || !tfName || !tfValue) {
+    console.error(
+      "  could not read the proof strings from both sides — the patterns in this check are stale" +
+        ` (contract label=${label}, prefix=${valuePrefix}; terraform name=${tfName}, value=${tfValue})`,
+    )
+    problems += 1
+  } else {
+    const ZONE = "example.test"
+    const ID = "sample-node-1"
+    // Regex literals rather than string needles: `"${var.zone_name}"` is a template placeholder as far
+    // as the linter can tell, and it is right to say so — it just happens to be HCL's syntax here.
+    const rendered = (template) =>
+      template.replace(/\$\{var\.zone_name\}/g, ZONE).replace(/\$\{var\.node_id\}/g, ID)
+
+    const wantName = `${label}.${ZONE}`
+    const wantValue = `${valuePrefix}${ID}`
+
+    if (rendered(tfName) !== wantName) {
+      console.error(
+        `  infra/terraform publishes the proof at \`${rendered(tfName)}\`, and` +
+          ` nodeProofRecordName gives \`${wantName}\` — the registry resolves the contract's name`,
+      )
+      problems += 1
+    }
+    if (rendered(tfValue) !== wantValue) {
+      console.error(
+        `  infra/terraform publishes \`${rendered(tfValue)}\`, and nodeProofRecordValue gives` +
+          ` \`${wantValue}\` — the registry compares against the contract's value`,
+      )
+      problems += 1
+    }
+  }
+}
+
+// ── The node id Terraform proves is the node id the Worker registers as ────────────────
+//
+// One value, two consumers, and the deploy reads it out of `wrangler.jsonc` for exactly this reason
+// (`scripts/wrangler-var.mjs`). This checks the reading works for every environment rather than
+// discovering at plan time that a var is missing — wrangler's `vars` are `notInheritable`, so a
+// `NODE_ID` at the top level and absent from `env.staging` resolves to nothing.
+{
+  const config = loadWranglerConfig("apps/node/wrangler.jsonc")
+  for (const envName of [null, ...Object.keys(config.env ?? {})]) {
+    const where = envName === null ? "top level" : `env.${envName}`
+    const vars = envName === null ? config.vars : (config.env?.[envName]?.vars ?? {})
+    const id = vars?.NODE_ID
+    if (id === undefined || id === "") {
+      console.error(
+        `  apps/node/wrangler.jsonc ${where}: no NODE_ID — the deploy reads it to tell Terraform` +
+          ` which node the domain proof names`,
+      )
+      problems += 1
+      continue
+    }
+    if (!/^[a-z0-9]([a-z0-9-]{1,30}[a-z0-9])?$/.test(id)) {
+      console.error(
+        `  apps/node/wrangler.jsonc ${where}: NODE_ID \`${id}\` is not a usable node id, and` +
+          ` Terraform's own validation would refuse it at plan time`,
+      )
+      problems += 1
+    }
+  }
+}
+
 // ── One fact in two configs: the client-version floor ──────────────────────────────────
 //
 // **`apps/gateway` enforces `MIN_CLIENT_VERSION`; `apps/node` publishes it on `GET /v1/meta`.** Both

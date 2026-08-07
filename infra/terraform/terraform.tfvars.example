@@ -1,10 +1,16 @@
 # Copy to terraform.tfvars and fill in for the environment you are pointing at. Not committed.
 #
-# These are the only two values that differ between staging and production. Everything else in this
+# These are the only three values that differ between staging and production. Everything else in this
 # configuration is identical for both, which is the point — see infra/terraform/README.md.
 #
-# staging     account_id = <staging account>,    zone_name = "nport.online"
-# production  account_id = <production account>, zone_name = "nport.link"
+# staging     account_id = <staging account>,    zone_name = "nport.online", node_id = "nport-online-1"
+# production  account_id = <production account>, zone_name = "nport.link",   node_id = "nport-link-1"
 
 account_id = "REPLACE_WITH_ACCOUNT_ID"
 zone_name  = "nport.online"
+
+# Must equal NODE_ID in apps/node/wrangler.jsonc for this environment. Terraform publishes the
+# `_nport-node` TXT record that proves the zone to the directory, and the node registers under this
+# id — a mismatch means the proof names one node and the registration another, which the registry
+# refuses as `proof-missing`. `pnpm deploy:check` compares the two.
+node_id = "nport-online-1"

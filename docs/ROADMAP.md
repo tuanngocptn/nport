@@ -783,8 +783,30 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       secrets **per Worker** because one flat map cannot hold two different values under one name.
       `verify-deployment.mjs` now proves the Workers are *wired*: `/v1/health` is the gateway alone,
       `/v1/meta` is the first request that crosses a binding
+- [x] **Deployed to staging**, 2026-08-07: ten jobs green, `api.nport.online` reassigned from the old
+      `nport-api` script to `nport-gateway` without a custom-domain conflict, `/v1/meta` crossing the
+      service binding, and real tunnels passing smoke on all three operating systems
 - [ ] **Verify on staging**: node #1 registers within one cron period and `GET /v1/nodes` returns it.
-      **The last step, and it needs a deploy** — everything above is committed and green locally
+      **Still open, and the first deploy showed why** — see below
+
+**The empty directory, and what it cost to see.** The first deploy was green everywhere and
+`GET /v1/nodes` returned `[]`. Nothing was wrong with any of the three Workers: **nobody had ever
+published the `_nport-node` TXT record for `nport.online`.** So the node registered every five minutes,
+the registry resolved a name that does not exist, refused `proof-missing`, and `src/register.ts`
+swallowed the failure exactly as designed — one log line, no throw, because a node that cannot be
+listed must keep serving tunnels.
+
+`docs/SELF_HOSTING.md` called publishing that record "the operator's job", which is right for a third
+party and wrong for us: we own the zone in Terraform already, and a manual DNS step is one that gets
+forgotten once and then reads as a bug in the registry. `infra/terraform` now creates it, with the
+content read out of `apps/node/wrangler.jsonc`'s `NODE_ID` by `scripts/wrangler-var.mjs` — one value,
+two consumers, no third home — and two more `deploy:check` rules: Terraform's rendered record must equal
+what `nodeProofRecordName`/`nodeProofRecordValue` produce, and every environment must carry a usable
+`NODE_ID`.
+
+**Worth stating plainly: swallowing that failure is still right.** The alternative — a node that refuses
+to serve because it could not get itself listed — trades a working tunnel for a tidy directory. What was
+missing was not an exception; it was a record nothing created, and now something does.
 
 **Four mechanical checks landed with this step**, each because a claim was made before it was true:
 
