@@ -6,9 +6,11 @@ A gate is a hard stop: every criterion must pass before the next phase starts. G
 
 ## Status at a glance
 
-**✅ done · 🟡 partly · ⬜ not started.** One row per phase and gate, so the state of the project is
-readable without scrolling. Each row's detail is in its own section below; nothing here is a fact of
-its own, and a row that disagrees with its section is a bug in this table.
+**✅ done · 🚧 in progress · 🟡 partly · ⬜ not started.** One row per phase and gate, so the state of
+the project is readable without scrolling. 🚧 and 🟡 are not the same thing, and the table used both
+before the legend named either: 🚧 is a phase somebody is building, 🟡 is a gate whose criteria are
+partly met. Each row's detail is in its own section below; nothing here is a fact of its own, and a row
+that disagrees with its section is a bug in this table.
 
 | | Phase | Gate | Where it stands |
 | --- | --- | --- | --- |
@@ -17,19 +19,24 @@ its own, and a row that disagrees with its section is a bug in this table.
 | ✅ | 1.5 · Contract freeze | — | Written and tagged `contract-v1` |
 | ✅ | 2a · `apps/api` | — | Feature-complete and **deployed to staging**, provisioning real tunnels |
 | ✅ | 2b · `crates/core` + `crates/cli` | — | Code-complete and now live-verified end to end on three operating systems |
-| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Code-complete.** `/errors/[code]` (33 generated pages), all seven sections plus `#compare` and `#faq`, the SEO surface with a build-time OpenGraph card, four MDX doc pages with a generated CLI reference, and Playwright driving the built Worker (32 specs — which found defect 37, 33 pages that 404'd in production). Left: armed visual baselines (needs Linux) and the deploy itself |
+| 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Code-complete**: error pages, marketing page, SEO surface, MDX docs, and a Playwright tier against the built Worker. Left is the gate — armed visual baselines, which need Linux, and the deploy |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
-| ⬜ | 4 · `apps/desktop` | — | A booting scaffold. Deliberately last, so it consumes a stable `crates/core` — and now also waits on discovery, which its Nodes screen renders |
+| ⬜ | 4 · `apps/desktop` | — | A booting scaffold, and now **unblocked**: it was waiting on a stable `crates/core` and on discovery, and both exist. Still deliberately last |
 | 🚧 | **5 · Federation — registry and nodes** | **G5** ⬜ | **All four steps written and tested; nothing deployed.** Contract (ADR-0046), `apps/registry`, `apps/api`'s node fields, and `crates/core::discovery`. What is left is the gate itself: two nodes on two accounts and two domains, and a real failover |
 | ⬜ | 6 · v2 sunset | — | Waits on 3.0 being `latest` |
 
-**What to build next: Gate G5, which is an operations task rather than a coding one.** All four of
-Phase 5's code steps are written and tested — the contract, `apps/registry`, `apps/api`'s node fields,
-and `crates/core::discovery` — in the order they had to be: the contract froze first because it is the
-serializing dependency (the Phase 1.5 argument, applied again), the registry came next because the node
-schema is what it is written against, `apps/api` third because a directory with nothing in it is not
-testable, and discovery last because it consumes all three.
+**What to build next: Gate G5 — but it is an operations task, and everything else is blocked on access
+too.** G2c wants a deploy and a Linux runner, G1 wants the Cloudflare dashboard and a local
+`cloudflared`, Phase 3 wants publishing credentials. **Phase 4 is the only unblocked coding work**, and
+it is last by design rather than by dependency now that `crates/core` and discovery are both stable —
+so bringing it forward is a scheduling decision, not a blocked one.
+
+All four of Phase 5's code steps are written and tested — the contract, `apps/registry`,
+`apps/api`'s node fields, and `crates/core::discovery` — in the order they had to be: the contract
+froze first because it is the serializing dependency (the Phase 1.5 argument, applied again), the
+registry came next because the node schema is what it is written against, `apps/api` third because a
+directory with nothing in it is not testable, and discovery last because it consumes all three.
 
 The whole chain is exercisable offline: a node registers with a fake registry in `apps/api`'s tests, a
 registry probes a fake node in its own, and a client fails over between two loopback nodes in
