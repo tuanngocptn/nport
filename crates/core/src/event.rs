@@ -19,7 +19,8 @@
 //! ## Adding a variant
 //!
 //! Add it here, render it in `crates/cli`, and forward it in `apps/desktop`. All three, or it goes
-//! nowhere — the CLI silently drops what it does not match.
+//! nowhere — both consumers silently drop what they do not match: the CLI renders nothing, and the
+//! desktop's `UiEvent::from_core` returns `None`.
 
 use std::time::Duration;
 
@@ -123,8 +124,9 @@ mod tests {
     /// does not apply, so this match is exhaustive for real.
     ///
     /// When this stops compiling: add the variant here, render it in `crates/cli/src/render.rs`, add it
-    /// to that file's `renders_something_for_every_variant` list, and forward it in `apps/desktop`
-    /// once Phase 4 exists.
+    /// to that file's `renders_something_for_every_variant` list, and forward it in
+    /// `apps/desktop/src-tauri/src/events.rs` — whose `every_variant_this_build_knows_translates` is
+    /// the same substitute one layer out.
     #[test]
     fn every_variant_is_accounted_for_by_the_consumers() {
         fn assert_handled(event: &TunnelEvent) {

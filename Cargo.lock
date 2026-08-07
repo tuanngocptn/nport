@@ -2594,6 +2594,8 @@ dependencies = [
 name = "nport-desktop"
 version = "0.0.0"
 dependencies = [
+ "nport-contract",
+ "nport-core",
  "serde",
  "serde_json",
  "tauri",

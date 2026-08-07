@@ -1,14 +1,15 @@
 //! The Tauri backend.
 //!
-//! **Scaffold.** The app is Phase 4 (`apps/desktop/CLAUDE.md`); this is a window, one command, and
-//! the wiring that proves both work. It deliberately does **not** depend on `nport-core` yet —
-//! that edge is what Phase 4 waits for a stable core API to add, and adding it early is exactly the
-//! churn the ordering exists to avoid.
+//! **Phase 4, in progress.** The window and its one health command are the scaffold; `events` is the
+//! first piece of the app proper. The `nport-core` edge the ordering was waiting for now exists —
+//! `core` is stable, so consuming it no longer churns it.
 //!
 //! Two rules from `apps/desktop/CLAUDE.md` already apply to the one command below. Every command
 //! needs an entry in `capabilities/default.json` or it is denied at runtime with an error that does
 //! not say why (rule 4). And nothing here may render a token or an `ownerToken` — redaction happens
 //! at the `core` boundary, so the frontend never receives one to leak (rule 6).
+
+pub mod events;
 
 /// A liveness probe for the IPC boundary.
 ///

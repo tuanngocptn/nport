@@ -728,6 +728,20 @@ Deliberately last: it consumes a *stable* `crates/core`, and building it earlier
 
 Tunnel list and one-click start; tray integration; the traffic inspector over `core::inspector`; settings; auto-update via the updater manifest; signing and notarization per platform.
 
+**Started 2026-08-08 with the `nport-core` edge**, which is the dependency the whole phase ordering was
+waiting for: `core` is stable, so consuming it no longer churns it. `apps/desktop/src-tauri` now depends
+on `nport-core` and `nport-contract`, and `src-tauri/src/events.rs` is the boundary everything else in
+the app reads from — `TunnelEvent` translated into a `UiEvent` the WebView can parse.
+
+It is a **separate type rather than a `Serialize` on `TunnelEvent`**, for three reasons of which the
+third decides it: `core` would be growing a wire format it exists to not have an opinion about;
+`Duration` has no JSON representation; and `TunnelEvent` is `#[non_exhaustive]`, so the match needs a
+wildcard arm and a variant added upstream forwards as **nothing** — the desktop's version of the CLI's
+`_ => Vec::new()`. The separate type does not fix that; `every_variant_this_build_knows_translates`
+does, and it also asserts no two variants share a payload, because a copy-pasted arm renders the wrong
+thing rather than nothing and is harder to spot. The three places that said this file did not exist yet
+now say it does.
+
 **The scope is `docs/FEATURES.md` §§5–10, §12 and §14, plus the Nodes screen in §3** — the mapping table above — against the design in `docs/mockup/NPort Desktop.dc.html`. **Both of the questions that were to be settled before components are written are now settled.** The surface count was a documentation error, not a design disagreement: `docs/mockup/README.md` says five screens plus a first-run overlay and a menu-bar popover, and the layout block had `logs` for `history` and no *New tunnel* entry at all. The glass is **ADR-0050** — opaque by default, transparency opt-in per platform, Linux expected to stay flat. That one turned up a live defect on the way: the scaffold set `transparent: true` on all three platforms while `styles.css` painted `background: transparent`, so `--np-page` — the only opaque token in the sheet, and the surface every translucent layer composites over — was never applied anywhere. §8 is excluded, per the mapping table. §12 is design work that has not been done at all — the mockup is macOS Tahoe only.
 
 ## Phase 5 — Federation: a registry and many nodes 🚧 **← next**
