@@ -4,12 +4,19 @@
 //! first piece of the app proper. The `nport-core` edge the ordering was waiting for now exists —
 //! `core` is stable, so consuming it no longer churns it.
 //!
-//! Two rules from `apps/desktop/CLAUDE.md` already apply to the one command below. Every command
-//! needs an entry in `capabilities/default.json` or it is denied at runtime with an error that does
-//! not say why (rule 4). And nothing here may render a token or an `ownerToken` — redaction happens
-//! at the `core` boundary, so the frontend never receives one to leak (rule 6).
+//! Nothing here may render a token or an `ownerToken` (rule 6) — redaction happens at the `core`
+//! boundary, so the frontend never receives one to leak. `TunnelEvent` and `TunnelSummary` both
+//! carry none, so that costs nothing to honour.
+//!
+//! **Commands registered below need no capability entry.** The ACL gates plugin and `core:`
+//! permissions; an app command in `generate_handler!` is invocable without one, which `health` has
+//! demonstrated since the scaffold (rule 4, corrected — `docs/ROADMAP.md` defect 47).
 
+use tauri::Manager;
+
+pub mod commands;
 pub mod events;
+pub mod state;
 
 /// A liveness probe for the IPC boundary.
 ///
@@ -33,7 +40,29 @@ fn health() -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![health])
-        .run(tauri::generate_context!())
-        .expect("the app could not start");
+        .manage(state::Tunnels::new())
+        .invoke_handler(tauri::generate_handler![
+            health,
+            commands::start_tunnel,
+            commands::stop_tunnel,
+            commands::list_tunnels
+        ])
+        .build(tauri::generate_context!())
+        .expect("the app could not start")
+        .run(|app, event| {
+            // **Quitting has to release the leases.** A lease left claimed holds the user's own
+            // subdomain against them for the rest of its term, so closing the window without this
+            // makes `myapp` unavailable to the person who just closed it.
+            //
+            // `Exit` rather than `ExitRequested`: the latter can be cancelled, and draining tunnels
+            // for a quit that then does not happen would stop the app's own tunnels behind the
+            // user's back. This is the last point at which anything can still run.
+            //
+            // `block_on` because `RunEvent` is a synchronous callback and the drain must finish
+            // before the process does — a spawned task would be killed by the exit it was racing.
+            if matches!(event, tauri::RunEvent::Exit) {
+                let tunnels = app.state::<state::Tunnels>();
+                tauri::async_runtime::block_on(commands::shutdown_all(&tunnels));
+            }
+        });
 }

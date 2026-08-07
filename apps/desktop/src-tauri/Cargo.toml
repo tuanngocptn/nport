@@ -30,3 +30,6 @@ serde_json = { workspace = true }
 # which is why `apps/desktop/CLAUDE.md` ends with that gotcha.
 nport-core = { workspace = true }
 nport-contract = { workspace = true }
+# Only to *name* the broadcast receiver `Tunnel::events` hands back. Tauri already runs on tokio, so
+# this adds no runtime — it adds the type. Workspace-pinned per `crates/CLAUDE.md` rule 5.
+tokio = { workspace = true }

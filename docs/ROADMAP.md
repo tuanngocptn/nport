@@ -733,7 +733,15 @@ waiting for: `core` is stable, so consuming it no longer churns it. `apps/deskto
 on `nport-core` and `nport-contract`, and `src-tauri/src/events.rs` is the boundary everything else in
 the app reads from — `TunnelEvent` translated into a `UiEvent` the WebView can parse.
 
-It is a **separate type rather than a `Serialize` on `TunnelEvent`**, for three reasons of which the
+`state.rs` and `commands.rs` followed: a registry of running tunnels keyed by the **claimed**
+subdomain, and `start_tunnel` / `stop_tunnel` / `list_tunnels` over it. The registry is generic over a
+`Described` trait rather than holding `Tunnel` directly, which is what makes its bookkeeping testable —
+`Tunnel` has no public constructor and starting one means provisioning against a real control plane, so
+a registry that stored it concretely would be reachable only by a test CI cannot run. Six tests cover
+the parts worth covering: duplicate names hand back what they displaced rather than leaking a live
+tunnel, `list` is sorted so rendered rows do not jump, and `drain` empties.
+
+`events.rs` is a **separate type rather than a `Serialize` on `TunnelEvent`**, for three reasons of which the
 third decides it: `core` would be growing a wire format it exists to not have an opinion about;
 `Duration` has no JSON representation; and `TunnelEvent` is `#[non_exhaustive]`, so the match needs a
 wildcard arm and a variant added upstream forwards as **nothing** — the desktop's version of the CLI's
@@ -820,6 +828,31 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       **This no longer blocks G5.** Node #1 carries traffic during a failover test by definition, and
       a listed-then-idle node slipping out of a directory nobody is reading harms nobody. What it
       blocks is trusting `/v1/nodes` as a health display for a quiet node
+
+**47. `apps/desktop`'s rule 4 told everyone to add a capability entry for every command, and Tauri
+does not work that way.** It read: *"Every new command needs a capability entry in
+`src-tauri/capabilities/default.json`, or it is denied at runtime with a confusing error."* Tauri v2's
+ACL gates **plugin and `core:` permissions**; a command registered in `generate_handler!` is invocable
+without an entry.
+
+The disproof was sitting in the repository the whole time. `health` has never had an entry, appears in
+no capability and in none of the generated ACL manifests under `src-tauri/gen/schemas/`, and the
+scaffold's whole purpose is that its IPC round-trip works — three files say so. A rule and a working
+counterexample coexisted for as long as the scaffold has.
+
+**The cost of believing it is worse than the cost of ignoring it**, which is why this is a defect and
+not a nitpick: there is no `app:allow-start-tunnel` permission to add, so following the rule means
+inventing one, and an unknown permission fails the build with an error about the ACL rather than about
+the invented name. The rule would have sent the next person debugging the wrong layer.
+
+Found by trying to obey it — writing three commands and going to add their entries. That is the only
+way this class gets caught: a rule about something that does not exist reads exactly like a rule about
+something that does, right up until you go looking for the thing.
+
+**Eighth instance of the shape** (34, 35, 37, 38, 42, 44, 46), and the second in two days whose
+disproof was one `grep` away. What is different here is that the claim was about a *third party's*
+behaviour rather than about this repository's own work — which makes it the one kind `verify-docs`
+will never catch, since nothing in the tree contradicts it.
 
 **46. Eight places said federation was not deployed, on a deployment that had been federated and
 serving for a day — and the operations runbook named the wrong Worker as the front door.** The root
