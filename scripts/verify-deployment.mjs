@@ -191,6 +191,25 @@ if (
     ? directory.nodes.find((node) => node.id === nodeId)
     : undefined
 
+  /**
+   * **Judged on `lastSeenAt`, not on `status`.**
+   *
+   * `status` is derived by the registry's own cron, so it lags reality by up to one sweep interval.
+   * The first run of this check found the node reporting `up` with a last registration 625 seconds
+   * old — past the 600-second threshold the sweep had not got to yet. Trusting the derived field left
+   * a five-minute window where the fault is present, visible in the data this very response carries,
+   * and reported healthy.
+   *
+   * The threshold is read from `apps/registry/wrangler.jsonc` for this environment rather than written
+   * here, for the reason everything else in this script is: the registry decides what stale means, and
+   * a second copy is a second thing to keep in step.
+   */
+  const downAfterSeconds = Number(
+    varsFor(loadWranglerConfig("apps/registry/wrangler.jsonc"), envName)?.NODE_DOWN_AFTER_SECONDS,
+  )
+  const ageSeconds = self === undefined ? 0 : Math.round((Date.now() - self.lastSeenAt) / 1000)
+  const stale = Number.isFinite(downAfterSeconds) && ageSeconds > downAfterSeconds
+
   if (nodeId === undefined) {
     console.log(
       "  – node listing not checked: this deployment sets no NODE_ID, so it never registers",
@@ -200,16 +219,18 @@ if (
       `  ! \`${nodeId}\` is not listed yet — expected right after a deploy, since registration waits` +
         ` for the next cron tick. If it is still missing in ten minutes, that is defect 41`,
     )
-  } else if (self.status === "down") {
+  } else if (stale || self.status === "down") {
     console.error(
-      `  ✗ the registry lists \`${nodeId}\` as \`down\`, and /v1/meta answered above — so this node is` +
-        ` serving while it has stopped registering (docs/ROADMAP.md defect 41).` +
-        ` Last registered ${Math.round((Date.now() - self.lastSeenAt) / 1000)}s ago`,
+      `  ✗ \`${nodeId}\` last registered ${ageSeconds}s ago, stale past ${downAfterSeconds}s, and the` +
+        ` registry reports \`${self.status}\` — while /v1/meta answered above. This node is serving` +
+        ` while it has stopped registering (docs/ROADMAP.md defect 41)`,
     )
     failures += 1
   } else {
-    const age = Math.round((Date.now() - self.lastSeenAt) / 1000)
-    console.log(`  ✓ \`${nodeId}\` is listed and ${self.status}, last registered ${age}s ago`)
+    console.log(
+      `  ✓ \`${nodeId}\` is listed and ${self.status}, last registered ${ageSeconds}s ago` +
+        ` (stale past ${downAfterSeconds}s)`,
+    )
   }
 } else {
   console.log(
@@ -218,9 +239,15 @@ if (
 }
 
 if (failures > 0) {
+  // **Does not name a cause.** It used to end with "the deploy did not carry the configuration in the
+  // repository — check that `vars` is complete", which was right when every check here compared a
+  // deployed var against a committed one. The node-listing check is not about `vars` at all, and a
+  // summary that confidently misdiagnoses sends an operator to read the wrong file first. The
+  // individual failures above each say what they mean.
   console.error(
-    `\nverify-deployment: ${failures} mismatch(es). The deploy did not carry the configuration in the` +
-      ` repository — check that env.${envName}'s \`vars\` is complete, since wrangler does not inherit it.\n`,
+    `\nverify-deployment: ${failures} problem(s) — see each line above.\n\n` +
+      `  A var mismatch means env.${envName}'s \`vars\` block is incomplete: wrangler marks vars as\n` +
+      `  notInheritable, so an environment replaces the top-level block rather than merging with it.\n`,
   )
   process.exit(1)
 }
