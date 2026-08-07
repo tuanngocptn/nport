@@ -59,7 +59,7 @@ function fakeRegistry(
     )
     calls.push(`${init?.method ?? "GET"} ${url.pathname}`)
 
-    if (url.pathname === "/v1/challenge") {
+    if (url.pathname === "/v1/nodes/challenge") {
       const issued = await issueChallenge("registry-secret", options.difficulty ?? 4, Date.now())
       return Response.json(issued)
     }
@@ -134,11 +134,35 @@ describe("resolveIdentity", () => {
 })
 
 describe("registerWithRegistry", () => {
+  it("keeps a path prefix on REGISTRY_URL", async () => {
+    // **A silent bug until ADR-0049 made it reachable.** Both endpoints were built with
+    // `new URL("/v1/nodes", registryUrl)`, and a leading slash makes the path absolute — so it
+    // replaced the base's path outright. A registry mounted at `https://host/registry` would have been
+    // sent `https://host/v1/nodes` instead, and because `registerWithRegistry` swallows every failure
+    // by design, the node would have gone on failing to register for ever without a word.
+    const registry = fakeRegistry()
+    const prefixed = new Proxy(registry, {}) as typeof registry
+    const calls: string[] = []
+    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      calls.push(url.pathname)
+      // Re-issue against the un-prefixed path so the fake still recognises it.
+      return prefixed.fetch(
+        `${url.origin}${url.pathname.replace("/registry", "")}${url.search}`,
+        init,
+      )
+    }) as typeof fetch
+
+    await registerWithRegistry(federated({ REGISTRY_URL: `${REGISTRY}/registry` }), fetcher)
+
+    expect(calls).toEqual(["/registry/v1/nodes/challenge", "/registry/v1/nodes"])
+  })
+
   it("solves a real challenge and posts the registration", async () => {
     const registry = fakeRegistry()
     await registerWithRegistry(federated(), registry.fetch)
 
-    expect(registry.calls).toEqual(["GET /v1/challenge", "POST /v1/nodes"])
+    expect(registry.calls).toEqual(["GET /v1/nodes/challenge", "POST /v1/nodes"])
     expect(registry.posts).toHaveLength(1)
 
     const posted = registry.posts[0] as Record<string, string>
@@ -220,7 +244,7 @@ describe("registerWithRegistry", () => {
       const url = new URL(
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
       )
-      if (url.pathname === "/v1/challenge") return Response.json({ hello: "world" })
+      if (url.pathname === "/v1/nodes/challenge") return Response.json({ hello: "world" })
       throw new Error("should not have got as far as posting")
     }) as typeof fetch
 
@@ -233,7 +257,7 @@ describe("registerWithRegistry", () => {
     const registry = fakeRegistry({ difficulty: 32 })
     await registerWithRegistry(federated(), registry.fetch)
 
-    expect(registry.calls).toEqual(["GET /v1/challenge"])
+    expect(registry.calls).toEqual(["GET /v1/nodes/challenge"])
     expect(registry.posts).toEqual([])
   })
 })

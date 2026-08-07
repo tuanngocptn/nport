@@ -34,7 +34,15 @@ export { Registry } from "./do/registry"
 export { SourceQuota } from "./do/source-quota"
 export { SubdomainLease } from "./do/subdomain-lease"
 
-const app = new Hono<{ Bindings: Env; Variables: Variables }>()
+/**
+ * Exported so a test can ask what this Worker actually routes.
+ *
+ * `test/conformance.test.ts` compares Hono's own registration table against `ROUTES` in
+ * `packages/contract`. Nothing checked that before, which is how the registry's `/v1/challenge` moved
+ * in the contract and stayed put in the app with 488 tests still green — the contract is the authority
+ * (invariant 7) and nothing verified anyone obeyed it.
+ */
+export const app = new Hono<{ Bindings: Env; Variables: Variables }>()
 
 app.use("*", requestId)
 

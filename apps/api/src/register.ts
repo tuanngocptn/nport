@@ -115,7 +115,7 @@ export async function registerWithRegistry(env: Env, fetcher: typeof fetch = fet
 
     const nonce = await solveChallenge(challenge.challenge, challenge.difficulty)
 
-    const response = await fetcher(new URL("/v1/nodes", identity.registryUrl).toString(), {
+    const response = await fetcher(registryEndpoint(identity.registryUrl, "/v1/nodes"), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -161,13 +161,27 @@ interface IssuedChallenge {
   readonly difficulty: number
 }
 
+/**
+ * Joins a registry path onto `REGISTRY_URL`, **keeping any path the URL already has**.
+ *
+ * `new URL("/v1/nodes", base)` looks right and is wrong: a leading slash makes the path absolute, so
+ * it replaces the base's path entirely. Point `REGISTRY_URL` at `https://host/registry` and the node
+ * would POST to `https://host/v1/nodes` — and since every failure in this file is swallowed by design,
+ * it would do so silently, for ever. `crates/core`'s client has always handled prefixes (`api.rs`
+ * `Backend::parse`); this side had not.
+ */
+function registryEndpoint(registryUrl: string, path: string): string {
+  const base = registryUrl.endsWith("/") ? registryUrl : `${registryUrl}/`
+  return new URL(path.replace(/^\//, ""), base).toString()
+}
+
 /** Fetches a challenge from the registry, or `null` if it did not answer with one. */
 async function fetchChallenge(
   registryUrl: string,
   env: Env,
   fetcher: typeof fetch,
 ): Promise<IssuedChallenge | null> {
-  const response = await fetcher(new URL("/v1/challenge", registryUrl).toString(), {
+  const response = await fetcher(registryEndpoint(registryUrl, "/v1/nodes/challenge"), {
     headers: {
       accept: "application/json",
       "user-agent": `nport/${nodeUserAgentVersion(env)} (worker; node)`,

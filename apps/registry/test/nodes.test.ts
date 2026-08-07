@@ -46,7 +46,7 @@ function upstream(overrides: { dns?: FakeDns; nodes?: FakeNodes } = {}) {
 
 /** Fetches a real challenge and solves it, exactly as a node would. */
 async function solved(app: ReturnType<typeof createApp>) {
-  const response = await app.request("/v1/challenge", { headers: UA }, env)
+  const response = await app.request("/v1/nodes/challenge", { headers: UA }, env)
   const issued = (await response.json()) as { challenge: string; difficulty: number }
   return {
     challenge: issued.challenge,
@@ -227,7 +227,7 @@ describe("POST /v1/nodes", () => {
 
   it("refuses an unsolved proof of work", async () => {
     const app = createApp(upstream().fetch)
-    const challenge = await app.request("/v1/challenge", { headers: UA }, env)
+    const challenge = await app.request("/v1/nodes/challenge", { headers: UA }, env)
     const issued = (await challenge.json()) as { challenge: string; difficulty: number }
 
     // A nonce verified *not* to satisfy the difficulty, rather than a hardcoded "0" — which would

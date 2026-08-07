@@ -47,8 +47,8 @@ export function createApp(fetcher: typeof fetch = fetch) {
   // rather than an opaque failure inside whichever primitive needed the value first. `/v1/health` is
   // excluded deliberately: an uptime monitor should still distinguish a running-but-misconfigured
   // Worker from a dead one.
-  app.use("/v1/challenge", requireBindings)
   app.use("/v1/nodes", requireBindings)
+  app.use("/v1/nodes/*", requireBindings)
 
   // Registered on `/v1/*` rather than per route, so adding a route cannot silently leave it ungated.
   // A per-route list is a standing invitation to forget one, and the failure would be invisible.
@@ -56,7 +56,12 @@ export function createApp(fetcher: typeof fetch = fetch) {
   app.use("/v1/*", clientGate)
   app.use("/v1/*", rateLimit)
 
-  app.route("/v1/challenge", challengeRoute)
+  // **`/v1/nodes/challenge` before `/v1/nodes`**, and every registry route under that one prefix
+  // (ADR-0049). The gateway dispatches on the path prefix, so a route outside it is unreachable — and
+  // the challenge in particular cannot sit at `/v1/challenge` any more: the node serves one there
+  // signed with a different `POW_SECRET`, deliberately, so that a node's challenge is not redeemable
+  // here. Two secrets cannot share one path once both services answer on one hostname.
+  app.route("/v1/nodes/challenge", challengeRoute)
   app.route("/v1/nodes", createNodesRoute(fetcher))
   app.route("/v1/health", healthRoute)
 
