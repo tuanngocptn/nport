@@ -56,6 +56,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0046 | The registry gets its own OpenAPI document, and capacity is probed rather than claimed | Accepted |
 | 0047 | Worker plumbing shared in a package, rather than imported across deployables | Accepted |
 | 0048 | Prerendered pages are served from Workers Static Assets, and e2e drives the Worker | Accepted |
+| 0049 | One hostname per deployment: a gateway Worker, service bindings, and heartbeat registration | Accepted |
 
 ---
 
@@ -999,3 +1000,41 @@ The cause was a reasoning error recorded in `open-next.config.ts` itself: it con
 - Visual baselines are **specified and not armed**: ADR-0023 pins them to Linux and none has been recorded, because a macOS-recorded snapshot would fail every CI run. `apps/web/e2e/visual.spec.ts` is skipped behind `NPORT_VISUAL=1` and `docs/TESTING.md` carries the recording command.
 
 **Rejected.** *A KV or R2 incremental cache* — real infrastructure to provision and pay for, for a site with nothing to revalidate; correct only once something genuinely revalidates. *`output: "export"`* — would make the whole app static assets and remove OpenNext, which is ADR-0006 territory and a much larger change than the bug warranted. *Testing `next start` instead* — faster and would not have found this, since the fault is in the Worker's own read path. *Leaving the 404s and asserting them* — a red test in CI is not a fix, and these pages are the entire remedy `crates/cli` offers for seven error codes.
+
+## ADR-0049 — One hostname per deployment: a gateway Worker, service bindings, and heartbeat registration
+
+**Date** 2026-08-07 · **Status** Accepted · **Supersedes** part of ADR-0046 · **Refines** ADR-0031
+
+**Context.** Federation gave a deployment two independently-addressed Workers: a node on `api.nport.link` and a registry on `registry.nport.link`. Three things went wrong with that shape before either was deployed.
+
+**Every node operator needs a second hostname** for a service they will almost certainly never run — the registry is one deployment in the world, and `apps/registry` was in neither `deploy.yml` nor Terraform, so nobody had yet paid the cost of wiring even the first one.
+
+**The cross-cutting middleware is duplicated.** `requestId`, `requireBindings`, `clientGate` and `rateLimit` exist in near-identical form in both apps, and each serves its own `GET /v1/challenge`. ADR-0047 moved the pure functions to `packages/worker-kit`, but the middleware could not follow: it reads bindings, and worker-kit's boundary forbids that.
+
+**The registry probes.** Every five minutes it fetched `/v1/meta` from every node it lists, sequentially from one Durable Object — a fan-out that grows with the directory, to learn something each node already knows about itself.
+
+**Decision.** One hostname per deployment, fronted by a **gateway** Worker that dispatches over Cloudflare **service bindings**.
+
+```
+api.nport.link ──► gateway (owns the route; the only public Worker)
+                     ├──► node      (Cloudflare credentials, the DOs, provisioning)
+                     └──► registry  (master deployments only)
+```
+
+The internal Workers declare no `routes` and set `workers_dev: false`, so they are unreachable except through the binding. **Role is deployment, not configuration**: a node operator deploys gateway + node, and the registry's code never reaches their account.
+
+**Every registry route lives under `/v1/nodes`.** The gateway dispatches on path prefix, so a route outside that space is one no request can reach. `GET /v1/challenge` forced this: both services had one, and `apps/registry` requires its `POW_SECRET` to differ from the node's precisely so a node's challenge is not redeemable at the registry. Two secrets cannot share one path. The registry's moved to `/v1/nodes/challenge`.
+
+**Liveness inverts.** The registry fetches nothing. A node registers on its cron, having first fetched its own `PUBLIC_URL/v1/health` to confirm the public path works, and carries its capacity in the request. The registry ages what it was told; a node that stops calling is presumed gone.
+
+**Consequences.**
+
+- **Two OpenAPI documents survive on different grounds.** ADR-0046 justified them by "one `servers` entry cannot describe two hosts". Both now carry the same `servers` entry, and the split rests on disjoint path spaces and per-document component reachability — the two properties already under test.
+- **Capacity is claimed, not probed**, reversing ADR-0046 directly. Its objection stands and is accepted: a node asserting `activeTunnels: 0` is selected first by every client, a free denial of service against its own operator. The probe was never much of a defence — a node can answer `/v1/meta` with anything — and ADR-0031 already accepts that node operators can read the traffic they carry. A directory of parties trusted with traffic is not made safer by distrusting them about a counter.
+- **ADR-0031's third enrolment gate changes.** Proof of work and the DNS TXT proof stay and are re-verified on every registration. The registry's liveness probe is replaced by the node's own check of its public URL, which is strictly closer to what a client experiences — it exercises DNS, the route, the gateway and the node, from outside.
+- **`sourceHash` crosses the binding as a header.** The gateway computes it and forwards `x-nport-source-hash`; internal services trust it **only because they are not publicly reachable**. That assumption is load-bearing and a stray `routes` entry would silently break it.
+- **The gateway is a new single point of failure per deployment.** ADR-0031's "a registry that is down costs nothing" still holds for clients, which cache the list — but registry and node #1 now share a front door where they previously failed independently.
+- One more Worker per deployment, one more hop per request. Service bindings avoid DNS and TLS but still count against the subrequest budget.
+- An `app` config service is designed for and **not built**. A third binding and a path prefix is all it would take; an empty deployable is a thing to maintain, secure and document for no behaviour (ADR-0047's argument against a speculative `packages/shared`).
+
+**Rejected.** *One Worker with path routing and an env flag* — role becomes configuration, the registry's code ships to every operator's account, and a misconfigured node could serve registry endpoints. *Gateway forwarding over public HTTP* — a full TLS round trip per request, and the internal services stay publicly reachable, which is most of what the split was for. *Keeping two hostnames* — the status quo, and it makes every operator provision DNS for a service they do not run. *Registry-side spot checks alongside heartbeats* — half of both designs: it keeps the fan-out that motivated the change while adding a second source of truth about the same fact.

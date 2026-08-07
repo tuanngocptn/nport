@@ -731,12 +731,49 @@ Tunnel list and one-click start; tray integration; the traffic inspector over `c
 is urgent, and this is the change that turns `apps/api` into a node. Doing it while there is one
 deployment and no users on it is as cheap as it will ever be. ADR-0031 owns the design. Today's control plane is one Worker on one account and one zone, and three ceilings bind at once — DNS records per zone, tunnels per account, and the per-account API rate limit. A zone cannot span accounts, so each shard needs its own domain as well as its own account.
 
-`apps/api` becomes a **node**, essentially unchanged: it is already one deployment bound to one zone with its own credentials. `apps/registry` is new and small — a directory that accepts registrations, probes what it lists, and answers `GET /v1/nodes`. It holds no Cloudflare credentials and provisions nothing. `crates/core` gains a discovery step before the `Api` client it already has.
+`apps/api` becomes a **node**, essentially unchanged: it is already one deployment bound to one zone with its own credentials. `apps/registry` is new and small — a directory that accepts registrations and answers `GET /v1/nodes`. It holds no Cloudflare credentials and provisions nothing. `crates/core` gains a discovery step before the `Api` client it already has.
 
-- [x] `packages/contract`: `nodeSchema`, the list and registration schemas, `activeTunnels` on `GET /v1/meta`, and three codes — `NO_NODE_AVAILABLE`, `NODE_UNREACHABLE`, `REGISTRATION_REFUSED`. **Done**, plus what writing it settled (ADR-0046): a second OpenAPI document because the registry is a separate host, capacity **probed rather than claimed**, both `/v1/meta` capacity fields optional so an older node still parses, and the DNS TXT proof's record name and value derived from one function so the registry, the operator and the docs cannot spell them differently
+**Reshaped by ADR-0049, mid-phase.** The four code steps below all landed against a two-hostname design — a node on `api.nport.link`, a registry on `registry.nport.link` — and none of it had been deployed. Rather than deploy that and migrate later, the topology changed first: one hostname per deployment, a **gateway** Worker dispatching to internal services over service bindings, and liveness inverted from registry-pull to node-push. The steps below are marked done against what they set out to do; the work tracking that reshape is in **§ Backend first**, immediately after this list.
+
+- [x] `packages/contract`: `nodeSchema`, the list and registration schemas, `activeTunnels` on `GET /v1/meta`, and three codes — `NO_NODE_AVAILABLE`, `NODE_UNREACHABLE`, `REGISTRATION_REFUSED`. **Done**, then **revised by ADR-0049** — the two claims this bullet used to make are both reversed. It said a second OpenAPI document *because the registry is a separate host*: both documents now carry the same `servers` entry and the split rests on disjoint path spaces instead. And it said capacity **probed rather than claimed**: the node claims it now, the registry fetches nothing. What survived unchanged: both `/v1/meta` capacity fields optional so an older node still parses, and the DNS TXT proof's record name and value derived from one function so the registry, the operator and the docs cannot spell them differently
 - [x] `apps/registry`: the `Directory` DO, open registration behind proof of work and a DNS TXT domain proof, and a cron that probes and delists. **Written and tested, never deployed** — 45 tests in real `workerd`. Two things came out of building it that ADR-0031 did not anticipate: registration must refuse a URL that is not under the proved domain (otherwise the DNS proof covers nothing we actually fetch, and the endpoint is an open fetch proxy for anyone who solves one challenge), and `PROBE_FAILURES_BEFORE_DOWN`/`_DELIST` give three states rather than two, because "not answering right now" and "gone" want different answers from a client. Shared Worker plumbing moved to `packages/worker-kit` first (ADR-0047), so the registry is a small app rather than a copy of `apps/api`'s abuse controls
 - [x] `apps/api`: `NODE_ID`, `PUBLIC_URL`, `REGISTRY_URL`, self-registration on the existing `scheduled` export, and current usage on `/v1/meta`. **Done.** `REGISTRY_URL` is the switch — unset it and the node never registers, which is the private deployment `docs/SELF_HOSTING.md` describes, reached by setting nothing rather than by opting out. Registration is a **schedule rather than a boot-time task**: a Worker has no boot, and a node the registry delisted after an outage has to relist itself unattended
 - [x] `crates/core::discovery`: fetch, cache to `~/.nport/nodes.json`, probe a few in parallel, pick the fastest with capacity, fail over — but **never after `POST /v1/tunnels` has been sent**, which is not idempotent. **Done.** Two rules came out of writing it that the bullet did not imply. Failover is allowed only when a node *answered* that it could not serve: a refusal about the **caller** (`CONCURRENCY_LIMIT`, `CREATE_QUOTA_EXCEEDED`) must not be shopped to another node, because per-source caps are enforced per node and trying elsewhere multiplies the cap by the size of the directory — `docs/ARCHITECTURE.md` §7's controls defeated by politely asking somebody else. And a network failure is never a reason to move, because "died mid-request" is indistinguishable from "never sent". `--backend` skips discovery entirely, which is what keeps every self-hosted deployment on the path it was already on
+
+### Backend first — a listed node on staging (ADR-0049)
+
+The goal is narrow and checkable: **node #1 appears in `GET /v1/nodes` on staging.** Everything else in
+Phase 5 waits behind it, because a directory with nothing in it proves nothing.
+
+Today staging runs node #1 at `api.nport.online`, healthy and serving. Its `REGISTRY_URL` points at
+`registry.nport.online`, **which has no DNS**. So every five minutes it solves a proof of work, POSTs
+into nothing, and swallows the failure — by design, silently. That is the gap.
+
+- [x] **Contract**: registry routes under `/v1/nodes`, `/v1/nodes/challenge`, capacity on the
+      registration, `lastProbedAt` → `lastSeenAt`. Both documents share a `servers` entry
+- [x] **Conformance**: each Worker asserts it serves every route in its contract table, read from
+      Hono's own registration table. Nothing checked that before — the contract is the authority and
+      the only thing verifying it was the generated OpenAPI, which describes the contract to itself.
+      It failed on its first run, which is how the drift above was found rather than deployed
+- [ ] **`apps/gateway`**: the only public Worker. Middleware lifted out of `apps/api`, dispatch to
+      `NODE`/`REGISTRY` bindings, `sourceHash` forwarded as a header
+- [ ] **`apps/api` → `apps/node`**: no route of its own, reads `sourceHash`/`requestId` from headers,
+      self-checks `PUBLIC_URL/v1/health` before registering, sends its capacity
+- [ ] **`apps/registry`**: probe out, staleness sweep in; `Directory` keyed on `last_seen_at`
+- [ ] **Deploy**: three Worker jobs, and Terraform gains a second `random_password` so the registry's
+      `POW_SECRET` differs from the node's — they must not match, or a node's challenge is redeemable
+      at the registry
+- [ ] **Verify on staging**: node #1 registers within one cron period and `GET /v1/nodes` returns it
+
+`crates/core`'s `DEFAULT_REGISTRY` and the user-facing docs follow after. A node registering does not
+need the client to have moved, and sequencing them first would delay the only thing that proves any of
+this works.
+
+**`registry.nport.online` is retired**, not aliased. It has never resolved, so nothing depends on it.
+
+**Why not deploy the two-hostname design first and migrate later.** It was written and tested but never
+deployed, so there was no user of it, no data in it and no compatibility to keep — the cheapest moment
+this design will ever have to change shape. Deploying it first would have bought a migration.
 
 **Why after G2.** Nothing is deployed and the Cloudflare API paths have never met the live API. Federating an unproven provisioning path multiplies one unknown by N. Waiting costs nothing: the instance that closes G2 becomes node #1 and keeps serving `*.nport.link`.
 

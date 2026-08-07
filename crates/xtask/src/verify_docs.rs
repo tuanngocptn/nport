@@ -90,6 +90,7 @@ pub fn run() -> Result<(), String> {
     problems.extend(check_decision_index(&repo)?);
     problems.extend(check_line_caps(&repo)?);
     problems.extend(check_self_hosting_vars(&repo)?);
+    problems.extend(check_adr_references(&repo)?);
 
     if problems.is_empty() {
         println!("verify-docs: documentation matches the repository");
@@ -561,6 +562,89 @@ fn link_targets(text: &str) -> Vec<String> {
     }
 
     out
+}
+
+/// Every `ADR-NNNN` mentioned anywhere in the repository is an ADR that exists.
+///
+/// **Written because I broke it.** ADR-0049 was cited thirteen times across eight source files —
+/// module docs, test rationales, schema comments — before a line of it was written. That is defect
+/// 38's shape exactly (three files claiming a generated flag reference nothing generated), committed
+/// while fixing that very class of bug, and nothing caught it: [`check_decision_index`] compares
+/// `docs/DECISIONS.md` against itself, so a reference from *outside* that file is invisible to it.
+///
+/// Unlike the prose sweeps rejected in [`check_self_hosting_vars`], this one has no false positives to
+/// weigh: `ADR-NNNN` is an identifier with exactly one spelling and one authority. Measured before
+/// landing it — 49 distinct ADRs referenced across the tree, 48 written, and the single dangling one
+/// was mine.
+fn check_adr_references(repo: &Path) -> Result<Vec<String>, String> {
+    let decisions = std::fs::read_to_string(repo.join("docs/DECISIONS.md"))
+        .map_err(|error| format!("reading docs/DECISIONS.md: {error}"))?;
+
+    let written: std::collections::BTreeSet<String> = decisions
+        .lines()
+        .filter_map(|line| line.strip_prefix("## ADR-"))
+        .filter_map(|rest| rest.get(..4))
+        .map(str::to_owned)
+        .collect();
+
+    let mut problems = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+
+    for file in tracked_files(repo)? {
+        // The mockup is a wholesale export and is excluded from every check (`docs/mockup/README.md`).
+        if file.starts_with("docs/mockup") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(repo.join(&file)) else {
+            continue;
+        };
+        for number in adr_numbers(&text) {
+            if !written.contains(&number) && seen.insert((file.clone(), number.clone())) {
+                problems.push(format!(
+                    "{file} cites ADR-{number}, which is not in docs/DECISIONS.md"
+                ));
+            }
+        }
+    }
+    Ok(problems)
+}
+
+/// The four digits after each `ADR-` in a body of text.
+fn adr_numbers(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while let Some(offset) = text[index..].find("ADR-") {
+        let start = index + offset + 4;
+        let digits: String = bytes
+            .get(start..start + 4)
+            .and_then(|slice| std::str::from_utf8(slice).ok())
+            .filter(|slice| slice.chars().all(|c| c.is_ascii_digit()))
+            .unwrap_or_default()
+            .to_owned();
+        if !digits.is_empty() {
+            out.push(digits);
+        }
+        index = start;
+    }
+    out
+}
+
+/// Every file git tracks, so the check cannot be dodged by adding one.
+fn tracked_files(repo: &Path) -> Result<Vec<String>, String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["ls-files"])
+        .output()
+        .map_err(|error| format!("running git ls-files: {error}"))?;
+    if !output.status.success() {
+        return Err("git ls-files failed".to_owned());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::to_owned)
+        .collect())
 }
 
 /// Every var in `docs/SELF_HOSTING.md`'s tuning table exists in `apps/api/wrangler.jsonc`, with the
