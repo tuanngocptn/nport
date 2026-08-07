@@ -8,6 +8,40 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 
+---
+
+## 📢 Announcement — Rate Limiting & Upcoming v3.0.0
+
+NPort has been growing fast, and thank you all for that! 🎉
+
+Right now the shared backend is receiving **far more tunnel requests than the Cloudflare API allows**, so many of you are hitting a rate limit. If you see this, **it's not your setup and nothing is broken on your machine**:
+
+```
+✖ Failed to connect to server.
+Backend Error: CF API Error: [10429] Rate limited. Please wait and consider throttling your request speed
+```
+
+Cloudflare returns error `10429` when the account-wide API request quota for the shared `nport.link` backend is exhausted. Because everyone uses the same account by default, heavy usage from a few users can rate-limit everyone else.
+
+**What we're doing about it:** we're working on **v3.0.0**, a release focused specifically on this problem:
+
+- 🧯 Friendly, actionable messaging when you get rate limited (instead of the raw `10429`)
+- 🔁 Automatic retry with backoff, so transient limits recover on their own
+- ♻️ Smarter tunnel cleanup so abandoned tunnels stop burning API calls
+- 📈 Higher capacity and fairer request distribution across users
+- 🔑 Support for **bring-your-own Cloudflare account**, so you're never blocked by the shared quota
+- 🔍 Improved visibility into your current usage
+
+**What we need from you:** please **keep calm and hang in there** 🙏 — this limit is temporary and resets on its own. If you hit it:
+
+1. **Wait a minute or two and run the command again** — this fixes it most of the time.
+2. Avoid starting many tunnels in a tight loop or in CI, since each start consumes API calls.
+3. Need it working right now? Run your own backend with your own Cloudflare account — see [Backend URL Options](#backend-url-options) and the [`server/`](server/) directory.
+
+If you want to help this land sooner, ⭐ the repo, [open an issue](https://github.com/tuanngocptn/nport/issues) with your use case, or contribute a PR. Thanks for your patience and for using NPort!
+
+---
+
 ## What is NPort?
 
 [![nport](https://github.com/user-attachments/assets/809634a9-5396-46da-919d-b642ddf48fd1)](https://nport.link)
