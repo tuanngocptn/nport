@@ -91,6 +91,7 @@ pub fn run() -> Result<(), String> {
     problems.extend(check_line_caps(&repo)?);
     problems.extend(check_self_hosting_vars(&repo)?);
     problems.extend(check_adr_references(&repo)?);
+    problems.extend(check_source_references(&repo)?);
     problems.extend(check_adr_supersessions(&repo)?);
 
     if problems.is_empty() {
@@ -608,6 +609,131 @@ fn check_adr_references(repo: &Path) -> Result<Vec<String>, String> {
         }
     }
     Ok(problems)
+}
+
+/// Every file a **source comment** names still exists.
+///
+/// [`check_layout_paths`] does this for the layout blocks in `CLAUDE.md` files. Nothing did it for the
+/// hundreds of references inside `.ts`, `.mjs`, `.rs` and `.tf` comments, which is where this repository
+/// keeps most of its cross-file reasoning — "see `apps/node/src/register.ts`", "the same trap as
+/// `apps/node/test/fake-cloudflare.ts`". Those rot exactly like a layout block does, and silently.
+///
+/// It would have earned its keep during the `apps/api` → `apps/node` rename: ninety-odd files changed by
+/// substitution, and a missed comment reference would have pointed at nothing with every test green.
+///
+/// **Deliberately weaker than the layout check, and that is what makes it usable.** A layout block lists
+/// paths relative to its own directory, so they can be resolved exactly. A comment mentions files three
+/// ways — fully qualified (`apps/node/src/env.ts`), relative to itself (`forwarded.ts`), and
+/// *generically* ("an app's `wrangler.jsonc`", "its `src/env.ts`") — and the third cannot be resolved at
+/// all, because it does not refer to one file. So the assertion is only that **something by that name
+/// exists somewhere in the repository**. That still catches the failure worth catching, a file renamed or
+/// deleted while comments go on naming it, and it has no false positives to argue about — which is the
+/// bar the three rejected prose sweeps in [`check_self_hosting_vars`] could not clear.
+///
+/// `.go` is excluded on purpose: `crates/protocol` cites the pinned cloudflared source throughout, and
+/// those paths live in another repository.
+fn check_source_references(repo: &Path) -> Result<Vec<String>, String> {
+    const EXTENSIONS: [&str; 9] = [
+        ".ts", ".tsx", ".mjs", ".rs", ".tf", ".jsonc", ".json", ".yml", ".md",
+    ];
+    const SCANNED: [&str; 4] = [".ts", ".mjs", ".rs", ".tf"];
+
+    let files = tracked_files(repo)?;
+
+    // Every basename git tracks. A reference resolves if any tracked file ends with it, which covers a
+    // fully-qualified path, a bare filename, and a partial suffix like `src/env.ts` in one comparison.
+    let tracked: Vec<String> = files.iter().map(|file| format!("/{file}")).collect();
+
+    let mut problems = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+
+    for file in &files {
+        if file.starts_with("docs/mockup") || !SCANNED.iter().any(|ext| file.ends_with(ext)) {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(repo.join(file)) else {
+            continue;
+        };
+        for raw in backticked_tokens(&text) {
+            // `./dev-fake.ts` means the sibling; the leading marker is not part of the path.
+            let token = raw.trim_start_matches("./").to_owned();
+
+            // A glob stands for a set, not a file: `apps/<app>/src/env.ts` is a legitimate way to say
+            // "each app's". Placeholders likewise.
+            //
+            // **Write that with `<app>` and not with a star.** A `*` followed by a slash closes a
+            // JavaScript block comment, so qualifying a reference as `apps/` + star + `/src/env.ts`
+            // inside a `/** … */` docblock terminates the comment and the rest of the paragraph becomes
+            // syntax. Found by doing it to three files at once while fixing defect 42.
+            if token.contains('*') || token.contains('<') || token.contains('{') {
+                continue;
+            }
+            // Each of these produced a false positive on the first run, and each is a different way of
+            // not being a repository path:
+            //   `:`   — a git revision (`main:src/tunnel.ts`) or a URL
+            //   `~`   — a path in the user's home (`~/.nport/nodes.json`), which is runtime, not source
+            //   `\\`  — a Windows-path example, in this file's own documentation
+            //   `.ts` — a bare extension, discussed as a suffix rather than named as a file
+            if token.contains(':')
+                || token.starts_with('~')
+                || token.contains('\\')
+                || token.starts_with('.')
+            {
+                continue;
+            }
+            if !EXTENSIONS.iter().any(|ext| token.ends_with(ext)) {
+                continue;
+            }
+            // Planned files, named on purpose before they exist. The layout blocks have a mechanical
+            // convention for this — wrap the path in parentheses — but prose has nowhere to put a marker
+            // without reading badly, so the exception is a list. Short, and each entry has a reason:
+            //   `crates/protocol/src/h2.rs`  — the HTTP/2 fallback transport (ADR-0017), Phase 1 deferred.
+            //                                  Defect 40 was three documents asserting it already compiled.
+            //   `protocol-canary.yml`        — the edge-change canary, Phase 3.
+            //   `bar.md`                     — an example in this file's own documentation.
+            //   `generated/bindings.ts`      — `tauri-specta` output, Phase 4. Defect 42 was two files
+            //                                  claiming it already existed and that `pnpm codegen` made
+            //                                  it; `src/ipc/health.ts` and `src-tauri/src/lib.rs` name it
+            //                                  in the future tense, which is the honest form and stays.
+            const PLANNED: [&str; 4] = [
+                "h2.rs",
+                "protocol-canary.yml",
+                "bar.md",
+                "generated/bindings.ts",
+            ];
+            if PLANNED.iter().any(|planned| token.ends_with(planned)) {
+                continue;
+            }
+            let needle = format!("/{}", token.trim_start_matches('/'));
+            if tracked.iter().any(|path| path.ends_with(&needle)) {
+                continue;
+            }
+            if seen.insert((file.clone(), token.clone())) {
+                problems.push(format!(
+                    "{file}: a comment names `{token}`, and no tracked file has that path"
+                ));
+            }
+        }
+    }
+
+    Ok(problems)
+}
+
+/// Every backtick-delimited token in a body of text, single backticks only.
+fn backticked_tokens(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('`') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('`') else { break };
+        let token = &after[..close];
+        // A token with whitespace is prose in backticks, not a path.
+        if !token.is_empty() && !token.contains(char::is_whitespace) {
+            out.push(token.to_owned());
+        }
+        rest = &after[close + 1..];
+    }
+    out
 }
 
 /// A supersede is recorded on **both** ADRs, not just the newer one.

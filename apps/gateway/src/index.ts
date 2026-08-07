@@ -31,14 +31,14 @@ import type { Env, ServiceBinding, Variables } from "./types"
  *   /            →  301 to the site
  * ```
  *
- * `packages/contract` keeps the two route tables disjoint and each app's `conformance.test.ts` proves
+ * `packages/contract` keeps the two route tables disjoint and each app's `apps/gateway/test/conformance.test.ts` proves
  * its Worker stays inside its own space, so this table is short because the contract made it short.
  * A registry route outside `/v1/nodes` would be one no request could reach.
  *
  * ## What this deployment does not serve
  *
  * **The v2 compatibility shim is not routed.** `apps/node` still carries `POST /` and `DELETE /` from
- * `routes/legacy.ts`, with its tests still passing, but nothing forwards `/` here — so behind a
+ * `apps/node/src/routes/legacy.ts`, with its tests still passing, but nothing forwards `/` here — so behind a
  * gateway those routes are unreachable. That is a deliberate, temporary gap: v3 first, backward
  * compatibility later. It is written down in three places rather than left to be discovered, because
  * tested-but-unreachable code is precisely the failure this repository has spent seven defects

@@ -85,4 +85,6 @@ Vitest. `apps/node` uses `@cloudflare/vitest-pool-workers` so Durable Object sto
 
 ## Generated files
 
-Never hand-edit anything with a `@generated` banner: `schema/nport-node.openapi.json`, `apps/desktop/src/generated/bindings.ts`, `docs/ERRORS.md`. Edit the source and run `pnpm codegen`. CI fails on drift.
+Never hand-edit anything with a `@generated` banner: `schema/nport-node.openapi.json`, `schema/nport-registry.openapi.json`, `docs/ERRORS.md`. Edit the source and run `pnpm codegen`. CI fails on drift.
+
+`apps/desktop/src/generated/bindings.ts` will join that list in Phase 4 and is **not** on it yet: the file does not exist, `tauri-specta` is not a dependency, and `apps/desktop` has no `codegen` script (`docs/ROADMAP.md`, defect 42).

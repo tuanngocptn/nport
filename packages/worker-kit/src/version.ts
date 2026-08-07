@@ -4,7 +4,7 @@
  * Both Workers impose a `MIN_CLIENT_VERSION` floor, and the *middleware* that does it belongs to each
  * app — it reads a binding and throws a Hono-shaped error, which is outside this package's boundary.
  * What is shared is the two functions that decide the answer, because they are the part that must not
- * diverge: pre-release ordering is subtle enough that `apps/node`'s `wrangler.jsonc` carries a paragraph
+ * diverge: pre-release ordering is subtle enough that `apps/node/wrangler.jsonc` carries a paragraph
  * about it, and two implementations disagreeing would mean one service admitting a client the other
  * refuses.
  *

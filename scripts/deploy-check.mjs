@@ -6,7 +6,7 @@
  *
  * Wrangler marks `vars` as **`notInheritable`**: an environment block *replaces* the top-level one
  * rather than merging with it. So adding `MAX_ACTIVE_TUNNELS` to the top level and forgetting the
- * `staging` block does not fail, and does not warn — staging simply deploys without it, `env.ts`
+ * `staging` block does not fail, and does not warn — staging simply deploys without it, `apps/<app>/src/env.ts`
  * falls back or throws on first use, and `GET /v1/meta` answers with numbers that were never
  * configured. The Worker looks healthy the whole time.
  *
@@ -272,7 +272,7 @@ function trustsForwardedIdentity(relative) {
 // harmless formatting; comparing rendered output tests the thing that reaches DNS.
 //
 // The failure it exists for is silent in the worst way. A record naming one node while the node
-// registers as another is refused `proof-missing`, and `src/register.ts` swallows every failure by
+// registers as another is refused `proof-missing`, and `apps/node/src/register.ts` swallows every failure by
 // design — so the symptom is an empty directory, five minutes of cron, and no error anywhere a person
 // is looking. Staging shipped exactly that on its first deploy of ADR-0049's design, for the simpler
 // reason that nothing published the record at all.
@@ -410,7 +410,7 @@ function trustsForwardedIdentity(relative) {
  * direction that matters is an app requiring a secret the deploy never sets — the Worker comes up
  * green and refuses every request.
  *
- * A missing `REQUIRED_SECRETS` in an app that has an `env.ts` is a hard error rather than an empty
+ * A missing `REQUIRED_SECRETS` in an app that has an `apps/<app>/src/env.ts` is a hard error rather than an empty
  * list: either the array was renamed or this pattern rotted, and both are worth a red deploy.
  */
 function requiredSecretsByWorker() {

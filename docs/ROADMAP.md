@@ -795,6 +795,40 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       twenty-four, so within ten minutes the registry ages it to `down` and a discovering client
       would skip it. G5 waits on this, not on a second account
 
+**42. Two files said `apps/desktop/src/generated/bindings.ts` was generated. Nothing generates it, and
+it does not exist.** `apps/desktop/CLAUDE.md` rule 3 stated it as fact and its command block said
+`pnpm codegen` regenerates it; `docs/conventions/typescript.md` listed it among the files carrying a
+`@generated` banner that must never be hand-edited. In fact `tauri-specta` is not a dependency of
+anything, `apps/desktop` has no `codegen` script, so `pnpm codegen` does not touch that app at all.
+
+**Two other references to the same file were already honest**, and the contrast is the useful part:
+`src/ipc/health.ts` says "from Phase 4 these are typed by … Until that exists the shape is hand-typed
+here", and `src-tauri/src/lib.rs` says "From Phase 4". Same file, same absence, four mentions, two of
+them true — which is exactly why this class of error survives review. Corrected to the future tense the
+honest two already used.
+
+**The fifth instance of one shape**, after defects 34, 35, 37 and 38: a document asserting work that
+lives somewhere else in the pipeline. What is new is that this one was found *mechanically*.
+
+**`check_source_references` closes the half of that gap which is checkable.** `verify-docs` already
+checked the paths in `CLAUDE.md` layout blocks; nothing checked the several hundred references inside
+`.ts`, `.mjs`, `.rs` and `.tf` comments, which is where most of this repository's cross-file reasoning
+lives. It would have earned its keep during the `apps/api` → `apps/node` rename — ninety files changed
+by substitution, and a missed comment reference would have pointed at nothing with every test green.
+
+It is **deliberately weaker than the layout check**, and that is what makes it usable where three earlier
+prose sweeps were rejected. A comment names files three ways: fully qualified, relative to itself, and
+*generically* — "an app's `wrangler.jsonc`" refers to no single file and cannot be resolved. So the
+assertion is only that something by that name exists somewhere. That still catches the failure worth
+catching and has no false positives to argue about. Twenty-one findings on the first run reduced to two
+real ones after the extraction learned what the layout checker already knew: skip git revisions, home
+paths, Windows examples and bare extensions. Planned files are an explicit four-entry list, each with its
+reason, because prose has nowhere to put the parenthesis marker a layout block uses.
+
+**What it still cannot do** is check a *capability*. Nothing mechanical would have caught "`pnpm codegen`
+regenerates this" — only that the file named did not exist. Defect 38's core claim and this one's second
+half remain the kind of thing a person has to notice.
+
 **41. The node stops registering, and nothing said so.** Staging's `GET /v1/nodes` showed
 `nport-online-1` as `down` while its own `GET /v1/meta` answered normally — the registry ageing an
 entry the node had stopped renewing, with the node itself serving fine. Measured rather than guessed:

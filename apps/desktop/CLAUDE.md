@@ -44,14 +44,14 @@ The mockup draws seven surfaces where the layout above lists four views: *Tunnel
 pnpm dev:desktop                       # tauri dev
 pnpm --filter @nport/desktop build     # production bundle
 cargo test -p nport-desktop
-pnpm codegen                           # regenerates src/generated/bindings.ts
+(pnpm codegen                          # will regenerate src/generated/bindings.ts — Phase 4)
 ```
 
 ## Rules
 
 1. **Dual workspace membership.** This directory belongs to the pnpm workspace as `apps/*` **and** `src-tauri` is a Cargo workspace member. Both `pnpm install` and `cargo` see it. This surprises people; it is intentional (ADR-0008).
 2. **The frontend never talks to `api.nport.link` directly.** All network activity goes through `crates/core` via IPC, so there is exactly one implementation of the lifecycle and one place tokens live.
-3. **`src/generated/bindings.ts` is generated** by `tauri-specta` from the Rust command signatures. Rust is the authority for this boundary (ADR-0009) — change `commands.rs`, then `pnpm codegen`.
+3. **`src/generated/bindings.ts` *will be* generated** by `tauri-specta` from the Rust command signatures, in Phase 4. Rust is the authority for this boundary (ADR-0009), so when it lands the flow is: change the command, then regenerate. **None of it exists yet** — `tauri-specta` is not a dependency, `apps/desktop` has no `codegen` script, and `pnpm codegen` therefore does not touch this app (`docs/ROADMAP.md`, defect 42). Until then the IPC shape is hand-typed in `src/ipc/`, which `src/ipc/health.ts` says on itself.
 4. **Every new command needs a capability entry** in `src-tauri/capabilities/default.json`, or it is denied at runtime with a confusing error.
 5. **All state is local.** No telemetry, no analytics, and above all **no tunnel traffic ever leaves the machine** (ADR-0015). The inspector exists because we can see traffic; that is a reason to be careful, not a reason to send it anywhere.
 6. **Never render a tunnel token or `ownerToken` in the UI**, including in the logs view. Redact at the `core` boundary so the frontend never receives them.

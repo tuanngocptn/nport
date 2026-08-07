@@ -29,7 +29,7 @@ output "api_rate_limit" {
 # One flat map cannot hold both under that name, and giving one of them a distinguishing name in
 # Terraform would mean the Worker reading a key called something other than what it requires.
 #
-# The keys inside each object match that app's `REQUIRED_SECRETS` in `src/env.ts` on purpose: a Worker
+# The keys inside each object match that app's `REQUIRED_SECRETS` in `apps/<app>/src/env.ts` on purpose: a Worker
 # refuses to start when one is missing, so a key renamed on one side and not the other fails at the
 # first request rather than silently. `pnpm deploy:check` compares the two lists per app and knows
 # which single name the workflow adds.

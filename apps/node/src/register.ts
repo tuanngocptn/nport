@@ -290,7 +290,7 @@ interface IssuedChallenge {
  * `new URL("/v1/nodes", base)` looks right and is wrong: a leading slash makes the path absolute, so
  * it replaces the base's path entirely. Point `REGISTRY_URL` at `https://host/registry` and the node
  * would POST to `https://host/v1/nodes` — and since every failure in this file is swallowed by design,
- * it would do so silently, for ever. `crates/core`'s client has always handled prefixes (`api.rs`
+ * it would do so silently, for ever. `crates/core`'s client has always handled prefixes (`crates/core/src/api.rs`
  * `Backend::parse`); this side had not.
  */
 function registryEndpoint(registryUrl: string, path: string): string {

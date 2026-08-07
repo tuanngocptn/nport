@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 /**
  * **The v2 shim is not routed, on purpose, for now.**
  *
- * `apps/node` still carries `POST /` and `DELETE /` from `routes/legacy.ts`, and roughly forty tests
+ * `apps/node` still carries `POST /` and `DELETE /` from `apps/node/src/routes/legacy.ts`, and roughly forty tests
  * still cover them — all passing, because they drive that app directly. Behind a gateway that forwards
  * only `/v1/*`, none of it is reachable. v3 first; backward compatibility comes back later.
  *
