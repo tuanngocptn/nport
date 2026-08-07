@@ -9,7 +9,7 @@ applies_to:
 
 The strategy spans two languages, three runtimes (Node, `workerd`, native), and a live external service. That is why it lives in one document instead of being scattered across five `CLAUDE.md` files.
 
-**Status: implemented for every app and crate except `apps/desktop`**, which is untested and waits on Phase 4. `apps/web` now has both its tiers: Vitest over `src/lib` and `src/content`, and Playwright against the built Worker. Its **visual baselines are armed**, on Linux — see § Frontend e2e.
+**Status: implemented for every app and crate.** `apps/desktop` joined in Phase 4 with a Vitest tier over `src/lib` — pure state, no DOM — plus `cargo test -p nport-desktop` over the Rust half. Its **browser** tier is still owed and needs `tauri-driver`; see below. `apps/web` now has both its tiers: Vitest over `src/lib` and `src/content`, and Playwright against the built Worker. Its **visual baselines are armed**, on Linux — see § Frontend e2e.
 
 ## Tiers
 

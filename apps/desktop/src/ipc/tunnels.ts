@@ -54,6 +54,18 @@ export type TunnelEvent =
   | { type: "shuttingDown"; reason: ShutdownReason }
   | { type: "stopped"; drained: boolean }
 
+/**
+ * One tunnel's event, with the tunnel it belongs to.
+ *
+ * **The envelope exists because the events cannot identify themselves.** Only `provisioned` carries
+ * a subdomain; every connection variant carries an index, which is 0..3 for *every* tunnel. In a
+ * list, `connectionLost { index: 2 }` would be unattributable without this.
+ */
+export interface TunnelMessage {
+  subdomain: string
+  event: TunnelEvent
+}
+
 /** The Tauri event name. Must match `TUNNEL_EVENT` in `src-tauri/src/events.rs`. */
 const TUNNEL_EVENT = "nport://tunnel"
 
@@ -90,8 +102,10 @@ export async function listTunnels(): Promise<TunnelSummary[]> {
  * listener existed. The same ordering hazard `start_tunnel` handles on the Rust side by emitting
  * `provisioned` itself rather than relying on the broadcast the caller was too late to receive.
  */
-export async function onTunnelEvent(handler: (event: TunnelEvent) => void): Promise<UnlistenFn> {
-  return await listen<TunnelEvent>(TUNNEL_EVENT, (message) => {
+export async function onTunnelEvent(
+  handler: (message: TunnelMessage) => void,
+): Promise<UnlistenFn> {
+  return await listen<TunnelMessage>(TUNNEL_EVENT, (message) => {
     handler(message.payload)
   })
 }

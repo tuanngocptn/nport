@@ -750,6 +750,23 @@ does, and it also asserts no two variants share a payload, because a copy-pasted
 thing rather than nothing and is harder to spot. The three places that said this file did not exist yet
 now say it does.
 
+**The Tunnels screen is the first of the five**, and building it found the gap the event boundary
+had left: **only `Provisioned` carries a subdomain.** Every connection variant carries an index, which
+is 0..3 for *every* tunnel — unambiguous for a CLI running one tunnel, useless for a list where
+`ConnectionLost { index: 2 }` could belong to any row. Events now travel in a `TunnelMessage` envelope
+that names the tunnel, rather than each variant growing a field it could forget to carry.
+
+State lives in `src/lib/tunnel-state.ts` as a pure reducer, which is what let `apps/desktop` have a
+test tier at all — 16 Vitest cases, no DOM. The ones worth having: `degraded` is a real state and not a
+failure (the edge recycles connections, so a tunnel at three of four is still serving), `stopping` is
+sticky so a draining tunnel does not walk backwards through `degraded` to `starting`, and a retry does
+not double-count a loss. Verified by breaking each rule and watching the matching test fail.
+
+**Two things the mockup draws are deliberately not rendered**: the request count and the Inspect
+button. Both need `core::inspector`, which the app does not enable yet. The mockup is the authority on
+what the finished app looks like, not a licence to draw a number the app cannot compute — "0 requests"
+beside a tunnel serving traffic is worse than no mention of requests.
+
 **The scope is `docs/FEATURES.md` §§5–10, §12 and §14, plus the Nodes screen in §3** — the mapping table above — against the design in `docs/mockup/NPort Desktop.dc.html`. **Both of the questions that were to be settled before components are written are now settled.** The surface count was a documentation error, not a design disagreement: `docs/mockup/README.md` says five screens plus a first-run overlay and a menu-bar popover, and the layout block had `logs` for `history` and no *New tunnel* entry at all. The glass is **ADR-0050** — opaque by default, transparency opt-in per platform, Linux expected to stay flat. That one turned up a live defect on the way: the scaffold set `transparent: true` on all three platforms while `styles.css` painted `background: transparent`, so `--np-page` — the only opaque token in the sheet, and the surface every translucent layer composites over — was never applied anywhere. §8 is excluded, per the mapping table. §12 is design work that has not been done at all — the mockup is macOS Tahoe only.
 
 ## Phase 5 — Federation: a registry and many nodes 🚧 **← next**

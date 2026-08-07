@@ -40,6 +40,36 @@ use serde::Serialize;
 /// arriving before `Provisioned` would render a tunnel that is up before it exists.
 pub const TUNNEL_EVENT: &str = "nport://tunnel";
 
+/// One tunnel's event, with the tunnel it belongs to.
+///
+/// **The envelope exists because the events cannot identify themselves.** `TunnelEvent` carries a
+/// subdomain on `Provisioned` and on nothing else: every connection variant carries only its index,
+/// which is 0..3 for *every* tunnel. That is unambiguous for a CLI, which runs one tunnel and prints
+/// to one terminal — and useless for a list, where `ConnectionLost { index: 2 }` could belong to any
+/// row on screen.
+///
+/// So the subdomain is attached here rather than added to each variant: the pump knows which tunnel
+/// it is pumping, the variants stay as `crates/core` defines them, and a variant added upstream
+/// cannot forget to carry it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TunnelMessage {
+    /// The **claimed** subdomain, which is what the registry is keyed by.
+    pub subdomain: String,
+    pub event: UiEvent,
+}
+
+impl TunnelMessage {
+    /// Wraps an event, or `None` if this build cannot describe it.
+    #[must_use]
+    pub fn new(subdomain: &str, event: &TunnelEvent) -> Option<Self> {
+        Some(Self {
+            subdomain: subdomain.to_owned(),
+            event: UiEvent::from_core(event)?,
+        })
+    }
+}
+
 /// A [`TunnelEvent`] in the shape the WebView receives.
 ///
 /// `type` is the discriminator and fields are camelCase, because this is read by TypeScript. Both
@@ -288,6 +318,21 @@ mod tests {
         assert!(
             json.contains(r#""code":"EDGE_REGISTRATION_REFUSED""#),
             "{json}"
+        );
+    }
+
+    /// The envelope names the tunnel, which is the whole reason it exists.
+    ///
+    /// Without it `connectionLost { index: 2 }` is unattributable in a list: the index is 0..3 for
+    /// every tunnel, so two tunnels losing a connection are indistinguishable.
+    #[test]
+    fn the_envelope_carries_the_subdomain_for_events_that_do_not() {
+        let message = TunnelMessage::new("myapp", &TunnelEvent::ConnectionLost { index: 2 })
+            .expect("known variant");
+
+        assert_eq!(
+            serde_json::to_string(&message).expect("serialize"),
+            r#"{"subdomain":"myapp","event":{"type":"connectionLost","index":2}}"#
         );
     }
 

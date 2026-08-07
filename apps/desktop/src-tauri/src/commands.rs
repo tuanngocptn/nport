@@ -19,7 +19,7 @@ use nport_core::tunnel::Tunnel;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::events::{TUNNEL_EVENT, UiEvent};
+use crate::events::{TUNNEL_EVENT, TunnelMessage};
 use crate::state::{TunnelSummary, Tunnels};
 
 /// How long a tunnel gets to drain before its connections are cut.
@@ -84,7 +84,8 @@ pub async fn start_tunnel(
         subdomain: tunnel.subdomain().to_owned(),
         expires_at: tunnel.expires_at(),
     };
-    emit(&app, &provisioned);
+    let subdomain = tunnel.subdomain().to_owned();
+    emit(&app, &subdomain, &provisioned);
 
     let events = tunnel.events();
     let (summary, displaced) = tunnels.insert(tunnel, local_port);
@@ -95,7 +96,7 @@ pub async fn start_tunnel(
         old.shutdown().await;
     }
 
-    pump(app.clone(), events);
+    pump(app.clone(), subdomain, events);
     Ok(summary)
 }
 
@@ -139,11 +140,15 @@ pub fn list_tunnels(tunnels: State<'_, Tunnels>) -> Vec<TunnelSummary> {
 /// `Lagged` is the other ending worth naming, and it is **not** fatal: a broadcast receiver that
 /// falls behind loses messages and keeps going. Breaking there would silence a tunnel permanently
 /// because the UI was briefly slow.
-fn pump(app: AppHandle, mut events: tokio::sync::broadcast::Receiver<TunnelEvent>) {
+fn pump(
+    app: AppHandle,
+    subdomain: String,
+    mut events: tokio::sync::broadcast::Receiver<TunnelEvent>,
+) {
     tauri::async_runtime::spawn(async move {
         loop {
             match events.recv().await {
-                Ok(event) => emit(&app, &event),
+                Ok(event) => emit(&app, &subdomain, &event),
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
@@ -156,10 +161,10 @@ fn pump(app: AppHandle, mut events: tokio::sync::broadcast::Receiver<TunnelEvent
 /// A variant `UiEvent` does not cover is dropped rather than forwarded as a placeholder — see
 /// `events::UiEvent::from_core`, and the test there that stops this from happening silently for a
 /// variant that should have been handled.
-fn emit(app: &AppHandle, event: &TunnelEvent) {
-    if let Some(ui) = UiEvent::from_core(event) {
+fn emit(app: &AppHandle, subdomain: &str, event: &TunnelEvent) {
+    if let Some(message) = TunnelMessage::new(subdomain, event) {
         // A failed emit means the window is gone, which is not something a tunnel can act on.
-        let _ = app.emit(TUNNEL_EVENT, ui);
+        let _ = app.emit(TUNNEL_EVENT, message);
     }
 }
 
