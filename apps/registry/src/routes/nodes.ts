@@ -121,7 +121,7 @@ export function createNodesRoute(fetcher: typeof fetch = fetch) {
         // anything but `up`.
         status: "up",
         ...observed,
-        lastProbedAt: now,
+        lastSeenAt: now,
       }
       await directory.upsert(entry)
 

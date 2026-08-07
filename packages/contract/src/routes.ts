@@ -150,21 +150,25 @@ export const ROUTES = [
 ] as const satisfies readonly RouteDefinition[]
 
 /**
- * The **registry's** routes — a different service, so a different table (ADR-0046).
+ * The **registry's** routes — a different service, so a different table (ADR-0046, ADR-0049).
  *
- * `apps/registry` is its own deployable on its own host, holds no Cloudflare credentials, and
- * provisions nothing (ADR-0031). Merging these into [`ROUTES`] would put two services in one OpenAPI
- * document under one `servers` entry, and a generated client would then call
- * `api.nport.link/v1/nodes` — a path that does not exist there. Two tables, two documents.
+ * `apps/registry` holds no Cloudflare credentials and provisions nothing (ADR-0031). It is a separate
+ * deployable, and since ADR-0049 it is reached through the **same hostname** as the node, behind the
+ * gateway. Two tables and two documents therefore no longer rest on "two hosts" — they rest on the two
+ * properties that survived the move: the **path spaces are disjoint**, and each document carries only
+ * the components it reaches. A node-only deployment has no registry binding at all, so `/v1/nodes*`
+ * does not 404 there — it does not exist.
  *
- * `GET /v1/challenge` appears in both because both services gate writes with proof of work, using the
- * same solver and the same schema. That is deliberate reuse of a shape, not a shared endpoint: the
- * challenges are signed with different secrets and are not interchangeable.
+ * **Every registry route lives under `/v1/nodes`**, and that is load-bearing rather than tidy. The
+ * gateway dispatches on the path prefix, so a registry route outside this space would be unroutable —
+ * and `GET /v1/challenge` in particular *cannot* be shared: `apps/registry/src/types.ts` requires its
+ * `POW_SECRET` to differ from the node's, precisely so a challenge issued by a node is not redeemable
+ * at the registry. Two endpoints signing with two secrets cannot share one path.
  */
 export const REGISTRY_ROUTES = [
   {
     method: "GET",
-    path: "/v1/challenge",
+    path: "/v1/nodes/challenge",
     summary: "Issue a proof-of-work challenge for a node registration.",
     response: challengeResponseSchema,
     successStatus: 200,

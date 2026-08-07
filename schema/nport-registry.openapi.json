@@ -3,7 +3,7 @@
   "info": {
     "title": "NPort registry API",
     "version": "1.0.0",
-    "description": "The node directory. Lists nodes, accepts anonymous registrations behind proof of work and a DNS TXT domain proof, and probes what it lists. Holds no Cloudflare credentials and provisions nothing — see ADR-0031. Advisory: clients cache the list, so a registry that is down does not stop a tunnel.",
+    "description": "The node directory. Lists nodes and accepts anonymous registrations behind proof of work and a DNS TXT domain proof. Registration doubles as the liveness heartbeat — the registry fetches nothing and presumes a silent node gone (ADR-0049). Holds no Cloudflare credentials and provisions nothing (ADR-0031). Advisory: clients cache the list, so a registry that is down does not stop a tunnel.",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
@@ -11,15 +11,15 @@
   },
   "servers": [
     {
-      "url": "https://registry.nport.link",
+      "url": "https://api.nport.link",
       "description": "Production"
     }
   ],
   "paths": {
-    "/v1/challenge": {
+    "/v1/nodes/challenge": {
       "get": {
         "summary": "Issue a proof-of-work challenge for a node registration.",
-        "operationId": "getChallenge",
+        "operationId": "getNodesChallenge",
         "responses": {
           "200": {
             "description": "Issue a proof-of-work challenge for a node registration.",
@@ -367,7 +367,7 @@
             "$ref": "#/components/schemas/NodeStatus"
           },
           "activeTunnels": {
-            "description": "From this node's `/v1/meta` at the last probe. Absent means unknown, not zero.",
+            "description": "As the node reported at its last registration. Absent means unknown, not zero.",
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
@@ -377,11 +377,11 @@
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991
           },
-          "lastProbedAt": {
+          "lastSeenAt": {
             "type": "integer",
             "exclusiveMinimum": 0,
             "maximum": 9007199254740991,
-            "description": "When the registry last got an answer out of this node."
+            "description": "When this node last registered. The only liveness signal there is — a node that stops calling is presumed gone."
           }
         },
         "required": [
@@ -390,9 +390,9 @@
           "domain",
           "version",
           "status",
-          "lastProbedAt"
+          "lastSeenAt"
         ],
-        "description": "A node in the directory, as the registry last observed it."
+        "description": "A node in the directory, as it last described itself."
       },
       "NodeListResponse": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -426,7 +426,7 @@
           "degraded",
           "down"
         ],
-        "description": "up: the last probe answered. degraded: recent probes have been failing. down: the last probe did not answer."
+        "description": "up: registered recently. degraded: overdue for a refresh. down: silent long enough to be presumed gone."
       },
       "RegisterNodeRequest": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -464,6 +464,16 @@
           "nonce": {
             "type": "string",
             "maxLength": 64
+          },
+          "activeTunnels": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "maxActiveTunnels": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -474,7 +484,7 @@
           "challenge",
           "nonce"
         ],
-        "description": "Register or refresh a node. Carries no capacity claim — the registry probes `/v1/meta` for that."
+        "description": "Register or refresh a node. Doubles as the liveness heartbeat, and carries the node's capacity claim."
       },
       "RegisterNodeResponse": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -488,7 +498,7 @@
         "required": [
           "node"
         ],
-        "description": "The entry as stored, including the capacity and status the registry observed rather than what was sent."
+        "description": "The entry as stored, so a node can confirm what the directory now believes about it."
       }
     }
   },

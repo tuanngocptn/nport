@@ -49,7 +49,7 @@ async function seed(overrides: Partial<Node> = {}): Promise<void> {
     status: "up",
     activeTunnels: 7,
     maxActiveTunnels: 100,
-    lastProbedAt: 1,
+    lastSeenAt: 1,
     ...overrides,
   })
 }

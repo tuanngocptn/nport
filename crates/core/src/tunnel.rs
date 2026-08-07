@@ -712,7 +712,7 @@ mod tests {
 
         // The full node is listed first, so ranking cannot be what saves this.
         let nodes = format!(
-            r#"{{"nodes":[{{"id":"aaa-full","url":"{full}","domain":"full.test","version":"3.0.0","status":"up","lastProbedAt":1}},{{"id":"bbb-spare","url":"{spare}","domain":"spare.test","version":"3.0.0","status":"up","lastProbedAt":1}}],"refreshAfterMs":300000}}"#
+            r#"{{"nodes":[{{"id":"aaa-full","url":"{full}","domain":"full.test","version":"3.0.0","status":"up","lastSeenAt":1}},{{"id":"bbb-spare","url":"{spare}","domain":"spare.test","version":"3.0.0","status":"up","lastSeenAt":1}}],"refreshAfterMs":300000}}"#
         );
         let (registry, _) = routed(vec![("/v1/nodes", leak(json("200 OK", &nodes)))]).await;
 
@@ -778,7 +778,7 @@ mod tests {
         .await;
 
         let nodes = format!(
-            r#"{{"nodes":[{{"id":"aaa","url":"{first}","domain":"a.test","version":"3.0.0","status":"up","lastProbedAt":1}},{{"id":"bbb","url":"{second}","domain":"b.test","version":"3.0.0","status":"up","lastProbedAt":1}}],"refreshAfterMs":300000}}"#
+            r#"{{"nodes":[{{"id":"aaa","url":"{first}","domain":"a.test","version":"3.0.0","status":"up","lastSeenAt":1}},{{"id":"bbb","url":"{second}","domain":"b.test","version":"3.0.0","status":"up","lastSeenAt":1}}],"refreshAfterMs":300000}}"#
         );
         let (registry, _) = routed(vec![("/v1/nodes", leak(json("200 OK", &nodes)))]).await;
 

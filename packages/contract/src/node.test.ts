@@ -79,7 +79,7 @@ describe("the node schemas", () => {
     domain: "nport.link",
     version: "3.0.0",
     status: "up",
-    lastProbedAt: 1_767_225_600_000,
+    lastSeenAt: 1_767_225_600_000,
   }
 
   it("accepts an entry with no capacity reported", () => {
@@ -104,13 +104,39 @@ describe("the node schemas", () => {
     expect(nodeListResponseSchema.safeParse({ nodes: [entry] }).success).toBe(false)
   })
 
-  it("carries no capacity claim on a registration", () => {
-    // The registry probes `/v1/meta` for capacity. A node that could assert `activeTunnels: 0` would
-    // be picked first by every client, which is a free denial of service against its operator.
+  it("carries the node's capacity claim, but never its status", () => {
+    // **This assertion is inverted from what it was.** The registry used to probe `/v1/meta` for
+    // capacity and this test forbade the fields; ADR-0049 removed the probe, so the node reports them.
+    // The risk that argued against it is unchanged and accepted: a node claiming `activeTunnels: 0`
+    // is picked first by every client. See `nodeSchema`'s docblock for why that trade is the right one.
     const shape = registerNodeRequestSchema.shape
-    expect(Object.keys(shape)).not.toContain("activeTunnels")
-    expect(Object.keys(shape)).not.toContain("maxActiveTunnels")
+    expect(Object.keys(shape)).toContain("activeTunnels")
+    expect(Object.keys(shape)).toContain("maxActiveTunnels")
+
+    // `status` stays out. It is *derived* from how recently a node registered, so a node claiming to
+    // be `up` would be claiming the one thing the registry alone can observe.
     expect(Object.keys(shape)).not.toContain("status")
+    expect(Object.keys(shape)).not.toContain("lastSeenAt")
+  })
+
+  it("accepts a registration with no capacity claim at all", () => {
+    // Both fields optional, for `MetaResponse`'s reason: third-party nodes on older builds, against a
+    // frozen contract-v1. Absent means unknown, and discovery treats unknown as usable.
+    const base = {
+      id: "hk1",
+      url: "https://api.nport.link",
+      domain: "nport.link",
+      version: "3.0.0",
+      challenge: "c",
+      nonce: "n",
+    }
+    expect(registerNodeRequestSchema.safeParse(base).success).toBe(true)
+    expect(
+      registerNodeRequestSchema.safeParse({ ...base, activeTunnels: 3, maxActiveTunnels: 100 })
+        .success,
+    ).toBe(true)
+    // Still bounded: a negative count is not "unknown", it is nonsense.
+    expect(registerNodeRequestSchema.safeParse({ ...base, activeTunnels: -1 }).success).toBe(false)
   })
 
   it("bounds every attacker-supplied string on the open endpoint", () => {
@@ -149,12 +175,28 @@ describe("the two service documents", () => {
     }
   })
 
-  it("points each document at its own host", () => {
-    // The whole reason there are two (ADR-0046): one `servers` entry cannot describe both, and a
-    // generated client would otherwise call `api.nport.link/v1/nodes`.
+  it("points both documents at the one host, and still titles them apart", () => {
+    // **This used to assert two different hosts** — ADR-0046's original argument for two documents.
+    // ADR-0049 put both services behind one gateway on one hostname, so that argument is gone and the
+    // documents now stand on the two assertions below instead.
     expect(api.servers[0]?.url).toBe("https://api.nport.link")
-    expect(registry.servers[0]?.url).toBe("https://registry.nport.link")
+    expect(registry.servers[0]?.url).toBe("https://api.nport.link")
     expect(api.info.title).not.toBe(registry.info.title)
+  })
+
+  it("keeps the two path spaces disjoint, which is what makes one host work", () => {
+    // The gateway dispatches on the path prefix, so an overlap is not a documentation problem — it is
+    // a request nobody can route. Every registry path must be under `/v1/nodes`, and no node path may
+    // be. `GET /v1/challenge` is the case that forced this: both services had one, signed with
+    // deliberately different secrets, so the registry's moved to `/v1/nodes/challenge`.
+    for (const path of Object.keys(registry.paths)) {
+      expect(path, `${path} is a registry route outside /v1/nodes`).toMatch(/^\/v1\/nodes/)
+    }
+    for (const path of Object.keys(api.paths)) {
+      expect(path, `${path} is a node route inside the registry's space`).not.toMatch(
+        /^\/v1\/nodes/,
+      )
+    }
   })
 
   it("does not leak node routes into the control-plane document", () => {

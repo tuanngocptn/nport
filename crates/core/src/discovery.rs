@@ -385,7 +385,7 @@ mod tests {
             status,
             active_tunnels: active,
             max_active_tunnels: max,
-            last_probed_at: 1,
+            last_seen_at: 1,
         }
     }
 

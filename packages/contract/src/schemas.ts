@@ -225,27 +225,36 @@ export const metaResponseSchema = z
 // ── The registry · GET /v1/nodes, POST /v1/nodes ───────────────────────────────────
 
 /**
- * How a node is doing, as the **registry's own probe** last saw it.
+ * How a node is doing, derived from **how recently it last registered** (ADR-0049).
  *
  * Health only. Whether a node is *full* is a separate question answered by `activeTunnels` against
  * `maxActiveTunnels`, and conflating them would leave a client unable to tell "try later" from "try
  * elsewhere" — the design draws that distinction too, disabling full and offline nodes for different
  * reasons (`docs/FEATURES.md` §3).
+ *
+ * The three values kept their names through the move from probing to heartbeats, because they describe
+ * what a *client* should do and that has not changed. What changed is who observes it: the registry no
+ * longer fetches anything, it ages what it was told.
  */
 export const nodeStatusSchema = z
   .enum(["up", "degraded", "down"])
   .describe(
-    "up: the last probe answered. degraded: recent probes have been failing. down: the last probe did not answer.",
+    "up: registered recently. degraded: overdue for a refresh. down: silent long enough to be presumed gone.",
   )
 
 /**
  * One entry in the directory.
  *
- * Every field here is either declared by the operator at registration or **observed by the registry's
- * probe** — never claimed by a node about its own capacity. That split is deliberate: a node that
- * could assert `activeTunnels: 0` would be selected first by every client, which is a free denial of
- * service against whoever runs it, and the registry has to fetch `/v1/meta` anyway to know the node
- * is alive.
+ * **Every field is now claimed by the node** (ADR-0049). This used to say the opposite, and the reason
+ * it gave is still true: a node asserting `activeTunnels: 0` is selected first by every client, which
+ * is a free denial of service against whoever runs it. That risk is accepted rather than solved,
+ * because the probe that used to check it was never much of a defence — a node can answer `/v1/meta`
+ * with whatever it likes — and because ADR-0031 already accepts that a node operator can read and
+ * modify the traffic they carry. A directory of parties trusted with traffic is not made safer by
+ * distrusting them about a counter.
+ *
+ * What the registry does still verify on every registration: proof of work, that the URL is under the
+ * claimed domain, and a DNS TXT record proving control of that domain.
  *
  * **Latency is absent on purpose.** The design shows it (`docs/FEATURES.md` §3) and it has to be
  * client-measured: the registry's distance to a node says nothing about the user's, and a number
@@ -280,13 +289,13 @@ export const nodeSchema = z
       .int()
       .nonnegative()
       .optional()
-      .describe("From this node's `/v1/meta` at the last probe. Absent means unknown, not zero."),
+      .describe("As the node reported at its last registration. Absent means unknown, not zero."),
     maxActiveTunnels: z.number().int().positive().optional(),
-    lastProbedAt: timestampSchema.describe(
-      "When the registry last got an answer out of this node.",
+    lastSeenAt: timestampSchema.describe(
+      "When this node last registered. The only liveness signal there is — a node that stops calling is presumed gone.",
     ),
   })
-  .describe("A node in the directory, as the registry last observed it.")
+  .describe("A node in the directory, as it last described itself.")
 
 export const nodeListResponseSchema = z
   .object({
@@ -316,18 +325,25 @@ export const registerNodeRequestSchema = z
     // ADR-0034's reason: both are hashed before anything about them is trusted.
     challenge: z.string().max(MAX_CHALLENGE_LENGTH),
     nonce: z.string().max(MAX_NONCE_LENGTH),
+    /**
+     * The node's own view of its capacity (ADR-0049).
+     *
+     * Optional for the same reason `MetaResponse`'s pair is: this is read across third-party nodes on
+     * older builds, and `contract-v1` is frozen. Absent means unknown, which discovery treats as
+     * usable — a node that does not say is not a node that says no.
+     */
+    activeTunnels: z.number().int().nonnegative().optional(),
+    maxActiveTunnels: z.number().int().positive().optional(),
   })
   .describe(
-    "Register or refresh a node. Carries no capacity claim — the registry probes `/v1/meta` for that.",
+    "Register or refresh a node. Doubles as the liveness heartbeat, and carries the node's capacity claim.",
   )
 
 export const registerNodeResponseSchema = z
   .object({
     node: nodeSchema,
   })
-  .describe(
-    "The entry as stored, including the capacity and status the registry observed rather than what was sent.",
-  )
+  .describe("The entry as stored, so a node can confirm what the directory now believes about it.")
 
 // ── Errors ─────────────────────────────────────────────────────────────────────────
 

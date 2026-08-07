@@ -38,7 +38,7 @@ export class Directory extends DurableObject<Env> {
           status               TEXT NOT NULL,
           active_tunnels       INTEGER,
           max_active_tunnels   INTEGER,
-          last_probed_at       INTEGER NOT NULL,
+          last_seen_at       INTEGER NOT NULL,
           registered_at        INTEGER NOT NULL,
           consecutive_failures INTEGER NOT NULL DEFAULT 0
         )
@@ -126,7 +126,7 @@ export class Directory extends DurableObject<Env> {
     const now = Date.now()
     this.ctx.storage.sql.exec(
       `INSERT INTO node (id, url, domain, region, version, status, active_tunnels,
-                         max_active_tunnels, last_probed_at, registered_at, consecutive_failures)
+                         max_active_tunnels, last_seen_at, registered_at, consecutive_failures)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
        ON CONFLICT(id) DO UPDATE SET
          url = excluded.url,
@@ -136,7 +136,7 @@ export class Directory extends DurableObject<Env> {
          status = excluded.status,
          active_tunnels = excluded.active_tunnels,
          max_active_tunnels = excluded.max_active_tunnels,
-         last_probed_at = excluded.last_probed_at,
+         last_seen_at = excluded.last_seen_at,
          consecutive_failures = 0`,
       entry.id,
       entry.url,
@@ -146,7 +146,7 @@ export class Directory extends DurableObject<Env> {
       entry.status,
       entry.activeTunnels ?? null,
       entry.maxActiveTunnels ?? null,
-      entry.lastProbedAt,
+      entry.lastSeenAt,
       now,
     )
   }
@@ -190,7 +190,7 @@ export class Directory extends DurableObject<Env> {
               consecutive_failures = 0,
               active_tunnels = ?,
               max_active_tunnels = ?,
-              last_probed_at = ?
+              last_seen_at = ?
         WHERE id = ?`,
       observed.activeTunnels ?? null,
       observed.maxActiveTunnels ?? null,
@@ -238,7 +238,7 @@ export class Directory extends DurableObject<Env> {
           SET consecutive_failures = ?,
               status = ?,
               active_tunnels = CASE WHEN ? = 'down' THEN NULL ELSE active_tunnels END,
-              last_probed_at = ?
+              last_seen_at = ?
         WHERE id = ?`,
       failures,
       status,
@@ -293,7 +293,7 @@ interface NodeRow extends Record<string, SqlStorageValue> {
   status: string
   active_tunnels: number | null
   max_active_tunnels: number | null
-  last_probed_at: number
+  last_seen_at: number
   registered_at: number
   consecutive_failures: number
 }
@@ -316,6 +316,6 @@ function toNode(row: NodeRow): Node {
     status: row.status as NodeStatus,
     ...(row.active_tunnels === null ? {} : { activeTunnels: row.active_tunnels }),
     ...(row.max_active_tunnels === null ? {} : { maxActiveTunnels: row.max_active_tunnels }),
-    lastProbedAt: row.last_probed_at,
+    lastSeenAt: row.last_seen_at,
   }
 }

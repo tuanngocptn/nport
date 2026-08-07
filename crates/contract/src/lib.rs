@@ -173,7 +173,7 @@ mod tests {
                     "status": "up",
                     "activeTunnels": 12,
                     "maxActiveTunnels": 100,
-                    "lastProbedAt": 1767225600000
+                    "lastSeenAt": 1767225600000
                 },
                 {
                     "id": "eu1",
@@ -181,7 +181,7 @@ mod tests {
                     "domain": "nport.dev",
                     "version": "3.0.0",
                     "status": "down",
-                    "lastProbedAt": 1767225600000
+                    "lastSeenAt": 1767225600000
                 }
             ],
             "refreshAfterMs": 300000
@@ -196,9 +196,9 @@ mod tests {
         assert_eq!(hk.status, NodeStatus::Up);
         assert_eq!(hk.active_tunnels, Some(12));
         assert_eq!(hk.region.as_deref(), Some("apac"));
-        // `lastProbedAt` → `last_probed_at` is where a rename_all mistake shows up, and it would show
+        // `lastSeenAt` → `last_seen_at` is where a rename_all mistake shows up, and it would show
         // up at runtime as a missing field rather than at compile time.
-        assert_eq!(hk.last_probed_at, 1_767_225_600_000);
+        assert_eq!(hk.last_seen_at, 1_767_225_600_000);
 
         // **Absent capacity is `None`, not zero.** A node that does not say is not a node that says
         // no — discovery treats unknown as usable, and a `0` default would make an older node look
@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn an_unknown_node_status_is_a_parse_error() {
         let json = r#"{"id":"x","url":"https://x.test","domain":"x.test","version":"3.0.0",
-                        "status":"healthy","lastProbedAt":1}"#;
+                        "status":"healthy","lastSeenAt":1}"#;
         assert!(serde_json::from_str::<Node>(json).is_err());
     }
 

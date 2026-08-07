@@ -503,11 +503,11 @@ pub struct MetaResponse {
     pub tunnel_duration_ms: u64,
 }
 
-/// A node in the directory, as the registry last observed it.
+/// A node in the directory, as it last described itself.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Node {
-    /// From this node's `/v1/meta` at the last probe. Absent means unknown, not zero.
+    /// As the node reported at its last registration. Absent means unknown, not zero.
     #[serde(rename = "activeTunnels")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_tunnels: Option<u64>,
@@ -515,9 +515,9 @@ pub struct Node {
     pub domain: String,
     /// Stable, operator-chosen. Appears in `--node` and in `details.nodeId`.
     pub id: String,
-    /// When the registry last got an answer out of this node.
-    #[serde(rename = "lastProbedAt")]
-    pub last_probed_at: u64,
+    /// When this node last registered. The only liveness signal there is — a node that stops calling is presumed gone.
+    #[serde(rename = "lastSeenAt")]
+    pub last_seen_at: u64,
     #[serde(rename = "maxActiveTunnels")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_active_tunnels: Option<u64>,
@@ -550,13 +550,19 @@ pub enum NodeStatus {
     Down,
 }
 
-/// Register or refresh a node. Carries no capacity claim — the registry probes `/v1/meta` for that.
+/// Register or refresh a node. Doubles as the liveness heartbeat, and carries the node's capacity claim.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterNodeRequest {
+    #[serde(rename = "activeTunnels")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_tunnels: Option<u64>,
     pub challenge: String,
     pub domain: String,
     pub id: String,
+    #[serde(rename = "maxActiveTunnels")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_active_tunnels: Option<u64>,
     pub nonce: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub region: Option<String>,
@@ -564,7 +570,7 @@ pub struct RegisterNodeRequest {
     pub version: String,
 }
 
-/// The entry as stored, including the capacity and status the registry observed rather than what was sent.
+/// The entry as stored, so a node can confirm what the directory now believes about it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterNodeResponse {

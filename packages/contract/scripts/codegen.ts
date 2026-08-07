@@ -478,8 +478,11 @@ const API_SERVICE: ServiceDocument = {
 const REGISTRY_SERVICE: ServiceDocument = {
   title: "NPort registry API",
   description:
-    "The node directory. Lists nodes, accepts anonymous registrations behind proof of work and a DNS TXT domain proof, and probes what it lists. Holds no Cloudflare credentials and provisions nothing — see ADR-0031. Advisory: clients cache the list, so a registry that is down does not stop a tunnel.",
-  server: { url: "https://registry.nport.link", description: "Production" },
+    "The node directory. Lists nodes and accepts anonymous registrations behind proof of work and a DNS TXT domain proof. Registration doubles as the liveness heartbeat — the registry fetches nothing and presumes a silent node gone (ADR-0049). Holds no Cloudflare credentials and provisions nothing (ADR-0031). Advisory: clients cache the list, so a registry that is down does not stop a tunnel.",
+  // **The same host as the node API since ADR-0049**, reached through the gateway. The two documents
+  // survive that on the strength of disjoint path spaces — every registry route is under `/v1/nodes` —
+  // rather than on the two-hostnames argument ADR-0046 originally made.
+  server: { url: "https://api.nport.link", description: "Production" },
   routes: REGISTRY_ROUTES,
 }
 
