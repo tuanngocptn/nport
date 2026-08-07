@@ -85,7 +85,7 @@ pnpm codegen       cargo xtask codegen   # regenerate; must leave the tree clean
 | Tunnel lifecycle logic | `docs/ARCHITECTURE.md` §3 → `crates/core/src/tunnel.rs` |
 | Any UI — site or desktop | `docs/mockup/README.md` → that app's `CLAUDE.md` → `packages/design-tokens/` |
 | Storage, leases, expiry, abuse | `docs/ARCHITECTURE.md` §4–§7 → `apps/node/src/do/` |
-| Scaling past one Cloudflare account, or adding a node | ADR-0031 → `docs/ARCHITECTURE.md` §1 → `docs/ADDING_A_NODE.md` |
+| Scaling past one account, or running a node | ADR-0031 → `docs/ARCHITECTURE.md` §1 → `docs/ADDING_A_NODE.md` |
 | Why it is built this way, or what v2 got wrong | `docs/DECISIONS.md` (ADR-0001), `docs/ARCHITECTURE.md` §8 |
 | Tests | `docs/TESTING.md` |
 | Releasing or publishing | `docs/RELEASE.md` |

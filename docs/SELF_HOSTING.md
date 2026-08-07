@@ -10,6 +10,11 @@ Reasons to: you want your own domain instead of `*.nport.link`; you need tunnels
 
 Self-hosting replaces **only the control plane**. The data plane is still Cloudflare's edge, so you still get global anycast, TLS, and DDoS protection. NPort's connector talks to Cloudflare directly either way (`docs/ARCHITECTURE.md` §3b).
 
+**There is a shorter path if you want a *public* node.** Fork the repository, set five values, run one
+workflow: `docs/ADDING_A_NODE.md`. No clone and no local tooling. This page is the manual route — right
+for a **private** deployment, which is what you get by setting no `NPORT_*` values at all, and right if
+you would rather not hand a workflow your Cloudflare tokens.
+
 **You deploy two Workers, not one** (ADR-0049). `apps/gateway` owns your hostname and applies the cross-cutting concerns; `apps/node` provisions tunnels and has no hostname at all. You do **not** deploy `apps/registry` — that is the public directory, one deployment in the world, and its code never needs to reach your account.
 
 You become responsible for: your Cloudflare bill, your own abuse controls and caps, your API token's security, and keeping the deployment current when the protocol changes (`docs/OPERATIONS.md`).

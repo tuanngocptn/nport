@@ -1,0 +1,252 @@
+name: Deploy a node
+
+# Run a node of your own, from a fork, without cloning anything.
+#
+# Fork this repository, add the secrets and variables listed in `docs/ADDING_A_NODE.md`, and run this
+# workflow from the Actions tab. It deploys a gateway and a node into *your* Cloudflare account, on
+# *your* domain, and registers with a directory of your choosing.
+#
+# **Deliberately not `deploy.yml`.** That one is ours: it deploys three Workers plus the site, and it
+# depends on HCP Terraform for state and secret generation. Asking a node operator to create an HCP
+# account before they can run a tunnel is a second signup for something they will never look at again.
+# So this workflow owns its own inputs, generates what Terraform would have generated, and creates the
+# one DNS record the directory requires.
+#
+# **Manual only.** No `push` trigger, because a fork that deploys on every sync from upstream would
+# redeploy somebody's production node on our schedule rather than theirs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      registry_url:
+        description: "Directory to register with. Blank means the public one."
+        required: false
+        type: string
+      dry_run:
+        description: "Check everything and deploy nothing."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-node
+  cancel-in-progress: false
+
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+
+jobs:
+  node:
+    name: Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # **Everything that can fail without touching an account, first.** A deploy that fails after
+      # `wrangler deploy` has changed the world is worse than one that fails here, and an operator
+      # reading a red run wants to know it was their input rather than our code.
+      - name: Check the inputs
+        env:
+          DOMAIN: ${{ vars.NPORT_DOMAIN }}
+          NODE_ID: ${{ vars.NPORT_NODE_ID }}
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER_TOKEN: ${{ secrets.WORKER_CF_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          fail=0
+          need() {
+            if [ -z "${2:-}" ]; then echo "  missing $1 — see docs/ADDING_A_NODE.md"; fail=1; fi
+          }
+          need "variable NPORT_DOMAIN"          "${DOMAIN:-}"
+          need "variable NPORT_NODE_ID"         "${NODE_ID:-}"
+          need "secret CLOUDFLARE_API_TOKEN"    "${CF_TOKEN:-}"
+          need "secret CLOUDFLARE_ACCOUNT_ID"   "${CF_ACCOUNT:-}"
+          need "secret WORKER_CF_API_TOKEN"     "${WORKER_TOKEN:-}"
+          [ "$fail" = 0 ] || exit 1
+          echo "domain=${DOMAIN}  node id=${NODE_ID}"
+
+      # The zone id is derivable from the domain, so it is one less thing to copy out of a dashboard
+      # and get wrong. A domain that is not on this account fails here with a clear message rather
+      # than as a permissions error four steps later.
+      - name: Resolve the zone
+        id: zone
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          response="$(curl -sS -H "Authorization: Bearer ${CF_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/zones?name=${{ vars.NPORT_DOMAIN }}")"
+          zone_id="$(printf '%s' "$response" | python3 -c 'import json,sys; r=json.load(sys.stdin)["result"]; print(r[0]["id"] if r else "")')"
+          if [ -z "$zone_id" ]; then
+            echo "::error::${{ vars.NPORT_DOMAIN }} is not a zone on this Cloudflare account."
+            echo "A node needs its own domain — see docs/ADDING_A_NODE.md."
+            exit 1
+          fi
+          echo "zone_id=${zone_id}" >> "$GITHUB_OUTPUT"
+          echo "zone ${zone_id}"
+
+      # What Terraform generates for our own deployments (ADR-0040). Neither grants authority anywhere:
+      # they are HMAC keys this deployment uses to authenticate its own artifacts to itself.
+      #
+      # **Set them as secrets to keep them stable.** Generated here they change on every run, which
+      # costs a two-minute window of outstanding proof-of-work challenges and resets the per-source
+      # abuse counters. Harmless for a private node, worth pinning for a busy one.
+      - name: Settle the HMAC keys
+        id: keys
+        env:
+          POW: ${{ secrets.POW_SECRET }}
+          IP_HASH: ${{ secrets.IP_HASH_SECRET }}
+        run: |
+          set -euo pipefail
+          pow="${POW:-$(openssl rand -hex 32)}"
+          ip_hash="${IP_HASH:-$(openssl rand -hex 32)}"
+          echo "::add-mask::${pow}"
+          echo "::add-mask::${ip_hash}"
+          echo "pow=${pow}" >> "$GITHUB_OUTPUT"
+          echo "ip_hash=${ip_hash}" >> "$GITHUB_OUTPUT"
+          [ -n "${POW:-}" ] && echo "POW_SECRET from a repository secret" || echo "POW_SECRET generated for this run"
+          [ -n "${IP_HASH:-}" ] && echo "IP_HASH_SECRET from a repository secret" || echo "IP_HASH_SECRET generated for this run"
+
+      # The committed configs name our domain and bind a registry this deployment will not have.
+      # `scripts/node-config.mjs` renders the node-shaped versions; they are never written into the tree.
+      - name: Render the deploy configs
+        run: node scripts/node-config.mjs --domain "${{ vars.NPORT_DOMAIN }}" --out /tmp/nport-node
+
+      - name: Stop here
+        if: inputs.dry_run
+        run: |
+          echo "dry run: inputs check out, the zone resolves, and the configs render."
+          echo "Re-run with dry_run unchecked to deploy."
+
+      # **The node first.** The gateway binds it by name, and Cloudflare rejects a deploy whose service
+      # binding names a script that does not exist — so the order is not a preference.
+      - name: Deploy the node
+        if: ${{ !inputs.dry_run }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          pnpm --filter @nport/node exec wrangler deploy \
+            --config /tmp/nport-node/node.jsonc \
+            --var "NODE_ID:${{ vars.NPORT_NODE_ID }}" \
+            --var "PUBLIC_URL:https://api.${{ vars.NPORT_DOMAIN }}" \
+            --var "REGISTRY_URL:${{ inputs.registry_url || 'https://api.nport.link' }}" \
+            --var "NODE_VERSION:$(node -p "require('./package.json').version || '3.0.0'")"
+
+      # After the deploy, because `secret bulk` targets a Worker that already exists. The window
+      # between them is one where the Worker is live without its secrets, and it fails closed there:
+      # `src/env.ts` refuses rather than provisioning with a missing key.
+      - name: The node's secrets
+        if: ${{ !inputs.dry_run }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER_CF_API_TOKEN: ${{ secrets.WORKER_CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ZONE_ID: ${{ steps.zone.outputs.zone_id }}
+          CF_DOMAIN: ${{ vars.NPORT_DOMAIN }}
+          POW_SECRET: ${{ steps.keys.outputs.pow }}
+        run: |
+          set -euo pipefail
+          python3 - > /tmp/node-secrets.json <<'PY'
+          import json, os
+          json.dump({
+              "CF_API_TOKEN": os.environ["WORKER_CF_API_TOKEN"],
+              "CF_ACCOUNT_ID": os.environ["CF_ACCOUNT_ID"],
+              "CF_ZONE_ID": os.environ["CF_ZONE_ID"],
+              "CF_DOMAIN": os.environ["CF_DOMAIN"],
+              "POW_SECRET": os.environ["POW_SECRET"],
+          }, open("/dev/stdout", "w"))
+          PY
+          pnpm --filter @nport/node exec wrangler secret bulk /tmp/node-secrets.json \
+            --config /tmp/nport-node/node.jsonc
+          rm -f /tmp/node-secrets.json
+
+      - name: Deploy the gateway
+        if: ${{ !inputs.dry_run }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          pnpm --filter @nport/gateway exec wrangler deploy \
+            --config /tmp/nport-node/gateway.jsonc \
+            --var "MIN_CLIENT_VERSION:3.0.0"
+
+      - name: The gateway's secret
+        if: ${{ !inputs.dry_run }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          IP_HASH_SECRET: ${{ steps.keys.outputs.ip_hash }}
+        run: |
+          set -euo pipefail
+          python3 -c 'import json,os; json.dump({"IP_HASH_SECRET": os.environ["IP_HASH_SECRET"]}, open("/tmp/gw-secrets.json","w"))'
+          pnpm --filter @nport/gateway exec wrangler secret bulk /tmp/gw-secrets.json \
+            --config /tmp/nport-node/gateway.jsonc
+          rm -f /tmp/gw-secrets.json
+
+      # **The record without which nothing else matters.** The directory resolves `_nport-node.<domain>`
+      # on every registration and refuses a node that cannot prove the domain. Left to the operator it
+      # is the step that gets forgotten, and the symptom is an empty directory and a log line nobody
+      # reads — which is exactly how our own first federated deploy went (`docs/ROADMAP.md`, defect 41).
+      #
+      # Idempotent: the record is looked up first, so re-running this workflow updates rather than
+      # duplicates. The name and value are the contract's, printed by the script rather than retyped.
+      - name: Publish the domain proof
+        if: ${{ !inputs.dry_run }}
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ZONE: ${{ steps.zone.outputs.zone_id }}
+          N: _nport-node.${{ vars.NPORT_DOMAIN }}
+          V: nport-node=${{ vars.NPORT_NODE_ID }}
+        run: |
+          set -euo pipefail
+          name="${N}"
+          api="https://api.cloudflare.com/client/v4/zones/${ZONE}/dns_records"
+
+          existing="$(curl -sS -H "Authorization: Bearer ${CF_TOKEN}" \
+            "${api}?type=TXT&name=${name}" \
+            | python3 -c 'import json,sys; r=json.load(sys.stdin).get("result") or []; print(r[0]["id"] if r else "")')"
+
+          body="$(python3 -c 'import json,os; print(json.dumps({"type":"TXT","name":os.environ["N"],"content":os.environ["V"],"ttl":300,"comment":"Proves this zone to the NPort node directory."}))' )"
+
+          if [ -n "$existing" ]; then
+            curl -sS -X PATCH -H "Authorization: Bearer ${CF_TOKEN}" -H "Content-Type: application/json" \
+              --data "$body" "${api}/${existing}" > /dev/null
+            echo "updated ${name}"
+          else
+            curl -sS -X POST -H "Authorization: Bearer ${CF_TOKEN}" -H "Content-Type: application/json" \
+              --data "$body" "${api}" > /dev/null
+            echo "created ${name}"
+          fi
+
+      - name: Confirm
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          host="https://api.${{ vars.NPORT_DOMAIN }}"
+          echo "waiting for the custom domain to route…"
+          for attempt in $(seq 1 12); do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' "${host}/v1/health" || true)"
+            [ "$code" = "200" ] && break
+            sleep 10
+          done
+          echo "  /v1/health  -> ${code}"
+          meta="$(curl -sS -o /dev/null -w '%{http_code}' -H 'user-agent: nport/3.0.0 (ci; verify)' "${host}/v1/meta" || true)"
+          echo "  /v1/meta    -> ${meta}   (crosses the service binding to the node)"
+          nodes="$(curl -sS -o /dev/null -w '%{http_code}' -H 'user-agent: nport/3.0.0 (ci; verify)' "${host}/v1/nodes" || true)"
+          echo "  /v1/nodes   -> ${nodes}  (expected 400: a node has no registry)"
+          [ "$code" = "200" ] && [ "$meta" = "200" ] || { echo "::error::the deployment is not serving"; exit 1; }
+          echo ""
+          echo "Your node is up. It registers with the directory on its own cron within five minutes."
+          echo "Point a client at it directly with:  nport 3000 --backend ${host}"

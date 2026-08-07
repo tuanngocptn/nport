@@ -308,9 +308,14 @@ in shape, which is the mistake worth catching there.
 
 ## Adding a node
 
-A different shape, not just a different account: gateway and node, **no registry**, registering with
-somebody else's. It needs its own domain, because a Cloudflare zone lives in one account.
-`docs/ADDING_A_NODE.md` covers what differs; steps 1–4 above are unchanged.
+**None of this page.** A node is a different shape — gateway and node, no registry, no site — and it
+does not use this pipeline at all: `.github/workflows/deploy-node.yml` takes five values from a fork's
+settings and needs no HCP workspace, because asking a node operator to sign up for Terraform state is a
+second signup for something they will never look at again. `docs/ADDING_A_NODE.md` is the whole
+procedure.
+
+That page applies to *our* second node as much as to a stranger's. The only thing it assumes is what
+this one does: a domain of its own, because a Cloudflare zone lives in exactly one account.
 
 ## Rotating a secret
 

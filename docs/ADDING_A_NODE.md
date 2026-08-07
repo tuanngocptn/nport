@@ -1,127 +1,136 @@
 ---
 applies_to:
-  - infra/terraform/**
-  - .github/workflows/deploy*.yml
+  - .github/workflows/deploy-node.yml
+  - scripts/node-config.mjs
   - apps/gateway/wrangler.jsonc
   - apps/node/wrangler.jsonc
   - apps/node/src/register.ts
 ---
 
-# Adding a node
+# Running a node
 
-How a **second node** joins the federation on our own pipeline: a new Cloudflare account, a new domain,
-gateway and node deployed there, registering with the existing registry.
+Fork this repository, set five values in your fork's settings, and run one workflow. That is the whole
+of it — no clone, no local `wrangler`, no Terraform, and nothing to install.
 
-This is not `docs/SELF_HOSTING.md`. That page is for a stranger running their own deployment by hand with
-`wrangler deploy`; this one is for a node we operate, through Terraform, HCP and GitHub Environments. The
-*product* is identical — a node is a node — and only the plumbing differs.
+You end up with a **node**: a gateway and a provisioner in your own Cloudflare account, serving tunnels
+on your own domain, listed in the public directory so anyone's client can be offered it.
 
-**Status: not yet done.** Gate G5 is exactly this, plus a real failover. Node #1 exists on
-`api.nport.online`; nothing has ever been node #2, so nothing here has been executed end to end.
+**Status: written, never run.** Gate G5 is the first time anything will be node #2, so this page
+describes a path that has been built and not yet walked. Treat a discrepancy as this page's bug and
+report it.
 
-## The constraint that shapes all of it
+## Before you start: a node needs its own domain
 
-**A second account is not enough. A node needs its own domain.**
+**A second Cloudflare account is not enough.** A zone lives in exactly one account, and a
+`<tunnel-id>.cfargotunnel.com` CNAME only routes when the record and the tunnel are in that same
+account (`docs/ARCHITECTURE.md` §1). So `*.nport.link` cannot be spread across accounts, and a node
+needs a domain of its own with nameservers delegated to the account it will provision into.
 
-A Cloudflare zone lives in exactly one account, and a `<tunnel-id>.cfargotunnel.com` CNAME only routes
-when the record and the tunnel are in the same account (`docs/ARCHITECTURE.md` §1). So `*.nport.online`
-cannot be spread across two accounts, and every node needs a domain of its own with nameservers
-delegated to the account that will provision into it. That single fact is why federation exists at all
-rather than one large account, and it is the first thing to check before anything else here.
+That single constraint is why federation exists at all rather than one large account. Check it first;
+everything else here assumes it.
 
-## What is different from adding an environment
+## What you set
 
-`docs/DEPLOYMENT.md` § Adding production covers a second *environment* — the same three Workers, a
-different account. A node is a different **shape**, not just a different account:
+Two **repository variables** — not secret, and visible in your fork's settings:
 
-| | Master deployment | Node deployment |
+| Variable | What it is |
+| --- | --- |
+| `NPORT_DOMAIN` | your domain, e.g. `tunnels.example.com`. Tunnels appear at `<name>.tunnels.example.com` and the API at `api.tunnels.example.com` |
+| `NPORT_NODE_ID` | your node's id in the directory: `[a-z0-9-]`, 3–32 characters, stable across deploys |
+
+Three **repository secrets**:
+
+| Secret | What it is |
+| --- | --- |
+| `CLOUDFLARE_ACCOUNT_ID` | the account to deploy into |
+| `CLOUDFLARE_API_TOKEN` | deploys the Workers and publishes one DNS record. Needs **Workers Scripts: Edit** on the account and **DNS: Edit** on the zone |
+| `WORKER_CF_API_TOKEN` | the token your *node* uses to provision tunnels. Needs **Cloudflare Tunnel: Edit** and **DNS: Edit**, and nothing else |
+
+**Two tokens, deliberately.** The one that deploys Workers and the one the Worker holds are different
+jobs, and the Worker's should not be able to deploy Workers — that separation is ADR-0043's, and it is
+worth the extra two minutes. `docs/DEPLOYMENT.md` §2 has the exact permission groups and the reason the
+Global API Key is refused outright.
+
+Two more secrets are **optional**, and worth setting for anything but a private node:
+
+| Secret | Why you might set it |
+| --- | --- |
+| `POW_SECRET` | signs proof-of-work challenges. Generated per run if unset, which costs a two-minute window of outstanding challenges on each deploy |
+| `IP_HASH_SECRET` | keys source identity. Generated per run if unset, which resets the per-source abuse counters on each deploy |
+
+Either is `openssl rand -hex 32`. Neither grants authority anywhere — they are HMAC keys the deployment
+uses to authenticate its own artifacts to itself.
+
+## What you run
+
+**Actions → Deploy a node → Run workflow.** Two optional inputs:
+
+- **`registry_url`** — leave blank for the public directory. Point it elsewhere to join a different
+  federation, or set nothing at all in `NPORT_*` and you have a private node instead
+  (`docs/SELF_HOSTING.md`).
+- **`dry_run`** — checks your inputs, resolves your zone, renders the configs, and deploys nothing.
+  Worth one run.
+
+The workflow deploys the node, then the gateway — that order, because Cloudflare rejects a deploy whose
+service binding names a script that does not exist — pushes each one's secrets, publishes your domain
+proof, and confirms the result.
+
+## What it does that you would otherwise forget
+
+**It publishes `_nport-node.<your domain>`.** The directory resolves that TXT record on **every**
+registration, not just the first, and refuses a node that cannot prove the domain. Left as a manual
+step it is the one that gets forgotten, and the failure is silent: your node registers every five
+minutes, is refused `proof-missing`, and swallows it by design — an empty listing and a log line nobody
+reads. That is exactly how our own first federated deploy went (`docs/ROADMAP.md`, defect 41), which is
+why the workflow creates the record rather than telling you to.
+
+**It renders node-shaped configs.** The committed `wrangler.jsonc` files are ours: they name our domain
+and bind a registry your deployment will not have. `scripts/node-config.mjs` strips the `REGISTRY`
+binding and sets your route, into a temporary file — your domain never lands in the tree, and a fork
+that pulls from upstream gets no merge conflict.
+
+## A node has no registry, and that is the design
+
+| | Master deployment | Yours |
 | --- | --- | --- |
-| `apps/gateway` | yes, binds `NODE` and `REGISTRY` | yes, binds **`NODE` only** |
-| `apps/node` | yes | yes |
-| `apps/registry` | yes | **no** |
-| `apps/web` | yes | no |
-| Registers with | its own registry, through its own gateway | the master's gateway |
+| gateway, node | yes | yes |
+| registry | yes | **no** |
+| `/v1/nodes` | the directory | **does not exist** |
 
-**`/v1/nodes` does not exist on a node deployment**, and that is the point rather than an omission: the
-gateway declares no `REGISTRY` binding there, so the path is unrouted rather than 404ing from a service
-that happens to be absent. Role is a deployment, not a configuration flag (ADR-0049) — and G5 is the
-first thing that actually tests that claim, because until a node-only deployment exists it is only an
-assertion.
+The directory is one deployment in the world. Your gateway declares no `REGISTRY` binding, so
+`/v1/nodes` is *unrouted* rather than answering 404 from a service that happens to be missing. Role is
+a deployment, not a configuration flag (ADR-0049).
 
-## What you provide
+## Confirming it
 
-Steps 1–4 of `docs/DEPLOYMENT.md`, run against the new account. Nothing on this page replaces them:
+The workflow's last step does the first three; the fourth is yours.
 
-1. **§1** — the account, and a domain on it with nameservers delegated.
-2. **§2** — two scoped API tokens, `nport-ci` and `nport-worker`. The Global API Key is refused.
-3. **§3** — an HCP Terraform workspace, local execution mode. A new workspace, because state is per
-   deployment; the organization can be the existing one.
-4. **§4** — a GitHub Environment holding the four secrets.
+1. **`GET /v1/health`** on `api.<your domain>` — the front door, and nothing behind it.
+2. **`GET /v1/meta`** — the first request that crosses a service binding. A healthy health check beside
+   an `INTERNAL` here means a binding is wrong, not that the node is down.
+3. **`GET /v1/nodes` is a 400** — you have no registry, as intended.
+4. **You appear in the directory.** `GET https://api.nport.link/v1/nodes` should list your node id
+   within five minutes. If it does not, the answer is in your Worker's logs:
+   `wrangler tail` shows `node registered`, or a refusal naming which check failed.
 
-**No credential reaches the repository.** They live in Actions and HCP, and the pipeline reads them from
-there (ADR-0040, ADR-0043). That is also why adding a node needs no new Terraform *configuration*: one
-root serves every deployment, selected by the workspace and the variables passed at plan time.
+Then point a client at yourself directly:
 
-## What the repository gains
+```
+nport 3000 --backend https://api.<your domain>
+```
 
-Four edits, and `pnpm deploy:check` refuses three of the four ways to get them wrong.
+## What you are taking on
 
-**An `env` block in `apps/node/wrangler.jsonc`.** Its own `NODE_ID`, and `PUBLIC_URL` pointing at the new
-gateway's hostname. `REGISTRY_URL` is the **master's** hostname — that is the whole of what makes it a
-node in *this* federation rather than a private deployment.
+Strangers create tunnels in your zone, against your caps, on your bill. And
+`docs/ARCHITECTURE.md` §1 is explicit that a node operator **can read and modify the traffic passing
+through the tunnels they issue** — being trusted not to is the whole arrangement. Do not run a public
+node on an account that matters to you.
 
-**An `env` block in `apps/gateway/wrangler.jsonc`**, with `routes` on the new domain and **no `REGISTRY`
-entry in `services`**. A binding to a Worker that does not exist fails the deploy, which is the loud
-version of this mistake; the quiet version is copying the master's block and shipping a gateway that
-routes `/v1/nodes` into nothing.
+Tuning the caps, reserving your own hostnames, and the private-deployment case are all
+`docs/SELF_HOSTING.md`.
 
-**A caller workflow** beside `.github/workflows/deploy-staging.yml`, passing the new environment and
-zone. It also needs to skip the registry job — `deploy.yml` currently deploys all three Workers
-unconditionally, which is correct for a master and wrong here.
+## Leaving
 
-**Nothing in `infra/terraform`.** The domain proof, the zone settings and the rate-limit ruleset are all
-derived from the variables the pipeline passes, including `node_id`, which
-`scripts/wrangler-var.mjs` reads out of `apps/node/wrangler.jsonc` so the record and the Worker cannot
-name different nodes.
-
-## The proof record
-
-The registry resolves `_nport-node.<domain>` and requires a TXT record naming the node id, on **every**
-registration rather than only the first — a domain that changes hands must not keep its listing. Both
-strings come from `nodeProofRecordName` and `nodeProofRecordValue` in `packages/contract`, and Terraform
-publishes the record from `node_id`; `pnpm deploy:check` compares its rendered output against those two
-functions.
-
-Without that record a node registers every five minutes, is refused `proof-missing`, and swallows the
-failure by design — an empty directory and a log line nobody is reading. That is exactly how node #1's
-first federated deploy went (`docs/ROADMAP.md`, defect 41), which is why Terraform creates it rather than
-leaving it to an operator to remember.
-
-## Confirming it worked
-
-In order, because each step tells you something the next one assumes:
-
-1. **The gateway answers.** `GET /v1/health` on the new hostname — that is the front door and nothing
-   behind it.
-2. **The binding resolves.** `GET /v1/meta` is the first request that crosses a service binding. A
-   healthy health check beside an `INTERNAL` here means a binding is wrong, not that the node is down.
-3. **`/v1/nodes` is absent.** On a node deployment this should *not* answer. If it does, the gateway
-   kept the master's `REGISTRY` binding.
-4. **The directory lists it.** `GET /v1/nodes` on the **master** shows both nodes. Allow one cron period,
-   and remember a node with no traffic depends on that cron (ADR-0049).
-5. **Failover, which is the gate.** A client discovers, picks one, and moves to the other when the first
-   is stopped mid-run — with the caveat `crates/core::discovery` enforces: a refusal about the *caller*
-   is never shopped to another node, because per-source caps are per node and retrying elsewhere would
-   multiply every cap by the size of the directory.
-
-Steps 1–4 are `scripts/verify-deployment.mjs`'s job and run on every deploy. Step 5 is G5 and has never
-been exercised against real infrastructure.
-
-## What this does not cover
-
-**A third party's node.** They will not have our Terraform, our HCP workspace or our GitHub
-Environments, and should follow `docs/SELF_HOSTING.md` — which ends at the same place: a TXT record, four
-vars, and a node that registers itself.
-
-**Choosing which node a client uses.** That is the client's, always. The registry returns the list in
-registration order and does not rank, filter or recommend (ADR-0031).
+Stop the workflow running and delete the TXT record. Your node ages out of the directory on its own:
+silence past the registry's threshold marks it `down`, and more silence delists it. There is nothing to
+deregister with, because stopping *is* how you leave (ADR-0049).
