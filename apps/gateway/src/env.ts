@@ -1,6 +1,7 @@
 import { ApiError } from "@nport/worker-kit"
+import type { MiddlewareHandler } from "hono"
 
-import type { Env } from "./types"
+import type { Env, Variables } from "./types"
 
 /**
  * What this Worker needs before it serves anything.
@@ -31,15 +32,34 @@ export function missingBindings(env: Env): string[] {
   return missing
 }
 
-/** True when this deployment carries the directory — a master rather than a plain node. */
-export function servesRegistry(env: Env): boolean {
-  return env.REGISTRY !== undefined
-}
+/**
+ * Refuses to serve anything if the Worker is misconfigured.
+ *
+ * **Hono middleware, not a check in the `fetch` export**, and that is the whole point: a throw outside
+ * the app never reaches `onError`, so `workerd` would answer with a bare 500 and no body. Every failure
+ * in this repository carries a registry code (`docs/ERRORS.md`) — an operator who misconfigures a
+ * binding should get `INTERNAL` in an envelope with a request id they can quote, not an empty 500 that
+ * looks like a crash.
+ *
+ * `/v1/health` is excluded for `apps/node`'s reason: an uptime monitor should be able to tell a
+ * running-but-misconfigured Worker from a dead one.
+ */
+export const requireBindings: MiddlewareHandler<{ Bindings: Env; Variables: Variables }> = async (
+  context,
+  next,
+) => {
+  if (context.req.path === "/v1/health") {
+    await next()
+    return
+  }
 
-export function assertConfigured(env: Env): void {
-  const missing = missingBindings(env)
+  const missing = missingBindings(context.env)
   if (missing.length > 0) {
+    // The names go to the log, never to the response — which binding is absent is infrastructure
+    // detail, and rule 8 keeps upstream and deployment internals out of anonymous replies.
     console.error("gateway is misconfigured", { missing })
     throw new ApiError("INTERNAL")
   }
+
+  await next()
 }

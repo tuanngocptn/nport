@@ -1,7 +1,7 @@
 import { ApiError, envelope, retryAfterSeconds } from "@nport/worker-kit"
 import { Hono } from "hono"
 
-import { assertConfigured } from "./env"
+import { requireBindings } from "./env"
 import { clientGate } from "./middleware/client-gate"
 import { rateLimit } from "./middleware/rate-limit"
 import { requestId } from "./middleware/request-id"
@@ -48,6 +48,10 @@ import {
 const app = new Hono<{ Bindings: Env; Variables: Variables }>()
 
 app.use("*", requestId)
+
+// Before anything reads a binding, so a misconfiguration is one clear line rather than a failure
+// inside whichever primitive reached for the value first. Inside the app, so it gets an envelope.
+app.use("*", requireBindings)
 
 // `/v1/*` rather than per route, so a route added downstream cannot be left ungated. Both middlewares
 // skip `/v1/health` themselves — an uptime monitor sends no NPort headers and must not be rate-limited
@@ -124,8 +128,5 @@ async function forward(
 export { app }
 
 export default {
-  fetch(request: Request, env: Env, ctx: ExecutionContext): Response | Promise<Response> {
-    assertConfigured(env)
-    return app.fetch(request, env, ctx)
-  },
+  fetch: app.fetch,
 } satisfies ExportedHandler<Env>

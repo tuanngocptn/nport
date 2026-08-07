@@ -1,0 +1,49 @@
+# apps/gateway
+
+## Scope
+
+The public front door for a deployment: `api.nport.link` (production), `api.nport.online` (staging). It applies the cross-cutting concerns once and dispatches to the internal services over Cloudflare service bindings (ADR-0049).
+
+**This is the only Worker in a deployment with a route.** `apps/node` and `apps/registry` declare none and set `workers_dev: false`, so they are reachable through their bindings and nowhere else.
+
+**Not responsible for:** provisioning anything, storing anything, or holding a Cloudflare credential. It has no Durable Object and no cron. If a change here needs either, it belongs in a service.
+
+**Status: written, never deployed.** The bindings name `nport-node` and `nport-registry`, neither of which exists yet — `apps/api` is still `nport-api` and the registry has never been deployed. `docs/ROADMAP.md` § Backend first.
+
+## Layout
+
+```
+src/index.ts                          the app: middleware, three dispatch rules, the error envelope
+src/env.ts                            what must be bound before it serves; requireBindings
+src/types.ts                          Env, Variables, and the two forwarded header names
+src/middleware/                       request-id, client-gate, rate-limit
+test/dispatch.test.ts                 what crosses the binding, and what is overwritten first
+test/conformance.test.ts              every contract path reaches the right service
+test/legacy-gap.test.ts               the v2 shim is unreachable, deliberately, and this says so
+wrangler.jsonc vitest.config.ts tsconfig.json
+```
+
+## Commands
+
+```bash
+pnpm --filter @nport/gateway dev      # wrangler dev; the bindings need the other Workers running
+pnpm --filter @nport/gateway test     # real workerd, with the services stubbed
+pnpm --filter @nport/gateway deploy   # normally CI does this
+```
+
+## Rules
+
+1. **Never hold a Cloudflare credential.** The gateway terminates every public request, so it is the largest attack surface in a deployment and the one thing that must not be able to provision. Tunnels are `apps/node`'s job.
+2. **Forwarded headers are set, never inherited.** `x-nport-source-hash` and `x-nport-request-id` are overwritten on every forward. A caller who could choose their own source hash would adopt any identity and walk past every per-source cap in `SourceQuota` at once.
+3. **The internal services trust those headers because they are unreachable.** That is a deployment property, not a cryptographic one — give either service a `routes` entry and rule 2's guarantee evaporates silently.
+4. **Dispatch by path prefix only.** `/v1/nodes*` → registry, `/v1/*` → node. The contract keeps the two route tables disjoint and three conformance tests hold it there; a router that needed to inspect a body would mean the contract had gone wrong.
+5. **`REGISTRY` is optional, `NODE` is not.** A node-only deployment omits the registry binding, so `/v1/nodes` does not exist there rather than 404ing — that is what makes role a deployment rather than a configuration flag.
+6. **`/v1/health` is answered here and never forwarded**, and is exempt from the client gate, the rate limiter and the binding check. An uptime monitor sends no NPort headers and must be able to tell a running-but-misconfigured Worker from a dead one.
+7. **Every failure carries a code.** The config check is Hono middleware rather than a guard in the `fetch` export, because a throw outside the app never reaches `onError` and `workerd` answers with a bare 500.
+
+## Gotchas
+
+- **Hono context does not cross a service binding.** `c.var.sourceHash` is meaningless on the other side; that is why it travels as a header.
+- **`namespace_id` for the rate limiter must be unique per Worker.** 1001 is the node's, 1002 the registry's, 1003 is this one. Two Workers sharing a namespace share the bucket.
+- **A service binding still counts against the subrequest budget** (50 on the free plan). It skips DNS and TLS, not accounting.
+- **The stubs in `vitest.config.ts` echo the request back**, which is what lets a test assert on the headers the gateway set rather than on a status code. Binding to the real services would test three Workers and answer a different question.

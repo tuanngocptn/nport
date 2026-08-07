@@ -17,6 +17,8 @@ The strategy spans two languages, three runtimes (Node, `workerd`, native), and 
 | --- | --- | --- | --- | --- |
 | Unit (TS) | `apps/*`, `packages/*` | Vitest | ms | every commit |
 | Integration (Workers) | `apps/api/test` | Vitest + `@cloudflare/vitest-pool-workers` | ~s | every commit |
+| Integration (Workers) | `apps/registry/test` | same pool | ~s | every commit |
+| Integration (Workers) | `apps/gateway/test` | same pool, services stubbed | ~s | every commit |
 | **E2E (web)** | `apps/web/e2e` | Playwright, against the built Worker | ~50 s | every commit |
 | Unit (Rust) | inline `#[cfg(test)]` | `cargo test` | ms | every commit |
 | Snapshot (Rust) | `crates/protocol/tests` | `cargo test` + `insta` | ms | every commit |
@@ -32,6 +34,10 @@ One row still describes what will exist rather than what runs: **`protocol-canar
 ## What must be which
 
 **Unit** — pure logic: subdomain normalization and validation, the reserved list, PoW verification, version comparison, argument parsing, i18n resolution, error-code mapping. Anything with a decision table belongs here, and these are the tests that will catch the most regressions per second of runtime.
+
+**Every Worker asserts it serves its own contract.** `apps/*/test/conformance.test.ts` reads Hono's registration table and compares it with `ROUTES` or `REGISTRY_ROUTES` from `packages/contract`. Before these existed, the contract was the authority (invariant 7) and the only thing verifying it was the generated OpenAPI — which describes the contract to itself. The registry's challenge path moved in the contract and stayed put in the app with the whole suite green. The gateway's version asks the third question the other two cannot: not whether a Worker implements its table, but whether a request for that table can reach it at all.
+
+**The gateway's services are stubbed rather than bound to the real Workers.** Its `vitest.config.ts` answers `NODE` and `REGISTRY` with handlers that echo the request back, so a test can assert on the headers the gateway *set* — including that it overwrites a forged `x-nport-source-hash`. Binding the real services would test three Workers and answer a different question.
 
 **Workers integration, not unit** — anything touching Durable Object storage, alarms, or bindings. Mocking a DO proves nothing: the entire lease design rests on single-threaded execution, at-least-once alarms, and storage surviving isolate death. Test the real semantics in `workerd` or don't claim they work.
 

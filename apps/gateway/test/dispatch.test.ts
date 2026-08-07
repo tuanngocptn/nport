@@ -1,6 +1,8 @@
 import { SELF } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 
+import { app } from "../src/index"
+
 /**
  * What the gateway forwards, and to whom.
  *
@@ -129,6 +131,50 @@ describe("the client gate, applied once for every service", () => {
 
   it("lets health through ungated, for uptime monitors", async () => {
     const response = await SELF.fetch("https://api.nport.link/v1/health")
+    expect(response.status).toBe(200)
+  })
+})
+
+describe("a misconfigured gateway", () => {
+  /**
+   * Driven through the exported `app` rather than `SELF`, because the whole point is an env that the
+   * deployed Worker could never have — `vitest.config.ts` always supplies a complete one.
+   */
+  const stripped = { MIN_CLIENT_VERSION: "3.0.0" } as unknown as Parameters<typeof app.fetch>[1]
+
+  it("answers with an envelope, not a bare 500", async () => {
+    // The bug this replaced: the check ran in the `fetch` export, outside Hono, so a throw never
+    // reached `onError` and `workerd` returned an empty 500. An operator who mis-binds a service
+    // should get a code they can look up and a request id they can quote.
+    const response = await app.fetch(
+      new Request("https://api.nport.link/v1/meta", {
+        headers: { "user-agent": "nport/3.0.0 (linux; x86_64)" },
+      }),
+      stripped,
+    )
+
+    expect(response.status).toBe(500)
+    const body = (await response.json()) as { error: { code: string; requestId: string } }
+    expect(body.error.code).toBe("INTERNAL")
+    expect(body.error.requestId).toBeTruthy()
+  })
+
+  it("names no binding in the response", async () => {
+    // Rule 8: which binding is missing is deployment detail, and this endpoint is anonymous.
+    const response = await app.fetch(
+      new Request("https://api.nport.link/v1/meta", {
+        headers: { "user-agent": "nport/3.0.0 (linux; x86_64)" },
+      }),
+      stripped,
+    )
+    const text = await response.text()
+    for (const name of ["IP_HASH_SECRET", "RATE_LIMITER", "NODE"]) {
+      expect(text, name).not.toContain(name)
+    }
+  })
+
+  it("still answers health, so a monitor can tell misconfigured from dead", async () => {
+    const response = await app.fetch(new Request("https://api.nport.link/v1/health"), stripped)
     expect(response.status).toBe(200)
   })
 })

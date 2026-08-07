@@ -8,13 +8,14 @@ NPort tunnels HTTP/HTTPS from localhost to a public `*.nport.link` URL over Clou
 
 **Status: staging is live and real tunnels serve traffic on macOS, Linux and Windows** (2026-08-06), with WebSocket and server-enforced expiry, verified per deploy by `.github/workflows/smoke.yml`. Gate G2 is five of six: the gap is graceful Ctrl+C on Windows, where there is no `SIGINT` to send a child process. **Phase 5 (federation) is written and not deployed** — contract, `apps/registry`, node fields and client discovery all land; G5 needs a second Cloudflare account. `apps/web` is mid-2c: pages, copy, SEO and a Playwright tier against the built Worker. `apps/desktop` is still a booting scaffold. `docs/ROADMAP.md`.
 
-## The five apps
+## The apps
 
 | Path | Name | Runtime | Deploys to | Purpose |
 | --- | --- | --- | --- | --- |
 | `apps/web` | `@nport/web` | Next.js + OpenNext | Worker `nport-web` → nport.link | Marketing site + user docs |
-| `apps/api` | `@nport/api` | Hono on Workers | Worker `nport-api` → api.nport.link | A **node**: provisions tunnels |
-| `apps/registry` | `@nport/registry` | Hono on Workers | Worker `nport-registry` → registry.nport.link | The node directory. No credentials |
+| `apps/gateway` | `@nport/gateway` | Hono on Workers | Worker `nport-gateway` → api.nport.link | **The only public backend Worker.** Shared middleware, dispatch by path |
+| `apps/api` | `@nport/api` | Hono on Workers | Worker `nport-api`, service binding `NODE` | A **node**: provisions tunnels. Becomes `apps/node` |
+| `apps/registry` | `@nport/registry` | Hono on Workers | Worker `nport-registry`, service binding `REGISTRY` | The node directory. No credentials. Master deployments only |
 | `apps/desktop` | `@nport/desktop` | Tauri v2 (Rust + React) | signed installers | GUI + local traffic inspector |
 | `crates/cli` | `nport` | native Rust binary | npm, crates.io, Homebrew, Scoop, Releases | The CLI everyone uses |
 
@@ -34,6 +35,7 @@ Do not violate these without adding an ADR to `docs/DECISIONS.md` first.
 ## Repo map
 
 ```
+apps/gateway/      the public front door; the only routed Worker → apps/gateway/CLAUDE.md
 apps/api/          a node: one Cloudflare account + zone   → apps/api/CLAUDE.md
 apps/registry/     the node directory, no credentials      → apps/registry/CLAUDE.md
 apps/web/          Next.js site + user docs    → apps/web/CLAUDE.md
@@ -63,9 +65,7 @@ Dependency direction is one-way: `protocol → core → {cli, desktop}`, and `co
 corepack enable && pnpm install    # bootstrap; also installs the git hooks
 pnpm dev                           # api + web + desktop, all at once
 pnpm dev:cli                       # tunnel the local site through the local control plane
-pnpm dev:api                       # wrangler dev on apps/api
-pnpm dev:web                       # next dev with Worker bindings
-pnpm dev:desktop                   # tauri dev
+pnpm dev:api  dev:web  dev:desktop # one surface at a time
 cargo run -p nport -- 3000 -s test # run the CLI
 pnpm test          cargo test      # tests
 pnpm lint          cargo clippy    # lint
