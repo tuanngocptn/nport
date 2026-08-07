@@ -786,8 +786,11 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
 - [x] **Deployed to staging**, 2026-08-07: ten jobs green, `api.nport.online` reassigned from the old
       `nport-api` script to `nport-gateway` without a custom-domain conflict, `/v1/meta` crossing the
       service binding, and real tunnels passing smoke on all three operating systems
-- [ ] **Verify on staging**: node #1 registers within one cron period and `GET /v1/nodes` returns it.
-      **Still open, and the first deploy showed why** — see below
+- [x] **Verified on staging**, 2026-08-07. `GET /v1/nodes` returns node #1 — `nport-online-1`,
+      `status: up`, capacity `0/100` — and a real `nport 3311 --registry https://api.nport.online`
+      with **no `--backend`** discovered it, cached the list to `~/.nport/nodes.json`, provisioned
+      through the gateway, brought up four QUIC connections (hkg01/08/09/12) and released its lease
+      on Ctrl+C. **The first time any client has ever reached a node through the directory**
 
 **The empty directory, and what it cost to see.** The first deploy was green everywhere and
 `GET /v1/nodes` returned `[]`. Nothing was wrong with any of the three Workers: **nobody had ever
@@ -807,6 +810,17 @@ what `nodeProofRecordName`/`nodeProofRecordValue` produce, and every environment
 **Worth stating plainly: swallowing that failure is still right.** The alternative — a node that refuses
 to serve because it could not get itself listed — trades a working tunnel for a tidy directory. What was
 missing was not an exception; it was a record nothing created, and now something does.
+
+**One thing the deploy left behind.** Renaming the Worker did not delete the old one: `nport-api` is
+still deployed on the staging account with its Durable Objects, and Cloudflare reassigned
+`api.nport.online` to `nport-gateway` without complaint — so the concern that the rename would collide
+on the custom domain did not materialise. What remains is an unrouted script holding dead lease state.
+Deleting it also deletes those DOs, which is fine here and is **the operator's call, not a deploy
+step**: `docs/OPERATIONS.md` § Inventory is where it belongs, and nothing depends on it in the meantime.
+
+**Still not proved: failover.** G5 wants a *second* node on a second account and domain, with a client
+moving to it when the first stops mid-run. One node in the directory cannot demonstrate that, and
+`crates/core`'s tests cover the logic against two loopback nodes — what is unproved is the real thing.
 
 **Four mechanical checks landed with this step**, each because a claim was made before it was true:
 

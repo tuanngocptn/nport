@@ -100,7 +100,11 @@ For a fresh deployment (also the basis of `docs/SELF_HOSTING.md`):
    The registry resolves it on **every** registration, so deleting it delists the node within
    `NODE_DELIST_AFTER_SECONDS` rather than at the next deploy. That is the intended way to withdraw a
    node from the directory.
-8. Zone rate-limiting rule on `api.<domain>` — `infra/terraform` applies it: 600 requests / 60 s per IP per colo, blocked for 10 minutes. Deliberately well above the **gateway's** own 60/min per-source limiter, which it sits outside rather than replaces. The node and the registry have no limiter of their own; applying one twice would charge a caller against two counters for one request.
+8. **`nport-api` on staging is an orphan** — the pre-rename node script (ADR-0049), still deployed,
+   no route, holding dead `SubdomainLease` / `Registry` / `SourceQuota` objects. Safe to delete, and
+   deleting it destroys those Durable Objects, which is why it is a decision rather than a deploy
+   step. Nothing routes to it and nothing reads it.
+9. Zone rate-limiting rule on `api.<domain>` — `infra/terraform` applies it: 600 requests / 60 s per IP per colo, blocked for 10 minutes. Deliberately well above the **gateway's** own 60/min per-source limiter, which it sits outside rather than replaces. The node and the registry have no limiter of their own; applying one twice would charge a caller against two counters for one request.
 8. Verify `api` and the rest of the reserved list cannot be claimed.
 
 ## Verifying the Cloudflare API surface
