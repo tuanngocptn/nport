@@ -810,29 +810,49 @@ zone. A node-only deployment points `REGISTRY_URL` at somebody else's gateway an
 `register.ts` asserted that this "is a real request through the edge, not a loopback"; that claim is
 what is now in doubt.
 
-**Measured, not guessed.** Registration succeeds on a minority of ticks: one in the 42 minutes from
-12:08, against a `*/5` cron that allows eight. Earlier gaps were 15, 55 and 65 minutes. Two hypotheses
-died on the evidence — the cron *is* firing (the registry's sweep runs on the same schedule and is on
-time, and the successes land on `*/5` boundaries), and warmth is irrelevant (sixteen minutes with the
-node kept warm across three ticks produced nothing). What is left is a subrequest that usually does not
-complete.
+**Measured over 90 minutes: 4 registrations where a `*/5` cron allows about 18.** Gaps of 15, 40, 10
+and 5 minutes. With `NODE_DOWN_AFTER_SECONDS` at 600 that leaves node #1 listed as `down` more than half
+the time, so a discovering client would skip it — which is why this blocks G5 rather than being cosmetic.
 
-**First fix, and a bisect.** The self-check failed closed on *any* failure, so a check that could not
-complete removed a node that was serving fine. It is now tri-state: a **refusal** — a status from the
-edge, which is real evidence a client would fail too — still stops the registration; **silence** does
-not. If registration becomes reliable, the self-check was the blocker and the two registry calls are
-fine; if it stays flaky, the loopback affects those too. Either way the change stands on its own: a
-node cannot honestly test its own public URL from inside itself, so treating the attempt as conclusive
-was wrong before it was inconvenient.
+**One hypothesis is dead.** Warmth is irrelevant: sixteen minutes keeping the node's isolate warm across
+three ticks produced nothing.
 
-**Which of the three fails is not yet known, and that is the second half of the defect.** Every refusal
-carries `details.reason` — the difference between "publish a TXT record" and "somebody else holds your
-id" — and `register.ts` fetched it and logged only the code, while the docblock directly above claimed
-the reason "names which check failed". So a node that could not register said `403
-REGISTRATION_REFUSED` and nothing more. Fixed: the reason and its sub-detail are logged, the
-self-check reports elapsed time and whether it timed out, and a test pins it. **Reading the deployed
-log now needs one `wrangler tail nport-node --env staging`, which needs credentials this session does
-not have.**
+**The self-check was not the cause.** Making it non-fatal on silence was deployed at 13:04 and the next
+33 minutes — six ticks — produced no registration at all. That change stands on its own merits and is
+kept; it simply was not this.
+
+**Two candidates remain, and they cannot be separated from outside:**
+
+1. **The cron fires irregularly.** Cloudflare may drop scheduled events, and nothing here has actually
+   measured the node's tick rate — only the intervals between *successful* registrations.
+2. **The two registry calls fail on the loopback.** On a master deployment `REGISTRY_URL` is the
+   gateway's own hostname, so fetching a challenge and posting a registration both leave the Worker and
+   re-enter the same zone.
+
+**A correction worth keeping, because it is the kind of mistake that reads as evidence.** An earlier
+note here claimed the gaps being multiples of five "confirms the cron fires reliably". It does not: it
+shows only that registrations *land on* tick boundaries, which is equally true if most ticks never
+happen. Candidate 1 was never ruled out, and saying it had been would have sent the next person
+straight past it.
+
+**One command separates the two, and it is the next step.** `wrangler tail nport-node --env staging`
+for six minutes answers it outright: a line every five minutes — `node registered`, or a refusal, or an
+unanswered self-check — means the cron fires and candidate 2 is the fault. *Silence* means the cron is
+not firing and candidate 1 is. Nothing observable from outside distinguishes them, which is why this
+session stops here rather than guessing a third time.
+
+The logging is ready for that tail. Every refusal carries `details.reason` — the difference between
+"publish a TXT record" and "somebody else holds your id" — and `register.ts` fetched it and logged only
+the code, while the docblock directly above claimed the reason "names which check failed". So a node
+that could not register said `403 REGISTRATION_REFUSED` and nothing more. Now the reason and its
+sub-detail are logged, the self-check reports its target, elapsed time and whether it timed out, and a
+test pins the shape.
+
+**If it turns out to be candidate 2**, the fix is to stop sending a deployment's own registry calls out
+through its own front door. The clean route is a `GATEWAY` service binding on `apps/node`, so the
+gateway still applies the client gate and sets the source identity while the request never leaves the
+account — but it creates a binding cycle (gateway → node, node → gateway) that a fresh account cannot
+bootstrap, so it needs deciding rather than assuming. Not built on an unconfirmed cause.
 
 **The empty directory, and what it cost to see.** The first deploy was green everywhere and
 `GET /v1/nodes` returned `[]`. Nothing was wrong with any of the three Workers: **nobody had ever
