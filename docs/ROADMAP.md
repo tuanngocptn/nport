@@ -797,6 +797,32 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       twenty-four, so within ten minutes the registry ages it to `down` and a discovering client
       would skip it. G5 waits on this, not on a second account
 
+**44. The deploy pipeline's only check on the site was `curl /`, which is green for the one failure the
+site has actually had.** ADR-0048 exists because all 33 `/errors/<slug>` pages 404ed *from the Worker*
+while `next build` prerendered every one and the unit tests passed. `pnpm test:e2e` was the answer, and
+it is a good one — but it runs against a `preview` on localhost. The `verify` job, which is the only
+thing that looks at the deployed artifact on the hostname users type, asked for the home page and
+nothing else. The home page is the route least likely to be missing, which is precisely why it proves
+the least.
+
+`scripts/verify-site.mjs` replaces it: every error slug **read from `schema/errors.json`** rather than
+listed, `/docs/cli` (which also proves `schema/cli.json` survived the build), `/sitemap.xml`, and one
+slug that must **404**. That last one is the check that gives the other 36 their meaning — a Worker
+misrouted to serve a single fallback document answers 200 for every path in a list of paths that are
+all supposed to exist, so a suite with no negative case proves only that something is listening.
+
+Verified in both directions before being trusted, because a check that has never gone red is a check
+nobody has tested: 37/37 against deployed staging, and 35 failures against `example.com`, whose home
+page is a 200 and whose everything-else is not.
+
+**Reading the slug list rather than writing it** is the point of contact with defects 34, 35, 37, 38 and
+42. A hardcoded list of 33 paths in a workflow would have been the sixth instance of the same shape on
+the day someone renamed a code.
+
+**Found by asking what a green check actually proved**, while confirming G2c's deploy criterion — not by
+a failure. The staging site was and is entirely healthy; the gap was in what would have been noticed if
+it were not.
+
 **43. `pnpm dev` brought up a registry that answered `INTERNAL` to everything, and the whole gate was
 green.** `apps/registry` had no `.dev.vars.example` and was not in the preflight's list, so `POW_SECRET`
 was unset: `/v1/health` answered 200 and every `/v1/nodes` request failed with a logged `INTERNAL`. The

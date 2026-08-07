@@ -252,14 +252,20 @@ git push
    a side effect of being visited. Provider v5 has no resource for it, so the job calls the API
    directly — read first, PUT only if absent. Every Worker sets `workers_dev: false`, so nothing is
    ever served there; this only satisfies the upload check.
-3. **api** and **web** in parallel — `wrangler deploy`, then the six secrets are pushed with
-   `wrangler secret bulk` in one call.
-4. **verify** — `scripts/verify-deployment.mjs` compares the live `/v1/meta` against the committed
-   `wrangler.jsonc` for this environment.
+3. **node** and **registry** in parallel, then **gateway**, with **web** alongside them —
+   `wrangler deploy`, then each Worker's secrets are pushed with `wrangler secret bulk` in one
+   call. The ordering constraint is below; `web` shares none of it and only waits for Terraform.
+4. **verify** — two scripts, one per surface. `scripts/verify-deployment.mjs` compares the live
+   `/v1/meta` against the committed `wrangler.jsonc` for this environment;
+   `scripts/verify-site.mjs` asks the deployed site for every route it claims to serve.
 
-Step 4 is the one that matters. A 200 proves *a* Worker is running; that check proves the
-*configured* Worker is running, which is the failure wrangler's `notInheritable` `vars` actually
-produce.
+Step 4 is the one that matters, and both halves of it are there for the same reason. A 200 proves
+*a* Worker is running. `verify-deployment.mjs` proves the *configured* Worker is running, which is
+the failure wrangler's `notInheritable` `vars` actually produce. `verify-site.mjs` proves the site
+serves more than its home page, which is the failure ADR-0048 is about — 33 error pages that 404ed
+from the Worker while the build was perfect. It reads the slugs from `schema/errors.json` and
+includes one route that must 404, because a Worker serving a single fallback document passes any
+list of paths that are all expected to exist.
 
 The secrets are synced **after** the deploy because `wrangler secret bulk` targets a Worker that
 already exists. In the gap the Worker is live without them and fails closed — `missingBindings` in
@@ -281,6 +287,7 @@ carry, or carries one it does not require.
 curl -s https://api.nport.online/v1/health
 curl -s https://api.nport.online/v1/meta
 node scripts/verify-deployment.mjs --host api.nport.online --env staging
+node scripts/verify-site.mjs --host nport.online
 ```
 
 A custom domain can take a minute to route after its first deploy; the verify script retries for

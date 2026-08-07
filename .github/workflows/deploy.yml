@@ -456,9 +456,17 @@ jobs:
           # directions. A tripwire needs a stable state to trip on.
           NPORT_KNOWN_STALE_NODE: "41"
 
-      - name: The site answers
-        run: |
-          curl -fsS -o /dev/null -w "site: %{http_code}\n" "https://$SITE_HOST/"
+      # **Not just `/`.** The home page is served by the one route least likely to be missing, so a
+      # single curl there stays green through the exact failure this site has already had: every one
+      # of the 33 `/errors/<slug>` pages 404ing *from the Worker* while `next build` prerendered all
+      # of them (ADR-0048). `web-e2e` catches that against a local preview; nothing was checking the
+      # artifact that actually deployed, which is the layer users are on.
+      #
+      # The script reads the slugs from `schema/errors.json` rather than listing them, and includes
+      # one slug that must 404 — without a negative, a Worker serving one fallback document for
+      # every path passes the whole list. It needs no `pnpm install`, only the checkout above.
+      - name: The site serves what it built
+        run: node scripts/verify-site.mjs --host "$SITE_HOST"
 
   # ── A tunnel, on three operating systems ───────────────────────────────────────────────
   #
