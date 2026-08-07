@@ -1056,6 +1056,21 @@ The internal Workers declare no `routes` and set `workers_dev: false`, so they a
 - **Capacity is claimed, not probed**, reversing ADR-0046 directly. Its objection stands and is accepted: a node asserting `activeTunnels: 0` is selected first by every client, a free denial of service against its own operator. The probe was never much of a defence — a node can answer `/v1/meta` with anything — and ADR-0031 already accepts that node operators can read the traffic they carry. A directory of parties trusted with traffic is not made safer by distrusting them about a counter.
 - **ADR-0031's third enrolment gate changes.** Proof of work and the DNS TXT proof stay and are re-verified on every registration. The registry's liveness probe is replaced by the node's own check of its public URL, which is strictly closer to what a client experiences — it exercises DNS, the route, the gateway and the node, from outside.
 
+  **Amended 2026-08-08: registration is driven by traffic as well as by the cron.** Cloudflare cron
+triggers are best-effort, and staging went two hours without one while serving normally — long enough
+for the registry to age node #1 out of the directory and for a fresh client to get `NO_NODE_AVAILABLE`
+from a node that was up the whole time. Registration itself was never at fault: a `wrangler tail` caught
+four consecutive ticks, five minutes apart, every one succeeding with no exception.
+
+  So `GET /v1/meta` now claims a heartbeat from the Durable Object hop it already makes and re-registers
+in `waitUntil` when the last one is over four minutes old. **A node carrying traffic is provably alive**,
+which is a better liveness signal than a scheduler tick, and the two mechanisms are independent — either
+alone keeps a node listed. A node with *no* traffic still depends on the cron, and that is the right way
+round: nobody is affected by an idle node slipping out of a directory nobody is reading it from.
+
+  The claim is atomic, because `/v1/meta` is polled by every client at startup and a plain "is it stale"
+check would have all of them registering at once, each paying for a proof-of-work solve.
+
   **Amended 2026-08-07, after the first federated deploy.** "From outside" is the part that does not hold on a master deployment: `PUBLIC_URL` is the gateway's hostname on the same zone, so the check leaves the Worker and comes straight back into the account. Node #1 dropped out of the directory within ten minutes of every registration while serving traffic the whole time — the check was failing and taking the listing with it. The gate now distinguishes a **refusal** (a status from the edge: real evidence, still fails closed) from **silence** (a timeout or dropped subrequest: no evidence, registers anyway). A node cannot honestly test its own public URL from inside itself, and the honest response to that is to stop pretending the attempt is conclusive. `docs/ROADMAP.md` defect 41.
 - **`apps/api` becomes `apps/node`**, `@nport/api` becomes `@nport/node`, `nport-api` becomes `nport-node`, and `api` is removed from the commit-scope list. The name always belonged to the hostname rather than to the Worker, and `api.nport.link` is the gateway's now — leaving the provisioning service called "api" would make every sentence about either one ambiguous. **It costs the staging deployment's Durable Object state**, because DOs cannot follow a script to a new name; staging leases live an hour and the directory has never held a row, and the window to pay nothing for this closed the moment production deployed. `docs/API.md` and `crates/core/src/api.rs` keep their names, because they are about the API a client speaks rather than the service behind it.
 - **`sourceHash` crosses the binding as a header.** The gateway computes it and forwards `x-nport-source-hash`; internal services trust it **only because they are not publicly reachable**. That assumption is load-bearing and a stray `routes` entry would silently break it.

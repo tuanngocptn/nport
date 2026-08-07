@@ -48,6 +48,16 @@ export class Registry extends DurableObject<Env> {
           updated_at INTEGER NOT NULL
         )
       `)
+      // One row, holding when this node last claimed a registration heartbeat. A new table rather
+      // than a column so it applies to Durable Objects that already exist: `CREATE TABLE IF NOT
+      // EXISTS` runs on every instantiation and creates a missing table, while a missing *column*
+      // on an existing object would need an explicit `ALTER TABLE`.
+      ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS clock (
+          key   TEXT PRIMARY KEY,
+          value INTEGER NOT NULL
+        )
+      `)
     })
   }
 
@@ -163,6 +173,54 @@ export class Registry extends DurableObject<Env> {
    * often, which the per-source caps and the global cap still bound — so the failure mode is uneven
    * load, not an overrun.
    */
+  /**
+   * The number `GET /v1/meta` publishes, **and a heartbeat claim, in one hop.**
+   *
+   * Two answers from one Durable Object call on purpose. `/v1/meta` is polled by every client at
+   * startup and already paid for this hop (rule 13); adding a second one to decide whether to
+   * re-register would double the cost of the most-polled route on the node.
+   *
+   * `shouldRegister` is a **claim, not a question** — it records the moment it says yes, so two
+   * concurrent requests cannot both be told to register. Check-then-write with no `await` between
+   * them, which is safe here for the same reason `admitCreate` is: `ctx.storage.sql` is synchronous.
+   *
+   * **Why registration is driven by traffic at all** (ADR-0049, amended): Cloudflare cron triggers are
+   * best-effort, and staging went two hours without one while serving normally — long enough for the
+   * registry to age the node out of the directory and for a fresh client to get `NO_NODE_AVAILABLE`
+   * from a node that was up the whole time. A node carrying traffic is *provably* alive, which is a
+   * better liveness signal than a scheduler tick, and this makes the two independent: either one alone
+   * keeps a node listed.
+   *
+   * A node with **no** traffic still depends on the cron, and that is the right way round — nobody is
+   * affected by an idle node slipping out of a directory nobody is reading it from.
+   */
+  async snapshot(
+    heartbeatAfterMs: number,
+    now: number,
+  ): Promise<{ readonly activeTunnels: number; readonly shouldRegister: boolean }> {
+    this.#prune(now)
+
+    const activeTunnels = this.ctx.storage.sql
+      .exec<{ count: number }>("SELECT COUNT(*) AS count FROM lease_index")
+      .one().count
+
+    const last =
+      this.ctx.storage.sql
+        .exec<{ value: number }>("SELECT value FROM clock WHERE key = 'heartbeat_at'")
+        .toArray()[0]?.value ?? 0
+
+    const shouldRegister = now - last >= heartbeatAfterMs
+    if (shouldRegister) {
+      this.ctx.storage.sql.exec(
+        "INSERT INTO clock (key, value) VALUES ('heartbeat_at', ?) " +
+          "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        now,
+      )
+    }
+
+    return { activeTunnels, shouldRegister }
+  }
+
   async activeCount(): Promise<number> {
     this.#prune(Date.now())
     return this.ctx.storage.sql

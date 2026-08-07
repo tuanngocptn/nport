@@ -1,6 +1,20 @@
 import { Hono } from "hono"
 
+import { registerWithRegistry } from "../register"
 import type { Env, Variables } from "../types"
+
+/**
+ * How stale a registration may get before request traffic refreshes it.
+ *
+ * Below the node's own five-minute cron, so a busy node re-registers on whichever of the two comes
+ * first, and well below the registry's `NODE_DOWN_AFTER_SECONDS` (600 on staging) so a single missed
+ * cron cannot take a node that is serving traffic out of the directory.
+ *
+ * Not a var: it is a property of the interaction between two schedules rather than a knob, and getting
+ * it wrong in either direction is silent — too high and a busy node still ages out, too low and every
+ * poll pays for a proof-of-work solve.
+ */
+const HEARTBEAT_AFTER_MS = 240_000
 
 /**
  * `GET /v1/meta` — limits, discovered rather than hardcoded.
@@ -9,22 +23,38 @@ import type { Env, Variables } from "../types"
  * four-hour limit in the CLI as a `setTimeout`, which is why it was both wrong and bypassable
  * (defect R6).
  *
- * **This endpoint is now also how the registry sees this node.** `apps/registry` probes it on a
- * five-minute cron and stores `activeTunnels` against `maxActiveTunnels` as the node's observed
- * capacity, which is what a client selects on (ADR-0046). Capacity is read here and claimed nowhere:
- * a node that could assert its own emptiness in a registration would be picked first by everyone.
+ * **The registry no longer reads this endpoint** (ADR-0049 reversed ADR-0046): the node reports its own
+ * capacity when it registers, and nothing probes. `activeTunnels` is still published here because it is
+ * what a *client* selects on.
+ *
+ * **It is also where a busy node keeps itself listed.** The same Durable Object hop that produces the
+ * count claims a registration heartbeat when one is due, and the registration runs in `waitUntil` so no
+ * caller waits for a proof-of-work solve. See `Registry.snapshot` for why traffic is a better liveness
+ * signal than a cron tick.
  */
 export const metaRoute = new Hono<{ Bindings: Env; Variables: Variables }>().get(
   "/",
   async (context) => {
     const env = context.env
 
-    // One Durable Object hop, and the only one on this route. It counts against the subrequest
-    // budget (rule 13), which is worth stating because this endpoint is polled: by every client at
-    // startup and by the registry every five minutes. One hop for the number that makes federated
-    // selection possible is the trade, and `activeCount` is a single indexed count.
+    // **Still one Durable Object hop**, and the only one on this route. It counts against the
+    // subrequest budget (rule 13), which is worth stating because this endpoint is polled by every
+    // client at startup. `snapshot` returns the count *and* claims a heartbeat in that one call
+    // rather than adding a second hop to the most-polled route on the node.
     const registry = env.REGISTRY.get(env.REGISTRY.idFromName("global"))
-    const activeTunnels = await registry.activeCount()
+    const { activeTunnels, shouldRegister } = await registry.snapshot(
+      HEARTBEAT_AFTER_MS,
+      Date.now(),
+    )
+
+    if (shouldRegister) {
+      // **After the response, never before it.** Registration costs a proof-of-work solve — about
+      // 1.2 s of CPU at the registry's 20-bit floor — and no client polling `/v1/meta` at startup
+      // should wait for it. `waitUntil` keeps the isolate alive for the work without holding the
+      // request, and `registerWithRegistry` swallows its own failures, so nothing here can turn a
+      // registry outage into a failed `/v1/meta`.
+      context.executionCtx.waitUntil(registerWithRegistry(env))
+    }
 
     return context.json({
       minClientVersion: String(env.MIN_CLIENT_VERSION),

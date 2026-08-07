@@ -389,3 +389,60 @@ describe("registerWithRegistry", () => {
     expect(registry.posts).toEqual([])
   })
 })
+
+describe("the traffic-driven heartbeat", () => {
+  /**
+   * **Why this exists** (`docs/ROADMAP.md` defect 41): staging went two hours without a cron
+   * invocation while serving normally. Registration itself was fine — when a tick did fire it
+   * succeeded first time, four for four — but the registry had long since aged the node out, and a
+   * fresh client got `NO_NODE_AVAILABLE` from a node that was up the whole time.
+   *
+   * Cloudflare cron triggers are best-effort. A node carrying traffic is provably alive, so `/v1/meta`
+   * claims a heartbeat from the same Durable Object hop it already makes, and the two mechanisms are
+   * independent: either alone keeps a node listed.
+   */
+  /**
+   * A **fresh** object per test, not the `"global"` singleton the Worker uses.
+   *
+   * `isolatedStorage` does not exist in vitest-pool-workers 0.20 and is silently ignored, so Durable
+   * Object state leaks between tests (`apps/node/CLAUDE.md` § Gotchas). These assertions are about a
+   * first-ever claim and an interval since one, both of which a leaked `clock` row would quietly
+   * invalidate — so each test addresses its own object by name instead.
+   */
+  let objects = 0
+  const registryStub = () => {
+    objects += 1
+    return baseEnv.REGISTRY.get(baseEnv.REGISTRY.idFromName(`heartbeat-${objects}`))
+  }
+
+  it("claims a heartbeat when the last one is old enough", async () => {
+    const registry = registryStub()
+    const now = Date.now()
+    // First call on a fresh object: nothing recorded, so it is due.
+    expect((await registry.snapshot(240_000, now)).shouldRegister).toBe(true)
+  })
+
+  it("does not claim twice inside the interval", async () => {
+    // **The stampede this prevents.** `/v1/meta` is polled by every client at startup, so without a
+    // claim every one of them would fire a registration — each costing a proof-of-work solve.
+    const registry = registryStub()
+    const now = Date.now()
+    await registry.snapshot(240_000, now)
+    expect((await registry.snapshot(240_000, now + 1_000)).shouldRegister).toBe(false)
+    expect((await registry.snapshot(240_000, now + 239_000)).shouldRegister).toBe(false)
+  })
+
+  it("claims again once the interval has passed", async () => {
+    const registry = registryStub()
+    const now = Date.now()
+    await registry.snapshot(240_000, now)
+    expect((await registry.snapshot(240_000, now + 240_001)).shouldRegister).toBe(true)
+  })
+
+  it("reports the same count `activeCount` does, so one hop can do both", async () => {
+    const registry = registryStub()
+    const now = Date.now()
+    const snapshot = await registry.snapshot(240_000, now)
+    expect(snapshot.activeTunnels).toBe(await registry.activeCount())
+  })
+})

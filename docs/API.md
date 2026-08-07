@@ -222,7 +222,9 @@ The first two are re-verified on **every** registration, not just the first: a d
 
 ### Liveness is pushed, not polled
 
-`POST /v1/nodes` **is** the heartbeat. There is no separate endpoint and there should not be — a registration already carries everything a heartbeat would and already re-proves what a heartbeat would have to. A node calls it on its own cron, every five minutes.
+`POST /v1/nodes` **is** the heartbeat. There is no separate endpoint and there should not be — a registration already carries everything a heartbeat would and already re-proves what a heartbeat would have to.
+
+A node calls it **on its own cron every five minutes, and again whenever request traffic finds its last registration more than four minutes old**. Two independent triggers, because Cloudflare cron triggers are best-effort: staging went two hours without one while serving normally, long enough to be aged out of this directory (`docs/ROADMAP.md` defect 41). A node carrying traffic is provably alive; a node with no traffic has only the cron, and being delisted then costs nobody anything.
 
 The registry fetches nothing. It records `last_seen_at` and ages the list: silence past `NODE_DOWN_AFTER_SECONDS` reads as `down` and **stays listed**, silence past `NODE_DELIST_AFTER_SECONDS` deletes the row. **A node that stops registering is presumed gone.**
 

@@ -19,7 +19,7 @@ src/do/subdomain-lease.ts   DO per subdomain: atomic claim, saga journal, expiry
 src/do/registry.ts          singleton DO: global index, cap, challenge ledger
 src/do/source-quota.ts      DO per source: concurrency, hourly quota, PoW difficulty
 src/reconcile.ts        the cron sweep: orphan tunnels only, and what it may delete
-src/register.ts         self-registration — and the heartbeat; a no-op without REGISTRY_URL
+src/register.ts         registration = heartbeat, fired by cron *and* traffic (ADR-0049)
 src/routes/legacy.ts    the v2 method-dispatch shim, and why it is weaker than /v1
 src/cloudflare/client.ts    the only place this Worker calls Cloudflare
 src/cloudflare/factory.ts   the only place a client is constructed

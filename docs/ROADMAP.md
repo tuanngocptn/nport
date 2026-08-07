@@ -898,7 +898,33 @@ It deliberately does **not** also fail when the node looks healthy, which was th
 fact. This fault is intermittent, so a two-directional tripwire would go red on whichever side of a cron
 tick the check happened to land, at random. **A self-removing tripwire needs a stable state to trip on.**
 
-**One command separates the two, and it is the next step.** `wrangler tail nport-node --env staging`
+**Answered by `wrangler tail`, 2026-08-08: the cron is the fault.** Four consecutive invocations, five
+minutes apart, every one logging `reconciliation complete` and `node registered` with no exception. So
+registration works whenever it is invoked — which kills the loopback theory outright, and with it the
+`GATEWAY` service binding that was the candidate fix. Good reason not to have built it on an unconfirmed
+cause.
+
+What is left is that Cloudflare cron triggers are **best-effort**, and staging went roughly two hours
+without one. That is not a bug to fix in `register.ts`; it is a design that hung a ten-minute liveness
+window on a single mechanism with no delivery guarantee.
+
+**Fixed by making liveness traffic-driven as well.** `GET /v1/meta` claims a heartbeat from the Durable
+Object hop it already makes — no extra subrequest on the node's most-polled route — and re-registers in
+`waitUntil` when the last one is over four minutes old. **A node carrying traffic is provably alive**,
+which is better evidence than a scheduler tick, and the two triggers are independent: either alone keeps
+a node listed. A node with no traffic still depends on the cron, and that is the right way round —
+nobody is affected by an idle node slipping out of a directory nobody is reading.
+
+The claim is atomic rather than a plain staleness check, because `/v1/meta` is polled by every client at
+startup and all of them would otherwise register at once, each paying for a proof-of-work solve.
+Verified locally end to end: three `/v1/meta` calls produced exactly one registration attempt, and the
+attempt ran the whole path — self-check, challenge, solve, POST, response parsed. The refusal it came
+back with named its reason, which is this morning's logging fix paying for itself the same day.
+
+**Still open:** whether the earlier two-hour silence was Cloudflare dropping invocations or something
+about that account. The fix does not depend on the answer, which is why it did not wait for one.
+
+ `wrangler tail nport-node --env staging`
 for six minutes answers it outright: a line every five minutes — `node registered`, or a refusal, or an
 unanswered self-check — means the cron fires and candidate 2 is the fault. *Silence* means the cron is
 not firing and candidate 1 is. Nothing observable from outside distinguishes them, which is why this
