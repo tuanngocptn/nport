@@ -65,6 +65,34 @@ jobs:
           path: apps/web/playwright-report/
           retention-days: 7
 
+      # ── Recording the visual baselines ────────────────────────────────────────────────
+      #
+      # **On this runner, or not at all.** ADR-0023 pins baselines to Linux because font rasterisation
+      # differs per OS, and the job above is where they will be compared — so they have to be produced
+      # by the same image and the same architecture. A baseline recorded in a Playwright container on an
+      # arm64 laptop fails every run here, which is the churn the original objection to screenshot tests
+      # was about.
+      #
+      # Triggered by a marker in the commit message rather than `workflow_dispatch`, because a dispatch
+      # only appears once the workflow is on the default branch and v3 is not there yet. Recording is
+      # rare and deliberate — a handful of times in the project's life — so a marker is the right weight.
+      #
+      # It uploads rather than commits. A workflow that pushes screenshots into the tree would be a
+      # workflow that can rewrite what it is being judged against; a human downloads the artifact, looks
+      # at the images, and commits them. `docs/TESTING.md` § Frontend e2e has the review rule.
+      - name: Record the visual baselines
+        if: contains(github.event.head_commit.message, '[record-baselines]')
+        env:
+          NPORT_VISUAL: "1"
+        run: pnpm --filter @nport/web exec playwright test visual.spec.ts --update-snapshots
+      - uses: actions/upload-artifact@v4
+        if: contains(github.event.head_commit.message, '[record-baselines]')
+        with:
+          name: visual-baselines-linux
+          path: apps/web/e2e/__screenshots__/
+          retention-days: 7
+          if-no-files-found: error
+
   rust:
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

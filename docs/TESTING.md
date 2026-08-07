@@ -144,13 +144,13 @@ The original objection to screenshot tests was churn, and it was correct. Three 
 
 A changed baseline is reviewed like a changed golden fixture: decide whether the intent changed, the browser changed, or the site broke. Never re-record on red without deciding which. Baselines live at `apps/web/e2e/__screenshots__/<platform>/`, with the platform in the path so a locally recorded snapshot cannot be mistaken for the committed Linux one.
 
-**Arming them.** `apps/web/e2e/visual.spec.ts` is skipped unless `NPORT_VISUAL=1`, because no Linux baseline exists yet and one cannot honestly be recorded on macOS — committing a macOS snapshot would fail every CI run, which is the churn the original objection was about. To record the first one, on Linux:
+**Arming them.** `apps/web/e2e/visual.spec.ts` is skipped unless `NPORT_VISUAL=1`, because no Linux baseline exists yet and one cannot honestly be recorded on macOS — committing a macOS snapshot would fail every CI run, which is the churn the original objection was about.
 
-```bash
-pnpm --filter @nport/web test:e2e:update   # NPORT_VISUAL=1 playwright test --update-snapshots
-```
+**Record them on the runner that will compare them**, which means CI. `pnpm --filter @nport/web test:e2e:update` is the command, and where it runs is the part that matters: a Playwright container on an arm64 laptop is still the wrong image and the wrong architecture, so its output fails here just as a macOS one would. The `web-e2e` job records and uploads them when a commit message contains `[record-baselines]` — a marker rather than a `workflow_dispatch`, because a dispatch only appears once the workflow reaches the default branch, and recording is rare enough that a marker is the right weight.
 
-Then commit `__screenshots__/linux/`, drop the `NPORT_VISUAL` guard in that spec, and the `web-e2e` job compares against it from then on. Until that happens, "visual regression" is wired and unarmed — stated here rather than implied by the ADR, so nobody assumes a snapshot is watching the page.
+The job **uploads** the images; it does not commit them. A workflow that wrote screenshots into the tree could rewrite what it is judged against. Download `visual-baselines-linux`, *look at the images*, commit `__screenshots__/linux/`, then drop the `NPORT_VISUAL` guard in that spec — and from then on `web-e2e` compares every push against them.
+
+Until that happens, "visual regression" is wired and unarmed — stated here rather than implied by the ADR, so nobody assumes a snapshot is watching the page.
 
 `apps/desktop` is **not** covered by this. Playwright cannot drive a Tauri WebView; that needs `tauri-driver` with WebdriverIO and arrives with Phase 4. The manual per-platform pass below still stands for it.
 
