@@ -89,6 +89,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@nport/contract':
+        specifier: workspace:*
+        version: link:../../packages/contract
       '@nport/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens

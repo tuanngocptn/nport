@@ -767,6 +767,28 @@ button. Both need `core::inspector`, which the app does not enable yet. The mock
 what the finished app looks like, not a licence to draw a number the app cannot compute — "0 requests"
 beside a tunnel serving traffic is worse than no mention of requests.
 
+**New tunnel is the second screen**, and with two destinations the sidebar became worth building.
+Form rules are pure and tested — a port that rejects `3000abc` (which `parseInt` would read as 3000
+and tunnel to a port the field does not show), and a subdomain checked against `packages/contract`
+rather than against a copy of its rules. That test asserted the coarser rejection reason and the
+contract returned a more specific one, which is deferring working as intended.
+
+**Four things the mockup draws are not built, each for a different reason, and the reasons are the
+useful part.** *Require basic auth* is in Deferred below — a toggle would promise what the server
+cannot do. *Open inspector on start* would navigate nowhere. The **availability hint** cannot exist:
+there is no endpoint for it, and adding one would be a free subdomain-enumeration oracle on an
+account-free service — so the hint says whether a name is *valid*, and the server stays the only
+thing that can say whether it is *free*. The sidebar's **slots meter** shows "2 of 3", and that cap
+is the server's `maxConcurrentPerSource`; hardcoding 3 would be a client asserting a limit the server
+owns, wrong the moment a self-hoster tunes it.
+
+The mockup's static `.nport.link` suffix is off for the same family of reason: this app talks to
+whichever backend it is pointed at, and a self-hoster's zone is not ours to print.
+
+**The subpath import is worth remembering.** `@nport/contract` pulls zod in for its request schemas
+— 82 kB of a desktop bundle that needed pure string rules. `@nport/contract/subdomain` imports
+nothing, and the export exists for exactly this.
+
 **The scope is `docs/FEATURES.md` §§5–10, §12 and §14, plus the Nodes screen in §3** — the mapping table above — against the design in `docs/mockup/NPort Desktop.dc.html`. **Both of the questions that were to be settled before components are written are now settled.** The surface count was a documentation error, not a design disagreement: `docs/mockup/README.md` says five screens plus a first-run overlay and a menu-bar popover, and the layout block had `logs` for `history` and no *New tunnel* entry at all. The glass is **ADR-0050** — opaque by default, transparency opt-in per platform, Linux expected to stay flat. That one turned up a live defect on the way: the scaffold set `transparent: true` on all three platforms while `styles.css` painted `background: transparent`, so `--np-page` — the only opaque token in the sheet, and the surface every translucent layer composites over — was never applied anywhere. §8 is excluded, per the mapping table. §12 is design work that has not been done at all — the mockup is macOS Tahoe only.
 
 ## Phase 5 — Federation: a registry and many nodes 🚧 **← next**

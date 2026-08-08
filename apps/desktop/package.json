@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@nport/contract": "workspace:*",
     "@nport/design-tokens": "workspace:*",
     "@tauri-apps/api": "catalog:",
     "react": "catalog:",
