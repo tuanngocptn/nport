@@ -66,8 +66,7 @@ export interface Feature {
 export const FEATURES: readonly Feature[] = [
   {
     title: "Custom subdomains",
-    description:
-      "No paid tier gating the URL you want. The tunnel cap is your Cloudflare account quota, not a paywall.",
+    description: "Always free, always yours. No paid tier gating the URL you want.",
     ships: "3.0",
   },
   {

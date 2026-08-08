@@ -925,6 +925,33 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       a listed-then-idle node slipping out of a directory nobody is reading harms nobody. What it
       blocks is trusting `/v1/nodes` as a health display for a quiet node
 
+**52. `.claude/DESIGN.md` §8 and the site mockup disagree about the word "free", and applying the rule
+literally made the site worse.** §8 says *"Never say 'free' as a pricing claim"*, so the feature card's
+"Always free, always yours. No paid tier gating the URL you want." was rewritten to name the Cloudflare
+quota instead.
+
+**That string came from `docs/mockup/NPort Site.dc.html`.** So does "Free forever. Open source. No
+account." on the CTA, and the comparison table's `Price | Free` row — the design says it in three
+places, and the rewrite left the site saying two different things about the same subject.
+
+**§8 carries its reason, and the original already satisfied it.** The rule reads in full: *"Never say
+'free' as a pricing claim. The 3-tunnel cap is a Cloudflare account quota, not a paywall — say so."*
+The mockup's second clause, "No paid tier gating the URL you want", is that. The rule is about not
+framing the cap as a free-tier limit; it is not a ban on the word.
+
+Reverted. The site keeps the design's copy, and `apps/web/CLAUDE.md` records that this specific
+disagreement resolves toward the mockup until somebody decides otherwise — it is product positioning,
+not a technical constraint, and `docs/mockup/README.md` rule 4 reserves the override for conflicts
+with an *invariant*, which this is not.
+
+**The desktop half of the same sweep stands**, because it has no such conflict: §8 also says counts
+read "1 of 3 slots remaining", never "1 slot free", and the empty-slot button was rendering the
+disallowed string verbatim with nothing in the mockup contradicting the correction.
+
+**Worth the note: a rule with its reason attached is checkable, and one without is guessable.** §8 is
+two sentences and the second is what settled this. A one-line "never say free" would have left the
+rewrite looking correct.
+
 **51. The baseline-recording job could only run when there was nothing to record.** `web-e2e`'s record
 step was guarded on the commit marker alone, so it inherited the default: **skipped if an earlier step
 failed**. The earlier step is the comparison. A baseline can only need re-recording when the comparison
