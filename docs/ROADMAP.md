@@ -804,6 +804,35 @@ whichever backend it is pointed at, and a self-hoster's zone is not ours to prin
 — 82 kB of a desktop bundle that needed pure string rules. `@nport/contract/subdomain` imports
 nothing, and the export exists for exactly this.
 
+**The request inspector is built** — `docs/FEATURES.md` §5, and the largest single item in the phase.
+`core::inspector` has recorded every exchange since 2b; what was missing was a consumer, and the app
+is the only one that has anywhere to show it (the CLI deliberately does not enable it).
+
+`Observer::record` runs **on the connection's task and must not block**, which decided the shape: the
+sink converts and pushes into an unbounded channel and returns, and a separate task emits. Unbounded
+rather than bounded because the alternatives are blocking the connection task or dropping exchanges
+silently, and the ring in `core` already bounds memory.
+
+One ordering had to be solved: `Tunnel::start` needs the sink, and the claimed subdomain is not known
+until it returns. The forwarding task waits for the name before emitting, and the channel queues
+anything captured in between — in practice nothing, since no request reaches the origin until the
+tunnel serves.
+
+With it, **the Tunnels screen's stat grid became real**: requests today and median latency from the
+captures, edge region from the colo. Median rather than mean because one slow request skews a mean
+and the stat describes the typical one; `—` rather than `0` for all three until something is
+measured, since a zero claims no traffic arrived.
+
+**Two things the design draws that the data cannot support, both recorded rather than faked.** Replay
+is deferred and the button is drawn inert. And the Timing tab breaks the round trip into five hops —
+edge → tunnel, tunnel → localhost, handler, response → edge — where `Exchange` measures **one**
+duration; each hop needs its own instrument in `core`, and splitting one measurement across five rows
+is the kind of chart that gets believed.
+
+**The list is not virtualized**, which rule 11 requires before a thousand rows. TanStack Virtual is
+not a dependency yet and adding it with no window to check the scroll in is how a virtualizer ships
+subtly wrong.
+
 **The scope is `docs/FEATURES.md` §§5–10, §12 and §14, plus the Nodes screen in §3** — the mapping table above — against the design in `docs/mockup/NPort Desktop.dc.html`. **Both of the questions that were to be settled before components are written are now settled.** The surface count was a documentation error, not a design disagreement: `docs/mockup/README.md` says five screens plus a first-run overlay and a menu-bar popover, and the layout block had `logs` for `history` and no *New tunnel* entry at all. The glass is **ADR-0050** — opaque by default, transparency opt-in per platform, Linux expected to stay flat. That one turned up a live defect on the way: the scaffold set `transparent: true` on all three platforms while `styles.css` painted `background: transparent`, so `--np-page` — the only opaque token in the sheet, and the surface every translucent layer composites over — was never applied anywhere. §8 is excluded, per the mapping table. §12 is design work that has not been done at all — the mockup is macOS Tahoe only.
 
 ## Phase 5 — Federation: a registry and many nodes 🚧 **← next**

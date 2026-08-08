@@ -11,6 +11,8 @@
 //! WebView's here. A command that returned `error.to_string()` would put English in the Rust half of
 //! a translated app, which is defect R20 wearing a different hat.
 
+use std::sync::Arc;
+
 use nport_contract::ClientKind;
 use nport_contract::ErrorCode;
 use nport_contract::MetaResponse;
@@ -22,6 +24,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::events::{TUNNEL_EVENT, TunnelMessage};
+use crate::inspector::Sink;
 use crate::state::{TunnelId, TunnelSummary, Tunnels};
 
 /// How long a tunnel gets to drain before its connections are cut.
@@ -73,7 +76,16 @@ pub async fn start_tunnel(
         shutdown_grace: SHUTDOWN_GRACE,
     };
 
-    let tunnel = Tunnel::start(config, ClientKind::Desktop, None)
+    // **The inspector is the desktop app's, and not the CLI's** (`apps/desktop/CLAUDE.md`): this is
+    // the only consumer that has somewhere to show traffic. Attached before the tunnel serves its
+    // first request, because a sink added later would miss exactly the requests somebody opened the
+    // app to see.
+    //
+    // The claimed name is not known until `start` returns, so the sink is told afterwards — see
+    // `Sink::spawn`, which queues anything captured in between rather than losing it.
+    let (sink, name) = Sink::spawn(app.clone());
+
+    let tunnel = Tunnel::start(config, ClientKind::Desktop, Some(Arc::new(sink)))
         .await
         .map_err(|error| CommandError::from(error.code()))?;
 
@@ -87,6 +99,9 @@ pub async fn start_tunnel(
         expires_at: tunnel.expires_at(),
     };
     let subdomain = tunnel.subdomain().to_owned();
+    // Releases the sink's forwarding task. Failing means the task is already gone, which only
+    // happens if the window closed mid-start.
+    let _ = name.send(subdomain.clone());
     emit(&app, &subdomain, &provisioned);
 
     let events = tunnel.events();

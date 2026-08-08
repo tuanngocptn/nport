@@ -85,11 +85,11 @@ hostname of their own. ADR-0049, `docs/ARCHITECTURE.md` §1.
 ## 5. Request inspector
 
 - [x] Capture every request/response through the tunnel — **built in 2b**, `core::inspector`
-- [ ] Live stream into the list; Pause/Live toggle
+- [x] Live stream into the list; Pause/Live toggle
 - [x] Ring buffer with a cap — **settled: 1000 exchanges, 32 KiB body preview**
-- [ ] Filters: All / API / Errors / Mutations
-- [ ] Detail tabs: Request headers, Response headers, Timing
-- [ ] Body rendering with JSON pretty-print; skip bodies for static assets
+- [x] Filters: All / API / Errors / Mutations
+- [x] Detail tabs: Request headers, Response headers, Timing — **Timing shows what `Exchange` measures**, which is one duration, not the design's five-hop breakdown; each hop needs its own instrument in `core`
+- [x] Body rendering with JSON pretty-print — non-UTF-8 renders lossily rather than blanking, since those are the requests people debug. **Skipping static assets is not done**
 - [x] Body size limit before truncation — **32 KiB**, counted beyond that
 - [ ] **Replay** — re-issue a captured request against the local target. **Deferred**, and listed as such in `docs/ROADMAP.md`
 - [ ] Copy as cURL (not yet designed)
@@ -102,8 +102,8 @@ hostname of their own. ADR-0049, `docs/ARCHITECTURE.md` §1.
 
 - [x] Live list with status, URL, target, node, request count, time remaining — **designed**
 - [x] Copy URL with confirmation, per-tunnel Stop, expiry bar — **designed**
-- [ ] Inspect scopes the inspector to that tunnel
-- [ ] Stats: requests today, median latency, edge region — need real data sources
+- [ ] Inspect scopes the inspector to that tunnel — it navigates there; the scoping needs the per-tunnel/global decision below
+- [x] Stats: requests today, median latency, edge region — **all three real**: the first two from the inspector's captures, the third from the colo `ConnectionUp` carries
 - [ ] QR code for the URL (from the original screen list, not yet designed)
 
 ## 7. New tunnel

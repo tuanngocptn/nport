@@ -4,8 +4,10 @@ import { type Screen, Sidebar } from "./components/sidebar"
 import { Toolbar } from "./components/toolbar"
 import { type ServerLimits, serverLimits } from "./ipc/tunnels"
 import { liveCount } from "./lib/tunnel-state"
+import { useExchanges } from "./lib/use-exchanges"
 import { useTunnels } from "./lib/use-tunnels"
 import { ComingSoonView } from "./views/coming-soon"
+import { InspectorView } from "./views/inspector"
 import { NewTunnelView } from "./views/new-tunnel"
 import { TunnelsView } from "./views/tunnels"
 
@@ -24,6 +26,7 @@ export function App() {
   const [screen, setScreen] = useState<Screen>("tunnels")
   const { tunnels, error, stop } = useTunnels()
   const limits = useServerLimits()
+  const { exchanges, live, toggleLive } = useExchanges()
 
   return (
     <div className="flex h-full">
@@ -45,13 +48,17 @@ export function App() {
               tunnels={tunnels}
               error={error}
               limits={limits}
+              exchanges={exchanges}
               onStop={stop}
               onNew={() => setScreen("new")}
               onInspect={() => setScreen("inspector")}
             />
           )}
           {screen === "new" && <NewTunnelView onDone={() => setScreen("tunnels")} />}
-          {screen !== "tunnels" && screen !== "new" && <ComingSoonView screen={screen} />}
+          {screen === "inspector" && (
+            <InspectorView exchanges={exchanges} live={live} onToggleLive={toggleLive} />
+          )}
+          {(screen === "history" || screen === "settings") && <ComingSoonView screen={screen} />}
         </div>
       </main>
     </div>

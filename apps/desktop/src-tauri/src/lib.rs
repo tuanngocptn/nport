@@ -16,6 +16,7 @@ use tauri::Manager;
 
 pub mod commands;
 pub mod events;
+pub mod inspector;
 pub mod state;
 
 /// A liveness probe for the IPC boundary.

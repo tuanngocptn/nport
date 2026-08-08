@@ -1,5 +1,7 @@
 import { TunnelCard } from "../components/tunnel-card"
+import type { UiExchange } from "../ipc/exchanges"
 import type { ServerLimits } from "../ipc/tunnels"
+import { medianLatencyMs, requestsToday } from "../lib/exchange-state"
 import type { TunnelRow } from "../lib/tunnel-state"
 
 /**
@@ -8,14 +10,16 @@ import type { TunnelRow } from "../lib/tunnel-state"
  * As drawn: the tunnel list, a "Start another tunnel" slot button below it, and a three-cell stat
  * grid — Requests today, Median latency, Edge region.
  *
- * **Two of the three stats are the inspector's**, and it is not enabled yet. They render as `—`
- * rather than as zeroes: "0 requests" and "0 ms" are claims about traffic, and both are false while
- * nothing is counting. Edge region is real — it comes from the colo the connections landed on.
+ * All three stats are real. Requests and latency come from the inspector's captures, and Edge
+ * region from the colo the connections landed on. Each still reads `—` rather than `0` until there
+ * is something to count: a zero is a claim that no traffic arrived, which is a different statement
+ * from "nothing measured yet".
  */
 export function TunnelsView({
   tunnels,
   error,
   limits,
+  exchanges,
   onStop,
   onNew,
   onInspect,
@@ -23,12 +27,15 @@ export function TunnelsView({
   tunnels: TunnelRow[]
   error: string | null
   limits: ServerLimits | null
+  exchanges: UiExchange[]
   onStop: (subdomain: string) => void
   onNew: () => void
   onInspect: () => void
 }) {
   const free = limits === null ? null : Math.max(0, limits.maxConcurrentPerSource - tunnels.length)
   const regions = [...new Set(tunnels.map((row) => row.colo).filter((colo) => colo !== null))]
+  const today = requestsToday(exchanges, Date.now())
+  const median = medianLatencyMs(exchanges)
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -68,8 +75,16 @@ export function TunnelsView({
       )}
 
       <div className="grid grid-cols-3 gap-3">
-        <Stat label="Requests today" value="—" title="Arrives with the traffic inspector" />
-        <Stat label="Median latency" value="—" title="Arrives with the traffic inspector" />
+        <Stat
+          label="Requests today"
+          value={today === 0 ? "—" : today.toLocaleString()}
+          title="Captured through this app's tunnels since midnight"
+        />
+        <Stat
+          label="Median latency"
+          value={median === null ? "—" : `${median} ms`}
+          title="The typical round trip, including your server's own time"
+        />
         <Stat
           label="Edge region"
           value={regions.length === 0 ? "—" : regions.join(" · ")}
