@@ -32,7 +32,7 @@ export function Sidebar({
   limits: ServerLimits | null
 }) {
   return (
-    <aside className="flex w-[212px] shrink-0 flex-col gap-4 border-hair border-r bg-sidebar p-3 pt-10">
+    <aside className="flex w-[224px] shrink-0 flex-col gap-4 border-hair border-r bg-sidebar p-3 pt-10">
       <button
         type="button"
         className="flex w-full items-center justify-center gap-1.5 rounded-md bg-green py-2 text-sm font-medium text-page shadow-green transition-opacity duration-200 ease-np hover:opacity-90"

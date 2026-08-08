@@ -69,7 +69,9 @@ export function TunnelsView({
             {tunnels.length === 0 ? "Start your first tunnel" : "Start another tunnel"}
           </span>
           <span className="font-mono text-[10.5px] text-muted">
-            {free === null ? "port, name, go" : `${free} ${free === 1 ? "slot" : "slots"} free`}
+            {free === null || limits === null
+              ? "port, name, go"
+              : `${free} of ${limits.maxConcurrentPerSource} ${free === 1 ? "slot" : "slots"} remaining`}
           </span>
         </button>
       )}

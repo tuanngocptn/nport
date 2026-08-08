@@ -54,10 +54,11 @@
 
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { writeFileSync } from "node:fs"
+import { mkdtempSync, writeFileSync } from "node:fs"
 import { access, mkdir } from "node:fs/promises"
 import { createServer } from "node:http"
 import { connect } from "node:net"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -609,6 +610,29 @@ async function checkInputBounds() {
 }
 
 /**
+ * A throwaway `~/.nport` for every CLI this script starts.
+ *
+ * **Without it, `pnpm smoke` is not a test of this repository — it is a test of the machine it runs
+ * on.** `config::path` reads `NPORT_HOME` before `HOME`, so a CLI spawned with the ambient
+ * environment loads the developer's real `~/.nport/config.toml`: a `lang = "es"` there turns every
+ * assertion about English output red, and a `backend` there points the run at somebody else's
+ * control plane. Both failures name the wrong thing — the second would look like a broken tunnel.
+ *
+ * It stayed hidden because CI has no home directory to leak, so the harness passed there and failed
+ * only on a machine that had used the tool. `docs/TESTING.md` already records the sibling lesson
+ * about a harness sharing state *between runs*; this is the same fault one level out, sharing state
+ * with whoever is running it.
+ *
+ * Per-run rather than per-check, so a leftover directory is one directory.
+ */
+const CLI_HOME = mkdtempSync(join(tmpdir(), "nport-smoke-"))
+
+/** The environment every spawned CLI gets: this process's, with its own home. */
+function cliEnv(extra = {}) {
+  return { ...process.env, NPORT_HOME: CLI_HOME, ...extra }
+}
+
+/**
  * The CLI as a process, which no other tier runs.
  *
  * Stopped with `SIGINT` rather than left to time out, because the graceful path is the one with the
@@ -620,6 +644,7 @@ async function checkCli() {
     spawn("cargo", ["run", "-q", "-p", "nport", "--", String(ORIGIN_PORT), "--backend", API], {
       cwd: ROOT,
       stdio: ["ignore", "pipe", "pipe"],
+      env: cliEnv(),
     }),
     "nport",
   )
@@ -782,7 +807,8 @@ async function checkConfigErrors() {
       writeFileSync(file, contents)
       const cli = spawn("cargo", ["run", "-q", "-p", "nport", "--", "3000", ...extra], {
         cwd: ROOT,
-        env: { ...process.env, NPORT_HOME: home },
+        // Its own home, because these checks write configs to read back.
+        env: cliEnv({ NPORT_HOME: home }),
         stdio: ["ignore", "pipe", "pipe"],
       })
       let stderr = ""
@@ -826,7 +852,7 @@ async function checkQuiet() {
     spawn(
       "cargo",
       ["run", "-q", "-p", "nport", "--", String(ORIGIN_PORT), "--quiet", "--backend", API],
-      { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] },
+      { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: cliEnv() },
     ),
     "nport --quiet",
   )

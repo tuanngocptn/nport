@@ -6,7 +6,7 @@ Tauri v2 desktop app: a GUI for people who would rather not use a terminal, plus
 
 **Not responsible for:** any tunnel logic. All of it lives in `crates/core`; this app is a view over `TunnelEvent`s plus a few commands.
 
-**The approved design is `docs/mockup/NPort Desktop.dc.html`**, with the layout flattened to plain markup in `docs/mockup/handoff/desktop/index.html`. Read `docs/mockup/README.md` before building or changing anything visual. It is reference only: never imported, never hand-edited, excluded from every check.
+**`.claude/DESIGN.md` is the design system** — colour, type, radii, interaction states, copy rules — always loaded, and the *how* to the mockup's *what*. **The approved design is `docs/mockup/NPort Desktop.dc.html`**, with the layout flattened to plain markup in `docs/mockup/handoff/desktop/index.html`. Read `docs/mockup/README.md` before building or changing anything visual. It is reference only: never imported, never hand-edited, excluded from every check.
 
 **Build every element it draws.** A control whose data does not exist yet is rendered as designed and inert, with the reason on it — not deleted. Deleting it hides that the app is unfinished and quietly loses the design; the mockup is the authority on *what is there*, and `docs/mockup/README.md` rule 4 is the only exception, for where it contradicts an invariant. What a missing backend changes is the **value**: `—` where a number would be a false claim, and the element still drawn around it.
 

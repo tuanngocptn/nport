@@ -49,6 +49,7 @@ User documentation lives at [nport.link](https://nport.link). This repository's 
 | [PROTOCOL](docs/PROTOCOL.md) | the connector wire specification |
 | [API](docs/API.md) · [ERRORS](docs/ERRORS.md) | control-plane contract and error registry |
 | [DECISIONS](docs/DECISIONS.md) | why it is built this way |
+| [DESIGN](.claude/DESIGN.md) | the design system the UI is built to — colour, type, geometry, states, copy |
 | [mockup](docs/mockup/README.md) | the approved UI design for the site and the desktop app |
 | [ROADMAP](docs/ROADMAP.md) · [FEATURES](docs/FEATURES.md) | phases and gates; the feature inventory they schedule |
 | [CONTRIBUTING](docs/CONTRIBUTING.md) · [TESTING](docs/TESTING.md) | prerequisites, **running the whole stack locally**, and how to help |

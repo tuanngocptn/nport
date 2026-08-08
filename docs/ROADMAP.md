@@ -925,6 +925,28 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       a listed-then-idle node slipping out of a directory nobody is reading harms nobody. What it
       blocks is trusting `/v1/nodes` as a health display for a quiet node
 
+**50. `pnpm smoke` was a test of the machine it ran on.** Two of its checks went red with the CLI
+printing Spanish. Nothing in the repository had changed: `~/.nport/config.toml` on the developer's
+machine held `lang = "es"`, `config::path` reads `NPORT_HOME` before `HOME`, and the harness set
+`NPORT_HOME` for exactly one of its sections — the config-file checks, which needed their own. Every
+other CLI it spawned inherited the ambient environment and loaded the real file.
+
+**The language was the harmless version.** A `backend` in that file would have pointed the whole run
+at somebody else's control plane, and the failure would have read as a broken tunnel rather than as a
+misread config — a wrong answer that names the wrong thing.
+
+**It stayed hidden because CI has no home directory to leak.** The harness passed there and failed
+only on a machine that had actually used the tool, which is the reverse of the usual asymmetry and
+the reason nobody met it sooner.
+
+Fixed with one run-scoped `NPORT_HOME` applied to every spawn, including the config section, so there
+is one rule rather than one exception. Verified the way it was found: smoke passes with `lang = "es"`
+still in the real file.
+
+`docs/TESTING.md` already carried the sibling lesson — *"a harness that shares state between runs is
+measuring the previous run"*, from the smoke work in 2b. This is the same fault one level out:
+sharing state with **whoever is running it**. The rule is now written that way.
+
 **49. This document's own status table said `apps/desktop` was a booting scaffold, four screens into
 building it.** The operator noticed, not a check. Each Phase 4 commit updated the phase's *section*
 and left the row at the top untouched — the row being the thing anybody actually reads, and the one
