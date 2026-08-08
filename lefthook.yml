@@ -33,7 +33,9 @@ commit-msg:
         if ! printf '%s' "$subject" | grep -Eq '^(feat|fix|docs|refactor|test|chore)(\((gateway|node|registry|web|desktop|cli|core|protocol|contract|ci|docs)\))?!?: .+$'; then
           echo "Commit subject must be: type(scope): description"
           echo "  types:  feat fix docs refactor test chore"
-          echo "  scopes: gateway node registry api web desktop cli core protocol contract ci docs"
+          # Kept in step with the pattern above by hand — `api` was removed from both by ADR-0049
+          # and lingered here, so a rejected `api(...)` was told `api` was valid (defect 53).
+          echo "  scopes: gateway node registry web desktop cli core protocol contract ci docs"
           echo "  got:    $subject"
           exit 1
         fi

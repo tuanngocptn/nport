@@ -925,6 +925,15 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       a listed-then-idle node slipping out of a directory nobody is reading harms nobody. What it
       blocks is trusting `/v1/nodes` as a health display for a quiet node
 
+**53. The commit hook rejected `api` as a scope and then listed it as a valid one.** The regex dropped
+it with the ADR-0049 rename; the help text printed on failure did not. So the one person who would
+ever see that message — somebody whose commit was just refused — was told the scope they used is
+allowed.
+
+Found by having a commit refused for an unrelated reason (`revert` is not a type here) and reading
+the message properly. **A rejection message is code**, and this one had been wrong since the rename
+because nothing reads it except at the moment it is least likely to be questioned.
+
 **52. `.claude/DESIGN.md` §8 and the site mockup disagree about the word "free", and applying the rule
 literally made the site worse.** §8 says *"Never say 'free' as a pricing claim"*, so the feature card's
 "Always free, always yours. No paid tier gating the URL you want." was rewritten to name the Cloudflare
