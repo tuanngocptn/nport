@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import type { TunnelRow } from "../lib/tunnel-state"
 
@@ -35,14 +35,30 @@ export function TunnelCard({
   tunnel: TunnelRow
   onStop: (subdomain: string) => void
 }) {
-  const [copied, setCopied] = useState(false)
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle")
+  const resetAt = useRef<ReturnType<typeof setTimeout>>(undefined)
   const status = STATUS[tunnel.status]
 
+  // The reset would otherwise fire into a component that is gone — a stopped tunnel unmounts its
+  // card 1.4 s after somebody copies its URL, which is well inside the window.
+  useEffect(() => () => clearTimeout(resetAt.current), [])
+
   async function copy() {
-    await navigator.clipboard.writeText(tunnel.url)
-    setCopied(true)
+    // **`navigator.clipboard` is not guaranteed in a WebView.** It needs a secure context, and a
+    // Tauri app is served from a custom protocol whose treatment differs across WKWebView,
+    // WebView2 and WebKitGTK. Unhandled, the promise rejects and the button silently does nothing —
+    // on the most-used control on the card. Saying "Press ⌘C" is worse than copying and better than
+    // appearing to work. `@tauri-apps/plugin-clipboard-manager` is the real fix and needs a running
+    // window to evaluate, which is not available here.
+    try {
+      await navigator.clipboard.writeText(tunnel.url)
+      setCopyState("copied")
+    } catch {
+      setCopyState("failed")
+    }
+    clearTimeout(resetAt.current)
     // The mockup's own timing. Long enough to read, short enough that the button is not stuck.
-    setTimeout(() => setCopied(false), 1400)
+    resetAt.current = setTimeout(() => setCopyState("idle"), 1400)
   }
 
   return (
@@ -69,7 +85,7 @@ export function TunnelCard({
               className="shrink-0 rounded-pill border border-hair bg-chip px-2.5 py-1 text-[10.5px] text-muted transition-colors duration-200 ease-np hover:text-text"
               onClick={() => void copy()}
             >
-              {copied ? "Copied" : "Copy"}
+              {copyState === "copied" ? "Copied" : copyState === "failed" ? "Select it" : "Copy"}
             </button>
           </div>
 

@@ -20,7 +20,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::events::{TUNNEL_EVENT, TunnelMessage};
-use crate::state::{TunnelSummary, Tunnels};
+use crate::state::{TunnelId, TunnelSummary, Tunnels};
 
 /// How long a tunnel gets to drain before its connections are cut.
 ///
@@ -88,7 +88,7 @@ pub async fn start_tunnel(
     emit(&app, &subdomain, &provisioned);
 
     let events = tunnel.events();
-    let (summary, displaced) = tunnels.insert(tunnel, local_port);
+    let (summary, id, displaced) = tunnels.insert(tunnel, local_port);
 
     // The server handed back a name this app already had. Stop the old one rather than dropping it:
     // a dropped `Tunnel` leaves its connections up and its lease claimed with no handle to either.
@@ -96,7 +96,7 @@ pub async fn start_tunnel(
         old.shutdown().await;
     }
 
-    pump(app.clone(), subdomain, events);
+    pump(app.clone(), subdomain, id, events);
     Ok(summary)
 }
 
@@ -143,12 +143,32 @@ pub fn list_tunnels(tunnels: State<'_, Tunnels>) -> Vec<TunnelSummary> {
 fn pump(
     app: AppHandle,
     subdomain: String,
+    id: TunnelId,
     mut events: tokio::sync::broadcast::Receiver<TunnelEvent>,
 ) {
     tauri::async_runtime::spawn(async move {
         loop {
             match events.recv().await {
-                Ok(event) => emit(&app, &subdomain, &event),
+                Ok(event) => {
+                    // `Stopped` is always the last event, and it arrives whether the user asked or
+                    // the tunnel ended on its own — a lease expiring, or every connection giving up.
+                    let ended = matches!(event, TunnelEvent::Stopped { .. });
+                    emit(&app, &subdomain, &event);
+
+                    if ended {
+                        // **The registry has to forget it here.** Nothing else does: `stop_tunnel`
+                        // covers the user asking and `shutdown_all` covers quitting, so a tunnel
+                        // that ended by itself stayed listed for the life of the process —
+                        // `list_tunnels` reporting a tunnel that is gone, and a reloaded window
+                        // seeding a row for it.
+                        //
+                        // `remove_if` rather than `remove`: this task may have been overtaken by a
+                        // new tunnel with the same name, and removing by name alone would evict the
+                        // live one on the dead one's behalf.
+                        drop(app.state::<Tunnels>().remove_if(&subdomain, id));
+                        break;
+                    }
+                }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }

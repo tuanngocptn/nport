@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use nport_core::tunnel::Tunnel;
 use serde::Serialize;
@@ -69,13 +70,23 @@ impl Described for Tunnel {
 #[derive(Debug, Default)]
 pub struct Registry<T> {
     running: Mutex<HashMap<String, Entry<T>>>,
+    next_id: AtomicU64,
 }
 
 #[derive(Debug)]
 struct Entry<T> {
     inner: T,
     local_port: u16,
+    id: TunnelId,
 }
+
+/// Distinguishes one tunnel from the next tunnel with the same name.
+///
+/// **Not decoration.** A tunnel's event pump removes it from the registry when it ends, and the only
+/// thing it knows is the subdomain — which is not enough: if the same name had been claimed again in
+/// the meantime, removing by name would evict the *live* tunnel on the dead one's behalf. The id
+/// makes removal mean "remove this tunnel", not "remove whatever is called that".
+pub type TunnelId = u64;
 
 /// The concrete registry the app holds as Tauri managed state.
 pub type Tunnels = Registry<Tunnel>;
@@ -85,6 +96,7 @@ impl<T: Described> Registry<T> {
     pub fn new() -> Self {
         Self {
             running: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
         }
     }
 
@@ -95,8 +107,9 @@ impl<T: Described> Registry<T> {
     /// twice — and silently dropping the old value would leak a live `Tunnel` whose connections
     /// nobody can ever stop. Returning it makes the caller decide, which is the only place that can
     /// `await` the drain.
-    pub fn insert(&self, tunnel: T, local_port: u16) -> (TunnelSummary, Option<T>) {
+    pub fn insert(&self, tunnel: T, local_port: u16) -> (TunnelSummary, TunnelId, Option<T>) {
         let summary = summarize(&tunnel, local_port);
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let displaced = self
             .running
             .lock()
@@ -106,11 +119,32 @@ impl<T: Described> Registry<T> {
                 Entry {
                     inner: tunnel,
                     local_port,
+                    id,
                 },
             )
             .map(|entry| entry.inner);
 
-        (summary, displaced)
+        (summary, id, displaced)
+    }
+
+    /// Removes a tunnel **only if it is still the one with this id**.
+    ///
+    /// What a pump calls when its tunnel ends on its own — a lease expiring, or every connection
+    /// giving up. Without this the registry only ever shrank on an explicit stop or on quit, so an
+    /// expired tunnel stayed listed forever: `list_tunnels` reported a tunnel that was gone, a
+    /// reloaded window seeded rows for it, and its handle was retained for the life of the process.
+    ///
+    /// The id is what makes it safe to call from a task that may have been overtaken.
+    pub fn remove_if(&self, subdomain: &str, id: TunnelId) -> Option<T> {
+        let mut running = self
+            .running
+            .lock()
+            .expect("the tunnel registry lock is never held across a panic");
+
+        match running.get(subdomain) {
+            Some(entry) if entry.id == id => running.remove(subdomain).map(|entry| entry.inner),
+            _ => None,
+        }
     }
 
     /// Takes a tunnel out so the caller can stop it. `None` if that name is not running.
@@ -196,7 +230,7 @@ mod tests {
     #[test]
     fn a_tunnel_is_listed_once_it_is_inserted() {
         let registry: Registry<Fake> = Registry::new();
-        let (summary, displaced) = registry.insert(Fake::new("myapp"), 3000);
+        let (summary, _id, displaced) = registry.insert(Fake::new("myapp"), 3000);
 
         assert!(displaced.is_none());
         assert_eq!(summary.subdomain, "myapp");
@@ -215,11 +249,60 @@ mod tests {
         let registry: Registry<Fake> = Registry::new();
         registry.insert(Fake::new("myapp"), 3000);
 
-        let (summary, displaced) = registry.insert(Fake::new("myapp"), 4000);
+        let (summary, _id, displaced) = registry.insert(Fake::new("myapp"), 4000);
 
         assert_eq!(summary.local_port, 4000);
         assert!(displaced.is_some(), "the replaced tunnel would have leaked");
         assert_eq!(registry.list().len(), 1, "one name, one entry");
+    }
+
+    /// The bug this exists for: a tunnel that ended by itself was never removed.
+    ///
+    /// Only `stop_tunnel` and the quit-time drain ever shrank the registry, so an expired lease left
+    /// a tunnel listed for the life of the process — `list_tunnels` reporting one that was gone.
+    #[test]
+    fn a_pump_can_remove_its_own_tunnel_when_it_ends() {
+        let registry: Registry<Fake> = Registry::new();
+        let (_summary, id, _) = registry.insert(Fake::new("myapp"), 3000);
+
+        assert!(registry.remove_if("myapp", id).is_some());
+        assert!(registry.list().is_empty());
+    }
+
+    /// **The reason removal is keyed on an id rather than on the name.**
+    ///
+    /// A dead tunnel's pump wakes up to remove itself, and by then the same name may belong to a new
+    /// tunnel. Removing by name would evict the live one on the dead one's behalf — the app would
+    /// show nothing while a tunnel was still serving, and nothing could stop it.
+    #[test]
+    fn a_stale_pump_cannot_evict_the_tunnel_that_replaced_it() {
+        let registry: Registry<Fake> = Registry::new();
+        let (_summary, old_id, _) = registry.insert(Fake::new("myapp"), 3000);
+        let (_summary, new_id, displaced) = registry.insert(Fake::new("myapp"), 4000);
+        assert!(displaced.is_some());
+
+        // The old pump finally sees `Stopped` and tries to clean up.
+        assert!(
+            registry.remove_if("myapp", old_id).is_none(),
+            "a stale pump removed the live tunnel"
+        );
+        assert_eq!(registry.list().len(), 1, "the live tunnel is still listed");
+
+        // The current one can still remove itself.
+        assert!(registry.remove_if("myapp", new_id).is_some());
+    }
+
+    #[test]
+    fn ids_are_not_reused_between_tunnels() {
+        let registry: Registry<Fake> = Registry::new();
+        let (_s, first, _) = registry.insert(Fake::new("a"), 1);
+        let (_s, second, _) = registry.insert(Fake::new("b"), 2);
+        registry.remove("a");
+        let (_s, third, _) = registry.insert(Fake::new("a"), 3);
+
+        assert_ne!(first, second);
+        assert_ne!(second, third);
+        assert_ne!(first, third);
     }
 
     #[test]

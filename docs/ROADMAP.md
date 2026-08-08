@@ -868,6 +868,36 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       a listed-then-idle node slipping out of a directory nobody is reading harms nobody. What it
       blocks is trusting `/v1/nodes` as a health display for a quiet node
 
+**48. A tunnel that ended by itself was never removed from the desktop app's registry.** Only
+`stop_tunnel` and the quit-time drain ever shrank it, so a lease expiring — or every connection
+giving up — left the `Tunnel` in the map for the life of the process. `list_tunnels` reported a
+tunnel that was gone, a reloaded window seeded a row for it, and the handle was retained.
+
+The pump was already watching for exactly the event that says so: `Stopped` is always the last one,
+and it arrives whether the user asked or the tunnel ended on its own. It just did not act on it.
+
+**Removing by name would have been the wrong fix**, and the wrong fix here is worse than the bug. A
+dead tunnel's pump wakes up to clean up, and by then the same subdomain may belong to a *new* tunnel
+— so a plain `remove` evicts the live one on the dead one's behalf, and the app shows nothing while
+a tunnel is still serving with nothing able to stop it. Entries now carry a monotonic id and removal
+is `remove_if(subdomain, id)`: "remove this tunnel", not "remove whatever is called that". Both
+directions are tested.
+
+**Two smaller ones in the same sweep**, both from reading three commits of fast UI work rather than
+from a failure:
+
+- **The Copy button failed silently.** `navigator.clipboard` needs a secure context, and a Tauri app
+  is served from a custom protocol whose treatment differs across WKWebView, WebView2 and WebKitGTK.
+  Unhandled, the promise rejects and the most-used control on the card does nothing at all. It now
+  says so. `@tauri-apps/plugin-clipboard-manager` is the real fix and needs a running window to
+  evaluate. Its reset timer also leaked into an unmounted component, which a stopped tunnel makes
+  reachable — the card unmounts well inside the 1.4-second window.
+- **`onStarted` also fired on Cancel.** A prop name that lies is the kind a later reader believes
+  when hanging a toast or an analytics call off it. It is `onDone`.
+
+**Found by rereading my own recent code rather than by a test failing**, which is the only way this
+set was reachable: none of it is visible without a running window, and the app has no browser tier.
+
 **47. `apps/desktop`'s rule 4 told everyone to add a capability entry for every command, and Tauri
 does not work that way.** It read: *"Every new command needs a capability entry in
 `src-tauri/capabilities/default.json`, or it is denied at runtime with a confusing error."* Tauri v2's

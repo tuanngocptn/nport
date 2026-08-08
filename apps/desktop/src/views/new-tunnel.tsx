@@ -32,6 +32,10 @@ import {
  *
  * The mockup's static `.nport.link` suffix is left off for a related reason: this app talks to
  * whichever backend it is pointed at, and a self-hoster's zone is not ours to print.
+ *
+ * `onDone` fires on both Start and Cancel, and is named for that. It was `onStarted`, which was a
+ * lie on the Cancel path — the sort a later reader believes when hanging a toast or an analytics
+ * call off it.
  */
 
 const QUICK_PORTS = ["3000", "5173", "8080", "4000"] as const
@@ -48,7 +52,7 @@ const REJECTION: Record<string, string> = {
   "reserved-prefix": "That prefix is reserved",
 }
 
-export function NewTunnelView({ onStarted }: { onStarted: () => void }) {
+export function NewTunnelView({ onDone }: { onDone: () => void }) {
   const [form, setForm] = useState<NewTunnelForm>({ port: "3000", subdomain: "" })
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -68,7 +72,7 @@ export function NewTunnelView({ onStarted }: { onStarted: () => void }) {
         // second authority on the path (defect 36).
         subdomain: form.subdomain.trim() === "" ? undefined : form.subdomain.trim(),
       })
-      onStarted()
+      onDone()
     } catch (cause: unknown) {
       setError(errorText(cause))
     } finally {
@@ -160,7 +164,7 @@ export function NewTunnelView({ onStarted }: { onStarted: () => void }) {
           <button
             type="button"
             className="rounded-md border border-hair bg-chip px-4 py-2 text-sm text-text transition-colors duration-200 ease-np hover:bg-rim"
-            onClick={onStarted}
+            onClick={onDone}
           >
             Cancel
           </button>

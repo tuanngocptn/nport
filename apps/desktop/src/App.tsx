@@ -31,7 +31,7 @@ export function App() {
             onNew={() => setScreen("new")}
           />
         ) : (
-          <NewTunnelView onStarted={() => setScreen("tunnels")} />
+          <NewTunnelView onDone={() => setScreen("tunnels")} />
         )}
       </main>
     </div>
