@@ -16,7 +16,7 @@ Tauri v2 desktop app: a GUI for people who would rather not use a terminal, plus
 
 ```
 src/main.tsx App.tsx styles.css
-src/views/tunnels.tsx new-tunnel.tsx inspector.tsx coming-soon.tsx    five screens
+src/views/  tunnels new-tunnel inspector settings coming-soon        five screens
 src/components/sidebar.tsx toolbar.tsx tunnel-card.tsx
 src/lib/tunnel-state.ts new-tunnel.ts exchange-state.ts   pure — where the tests are
 src/lib/use-tunnels.ts                the subscription; App owns it so the sidebar can count
@@ -28,7 +28,7 @@ index.html vite.config.ts components.json postcss.config.mjs
 
 # Planned for Phase 4 and not yet written — parenthesised so the block cannot be read
 # as a description of the tree as it stands:
-(src/views/          history, settings — reachable, and say what they will hold)
+(src/views/          history — reachable, and says what it will hold)
 (src/components/     app-specific: RequestTable, JsonTree … — Sidebar and TunnelCard are written)
 (src/components/ui/  VENDORED shadcn/ui primitives — upstream source, upgrade deliberately)
 (src/lib/utils.ts    the shadcn `cn()` helper)

@@ -1,4 +1,8 @@
-//! `~/.nport/config.toml`: defaults for the flags, and nothing else.
+//! Reading `~/.nport/config.toml` from disk.
+//!
+//! **The shape of the file is `nport_core::config`'s** (ADR-0051), so that `apps/desktop`'s Settings
+//! screen writes exactly what this reads. What stays here is the part that touches the world: the
+//! filesystem, and the environment the path comes from.
 //!
 //! Three rules, all from `crates/CLAUDE.md`:
 //!
@@ -6,31 +10,10 @@
 //! - **A corrupt file is a clear error, never a silent default.** Falling back to defaults on a
 //!   parse failure means a typo silently changes what the tool does, which is worse than a message.
 //! - **A missing file is not an error.** Most people never create one.
-//!
-//! It holds no credential and never will. Tokens are returned once by the control plane and used in
-//! memory; writing one here would make invariant 4 impossible to keep.
 
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
-
-/// The file's contents. Every field is optional — this sets defaults, it does not require anything.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Config {
-    /// Default subdomain, when `-s` is not given.
-    pub subdomain: Option<String>,
-    /// Default control plane. For self-hosting (`docs/SELF_HOSTING.md`). Skips discovery.
-    pub backend: Option<String>,
-    /// Default node directory. `docs/FEATURES.md` §10's "Registry URL" setting.
-    pub registry: Option<String>,
-    /// Default node to pin.
-    pub node: Option<String>,
-    /// Default interface language.
-    pub lang: Option<String>,
-    /// Default port, when none is given on the command line.
-    pub port: Option<u16>,
-}
+pub use nport_core::config::Config;
 
 /// Why a config file could not be used.
 ///
@@ -58,29 +41,17 @@ impl ConfigError {
 
 /// Where the config file lives.
 ///
-/// `$HOME` on Unix, `%USERPROFILE%` on Windows — read from the environment rather than through
-/// `std::env::home_dir`, whose behaviour has changed across releases in ways that would move a
-/// user's file out from under them.
-/// Where the discovered node list is cached: `~/.nport/nodes.json`.
-///
-/// Beside `config.toml`, and moved by the same `NPORT_HOME` override. **This is resolved here rather
-/// than in `crates/core`** — a library reading `HOME` is how a test ends up writing to a developer's
-/// real cache, which is exactly what the first draft of core's failover tests did. The CLI owns the
-/// environment; core takes a path.
-#[must_use]
-pub fn nodes_path(env: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
-    Some(path(env)?.with_file_name("nodes.json"))
-}
-
+/// The resolution is `nport_core::config::path`, which takes the environment rather than reading it
+/// — this is the caller that supplies `std::env::var`.
 #[must_use]
 pub fn path(env: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
-    let home = env("NPORT_HOME")
-        .or_else(|| env("HOME"))
-        .or_else(|| env("USERPROFILE"))?;
-    if home.is_empty() {
-        return None;
-    }
-    Some(Path::new(&home).join(".nport").join("config.toml"))
+    nport_core::config::path(env)
+}
+
+/// Where the discovered node list is cached: `~/.nport/nodes.json`.
+#[must_use]
+pub fn nodes_path(env: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    nport_core::config::nodes_path(env)
 }
 
 /// Loads the config, if there is one.
@@ -105,13 +76,11 @@ pub fn load(path: Option<&Path>) -> Result<Option<Config>, ConfigError> {
         }
     };
 
-    toml::from_str(&text)
+    nport_core::config::parse(&text)
         .map(Some)
         .map_err(|error| ConfigError::Invalid {
             path: path.display().to_string(),
-            // `to_string` rather than the error itself: `toml`'s Display carries the line, the
-            // column, and a caret, which is the useful half, and nothing from the file's values.
-            reason: error.message().to_owned(),
+            reason: error.reason,
         })
 }
 

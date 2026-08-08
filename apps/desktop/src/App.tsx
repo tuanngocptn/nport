@@ -9,6 +9,7 @@ import { useTunnels } from "./lib/use-tunnels"
 import { ComingSoonView } from "./views/coming-soon"
 import { InspectorView } from "./views/inspector"
 import { NewTunnelView } from "./views/new-tunnel"
+import { SettingsView } from "./views/settings"
 import { TunnelsView } from "./views/tunnels"
 
 /**
@@ -58,7 +59,8 @@ export function App() {
           {screen === "inspector" && (
             <InspectorView exchanges={exchanges} live={live} onToggleLive={toggleLive} />
           )}
-          {(screen === "history" || screen === "settings") && <ComingSoonView screen={screen} />}
+          {screen === "settings" && <SettingsView />}
+          {screen === "history" && <ComingSoonView screen={screen} />}
         </div>
       </main>
     </div>

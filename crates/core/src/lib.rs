@@ -14,6 +14,7 @@
 #![deny(clippy::print_stdout, clippy::print_stderr, clippy::exit)]
 
 pub mod api;
+pub mod config;
 pub mod connector;
 pub mod discovery;
 pub mod event;

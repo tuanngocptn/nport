@@ -136,10 +136,10 @@ hostname of their own. ADR-0049, `docs/ARCHITECTURE.md` §1.
 ## 10. Settings
 
 - [x] Registry URL, preferences, language, supporter account, support block — **designed**
-- [ ] Validate the registry before saving
-- [ ] Read/write **`~/.nport/config.toml`** — the CLI's format is TOML, not JSON (`crates/cli/src/config.rs`)
+- [ ] Validate the registry before saving — the field saves on blur, unvalidated
+- [x] Read/write **`~/.nport/config.toml`** — literally the same file the CLI reads; the schema moved to `crates/core` so the two cannot drift (ADR-0051)
 - [x] Custom backend URL — **built**, CLI `--backend` and the config file
-- [ ] i18n framework + string extraction. **Three languages, not two**: the CLI already ships `en`/`vi`/`es`, so English + Tiếng Việt alone would be a regression
+- [ ] i18n framework + string extraction. The Language control offers **all three** and writes the CLI's default; **the window itself is not translated** — that is the framework, still owed
 - [ ] **Light / dark / follow system.** Only light and dark exist; macOS users expect the third and it is usually the default
 - [ ] Register a private node from the app (Settings copy promises this; no screen exists)
 - [ ] **No analytics** — ADR-0015 and `apps/desktop/CLAUDE.md` rule 5 forbid telemetry in this app

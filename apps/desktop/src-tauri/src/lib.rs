@@ -47,7 +47,9 @@ pub fn run() {
             commands::start_tunnel,
             commands::stop_tunnel,
             commands::list_tunnels,
-            commands::server_limits
+            commands::server_limits,
+            commands::read_settings,
+            commands::write_settings
         ])
         .build(tauri::generate_context!())
         .expect("the app could not start")

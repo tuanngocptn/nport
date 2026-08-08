@@ -9,7 +9,7 @@ The Rust workspace: the connector, the tunnel manager, and the CLI. Style rules 
 | Crate | Lib name | Responsibility |
 | --- | --- | --- |
 | `protocol` | `nport_protocol` | Cloudflare connector wire protocol. See `crates/protocol/CLAUDE.md` |
-| `core` | `nport_core` | `TunnelManager`: discover → provision → connect → proxy → teardown. Connection pool, reconnect, local proxy, event stream, optional inspector. **Headless.** |
+| `core` | `nport_core` | `TunnelManager`: discover → provision → connect → proxy → teardown. Connection pool, reconnect, local proxy, event stream, optional inspector, **the config file's schema** (ADR-0051 — the shape, never the I/O). **Headless.** |
 | `cli` | bin `nport`, lib `nport` | Argument parsing, terminal rendering, config file, i18n, signals. The lib exists so `xtask` can read `Args`'s clap definition — `main.rs` holds `main` and nothing else |
 | `contract` | `nport_contract` | API types and `ErrorCode`, **generated** from `packages/contract` into `src/generated.rs` — never hand-edit that file. `src/lib.rs` and `src/subdomain.rs` are hand-written; see the crate README |
 | `xtask` | — | `cargo xtask codegen \| fixtures \| npm-packages \| verify-docs`. Depends on `nport` to generate `schema/cli.json`; outside the layering graph |

@@ -88,7 +88,9 @@ tauri-build = { version = "2.6", features = [] }
 tauri-plugin-opener = "2.5"
 thiserror = "2.0"
 # `~/.nport/config.toml`, whose format `crates/CLAUDE.md` rule 8 already settled. Parsing only.
-toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+# `display` is what renders TOML back out — `apps/desktop`'s Settings screen writes this file,
+# and before that nothing in the workspace ever did (ADR-0051).
+toml = { version = "0.9", default-features = false, features = ["parse", "display", "serde"] }
 tokio = { version = "1.53", features = [
   "rt-multi-thread",
   "net",

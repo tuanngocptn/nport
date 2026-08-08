@@ -17,6 +17,7 @@ use nport_contract::ClientKind;
 use nport_contract::ErrorCode;
 use nport_contract::MetaResponse;
 use nport_core::api::Api;
+use nport_core::config::Config;
 use nport_core::event::TunnelEvent;
 use nport_core::manager::TunnelConfig;
 use nport_core::tunnel::Tunnel;
@@ -158,6 +159,65 @@ pub async fn server_limits(backend: Option<String>) -> Result<MetaResponse, Comm
     api.meta()
         .await
         .map_err(|error| CommandError::from(error.code()))
+}
+
+/// The settings file, as it is on disk right now.
+///
+/// **The same `~/.nport/config.toml` the CLI reads** — one file, one format, one place (ADR-0051).
+/// A user who sets a backend here and then runs `nport` in a terminal gets the backend they set;
+/// two files would make that a coin toss decided by which they opened last.
+///
+/// A file that does not exist is `Ok` with nothing set, because most people never create one.
+///
+/// # Errors
+///
+/// [`ErrorCode::ConfigUnreadable`] when the file exists and cannot be read or parsed. Never a silent
+/// default: a typo'd key that quietly changed what the tool does is worse than a message.
+#[tauri::command]
+pub fn read_settings() -> Result<Config, CommandError> {
+    let Some(path) = settings_path() else {
+        return Ok(Config::default());
+    };
+
+    match std::fs::read_to_string(&path) {
+        Ok(text) => nport_core::config::parse(&text)
+            .map_err(|_| CommandError::from(ErrorCode::ConfigUnreadable)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
+        Err(_) => Err(CommandError::from(ErrorCode::ConfigUnreadable)),
+    }
+}
+
+/// Writes the settings file.
+///
+/// **Whole-file, and that is the honest behaviour rather than a limitation.** The window shows every
+/// field the file has, so writing all of them is writing what the user is looking at. A merge would
+/// preserve keys this version does not know — and `deny_unknown_fields` means a file with one of
+/// those cannot be parsed in the first place, so there are none to preserve.
+///
+/// # Errors
+///
+/// [`ErrorCode::ConfigUnwritable`] if the directory cannot be created or the file cannot be written.
+#[tauri::command]
+pub fn write_settings(settings: Config) -> Result<(), CommandError> {
+    let path = settings_path().ok_or_else(|| CommandError::from(ErrorCode::ConfigUnwritable))?;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|_| CommandError::from(ErrorCode::ConfigUnwritable))?;
+    }
+
+    std::fs::write(&path, nport_core::config::to_toml(&settings))
+        .map_err(|_| CommandError::from(ErrorCode::ConfigUnwritable))
+}
+
+/// Where the settings file is, from this process's environment.
+///
+/// `core` takes the reader rather than reading it (`crates/CLAUDE.md` rule 9); this is the caller
+/// that supplies one. `NPORT_HOME` is honoured for the same reason the CLI honours it — `pnpm smoke`
+/// uses that seam, and a desktop app that ignored it would write into a real home directory during
+/// a test.
+fn settings_path() -> Option<std::path::PathBuf> {
+    nport_core::config::path(|key| std::env::var(key).ok())
 }
 
 /// Every tunnel this app is running, ordered by subdomain.

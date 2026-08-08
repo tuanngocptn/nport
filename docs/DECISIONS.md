@@ -58,6 +58,7 @@ New entries: next number, status `Accepted`, and a one-line entry in the index.
 | 0048 | Prerendered pages are served from Workers Static Assets, and e2e drives the Worker | Accepted |
 | 0049 | One hostname per deployment: a gateway Worker, service bindings, and heartbeat registration | Accepted |
 | 0050 | The desktop glass is opt-in per platform; opaque is the default | Accepted |
+| 0051 | The config file's schema lives in `crates/core`; each consumer owns its own I/O | Accepted |
 
 ---
 
@@ -1155,3 +1156,59 @@ stack does not have. *Detecting WebKitGTK's blur performance at runtime and degr
 heuristic that would flicker between two appearances on a machine under load, which is worse than
 either appearance. *Painting a wallpaper behind the window on Linux* — an imitation of the user's
 desktop that is wrong the moment they change it, and the mockup's own comments call this scaffolding.
+
+## ADR-0051 — The config file's schema lives in `crates/core`, and each consumer owns its own I/O
+
+**Date** 2026-08-08 · **Status** Accepted
+
+**Context.** `~/.nport/config.toml` was `crates/cli`'s: the struct, the parse, the path resolution and
+the file read all sat in `crates/cli/src/config.rs`. That was right while the CLI was the only thing
+that read it.
+
+`docs/FEATURES.md` §10 puts a Backend field on the desktop app's Settings screen and says it reads and
+writes **that same file** — the CLI's format, "TOML, not JSON", correcting the mockup. And
+`apps/desktop` cannot depend on `crates/cli`: they are siblings under `core` in the layering graph
+(`protocol → core → { cli, desktop }`), and an edge between them is not in it.
+
+So the Settings screen would have had to restate every field. The first time one side gained a key the
+other did not know, a user's file would lose a value depending on which of the two last wrote it —
+and `deny_unknown_fields` turns that into a *parse failure* rather than a quiet drop, so the CLI would
+start refusing a file the app had just written.
+
+**Decision.** The **shape** moves to `nport_core::config`; the **I/O** does not.
+
+- `Config`, `parse` and `to_toml` live in `core`. Both consumers agree on the format by construction.
+- Reading and writing bytes stays with whoever owns the environment: `crates/cli` for the terminal,
+  `apps/desktop`'s commands for the window. Neither is in `core`.
+- `path` and `nodes_path` move too, **as functions that take the environment rather than read it**.
+
+That last point is the one that needed deciding, because `crates/CLAUDE.md` rule 9 says `core` never
+reads the environment, and `crates/cli/src/config.rs` carried a note explaining why the resolution
+lived there: *"a library reading `HOME` is how a test ends up writing to a developer's real cache,
+which is exactly what the first draft of core's failover tests did."*
+
+**That concern is about reading `HOME`, not about knowing the filename.** `path(env: impl Fn(&str) ->
+Option<String>)` cannot touch the environment; its caller supplies the reader, and the caller is still
+the CLI or the app. What moving it buys is that the two cannot disagree about *where* the file is —
+a disagreement that would present to a user with both installed as settings that do not save.
+
+**Consequences.**
+
+- **`toml` gains the `display` feature and `core` gains the dependency.** Nothing in the workspace
+  rendered TOML before; the CLI only ever read it.
+- **`crates/cli::config` keeps its own `ConfigError`**, because it is the type that knows a *path* and
+  a `std::io::Error`, and its variants map to a registry code the CLI renders. `core`'s `ParseError`
+  says only what was wrong with the text. The CLI's tests were unchanged by the move, which is the
+  evidence that the seam is in the right place.
+- **The desktop writes the whole file.** The window shows every field the format has, so writing all
+  of them is writing what the user is looking at — and `deny_unknown_fields` means there are no
+  unknown keys to preserve, because a file containing one cannot be parsed at all.
+- **`NPORT_HOME` is honoured by both**, which keeps `pnpm smoke`'s seam working for the app as well
+  as the CLI.
+
+**Rejected.** *A shared `nport-config` crate* — a fourth crate for one struct and two functions, and
+`core` is already the thing both depend on. *Leaving the schema in `crates/cli` and having the desktop
+depend on it* — the edge is not in the layering graph, and `crates/CLAUDE.md` names `core → cli` as
+the most likely architectural regression in the repository; adding `desktop → cli` would make that
+sentence harder to hold rather than easier. *A separate desktop settings file* — two files that mean
+the same thing, and a user who set a backend in one wondering why the other ignored it.
