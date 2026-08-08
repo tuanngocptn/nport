@@ -30,6 +30,15 @@ export interface TunnelRow {
   localPort: number
   connectionsUp: number
   status: TunnelStatus
+  /**
+   * The Cloudflare edge location the connections landed on, e.g. `hkg09`.
+   *
+   * The card's node chip. `null` until the first connection registers, because nothing before that
+   * knows where the tunnel came up — and the first colo is kept rather than the last: the four
+   * connections can land in different places, and a chip that flickered between them would be
+   * reporting churn rather than location.
+   */
+  colo: string | null
 }
 
 /**
@@ -52,6 +61,7 @@ export function upsertSummary(rows: TunnelRow[], summary: TunnelSummary): Tunnel
         localPort: summary.localPort,
         connectionsUp: 0,
         status: "starting",
+        colo: null,
       },
     ]
   }
@@ -98,7 +108,12 @@ export function applyEvent(rows: TunnelRow[], subdomain: string, event: TunnelEv
     switch (event.type) {
       case "connectionUp": {
         const connectionsUp = Math.min(row.connectionsUp + 1, CONNECTIONS)
-        return { ...row, connectionsUp, status: statusFor(connectionsUp, row.status) }
+        return {
+          ...row,
+          connectionsUp,
+          status: statusFor(connectionsUp, row.status),
+          colo: row.colo ?? event.colo,
+        }
       }
       case "connectionLost":
       case "connectionGaveUp": {

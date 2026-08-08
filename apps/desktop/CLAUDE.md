@@ -8,16 +8,16 @@ Tauri v2 desktop app: a GUI for people who would rather not use a terminal, plus
 
 **The approved design is `docs/mockup/NPort Desktop.dc.html`**, with the layout flattened to plain markup in `docs/mockup/handoff/desktop/index.html`. Read `docs/mockup/README.md` before building or changing anything visual. It is reference only: never imported, never hand-edited, excluded from every check.
 
-**Status: scaffolded, not implemented.** Tauri v2 + React + Tailwind v4 open a window and complete one IPC round-trip. `src-tauri` is a Cargo workspace member and **deliberately does not depend on `nport-core` yet** — that edge is what Phase 4 waits for, and adding it early is exactly the churn the ordering avoids. The scaffold exists so `pnpm dev` brings every surface up at once.
+**Build every element it draws.** A control whose data does not exist yet is rendered as designed and inert, with the reason on it — not deleted. Deleting it hides that the app is unfinished and quietly loses the design; the mockup is the authority on *what is there*, and `docs/mockup/README.md` rule 4 is the only exception, for where it contradicts an invariant. What a missing backend changes is the **value**: `—` where a number would be a false claim, and the element still drawn around it.
 
-Phase 4 remains deliberately last, so it consumes a stable `core` API instead of churning it.
+**Status: Phase 4 in progress.** The shell, Tunnels and New tunnel are built against the mockup and wired to `nport-core`; Inspector, History and Settings are reachable and state what they will hold. **Nothing has been seen in a running window** — there is no browser tier and CI cannot open one.
 
 ## Layout
 
 ```
 src/main.tsx App.tsx styles.css
-src/views/tunnels.tsx new-tunnel.tsx  two of the five screens
-src/components/sidebar.tsx tunnel-card.tsx
+src/views/tunnels.tsx new-tunnel.tsx coming-soon.tsx   all five screens reachable
+src/components/sidebar.tsx toolbar.tsx tunnel-card.tsx
 src/lib/tunnel-state.ts new-tunnel.ts pure state and form rules — where the tests are
 src/lib/use-tunnels.ts                the subscription; App owns it so the sidebar can count
 src/ipc/             hand-typed wrappers: health.ts, tunnels.ts (commands + the event stream)
@@ -28,7 +28,7 @@ index.html vite.config.ts components.json postcss.config.mjs
 
 # Planned for Phase 4 and not yet written — parenthesised so the block cannot be read
 # as a description of the tree as it stands:
-(src/views/          inspector, history, settings — tunnels and new-tunnel are written)
+(src/views/          inspector, history, settings — reachable, and say what they will hold)
 (src/components/     app-specific: RequestTable, JsonTree … — Sidebar and TunnelCard are written)
 (src/components/ui/  VENDORED shadcn/ui primitives — upstream source, upgrade deliberately)
 (src/lib/utils.ts    the shadcn `cn()` helper)

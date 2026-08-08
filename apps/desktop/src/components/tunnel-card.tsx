@@ -3,21 +3,18 @@ import { useEffect, useRef, useState } from "react"
 import type { TunnelRow } from "../lib/tunnel-state"
 
 /**
- * One tunnel in the list, from `docs/mockup/handoff/desktop/index.html`.
+ * One tunnel, transcribed from `docs/mockup/handoff/desktop/index.html`.
  *
- * The mockup's card carries: a status dot, the URL with a Copy button, a meta row of
- * `target · node · requests · time left`, an Inspect and a Stop button, and a progress bar for the
- * lease.
+ * As drawn: a live dot, the URL with a Copy button, a meta row of `target · node · requests · time
+ * left`, Inspect and Stop buttons, and a progress bar for the lease.
  *
- * **Two of those are not rendered, because nothing real is behind them yet.** *Requests* comes from
- * `core::inspector`, which the app does not enable yet, and *Inspect* would navigate to a screen
- * that does not exist. The mockup is the authority on what the app looks like when it is finished,
- * not a licence to draw numbers the app cannot compute — a card showing "0 requests" next to a
- * tunnel serving traffic is worse than a card that does not mention requests. Both land with the
- * inspector.
+ * **The relay-node chip shows the colo the connections landed on**, which is the closest true thing
+ * to the mockup's `⬡ node name`: there is one node today, and `TunnelSummary` does not carry which
+ * one served the lease, but `ConnectionUp` carries the Cloudflare colo — which is what a user would
+ * actually want from that chip.
  *
- * The relay-node chip is absent for the same reason in a different shape: there is one node, and
- * `TunnelSummary` does not carry which one served the lease.
+ * **The request count is the inspector's**, and the inspector is not enabled yet, so it reads `—`
+ * rather than `0`. A zero is a claim that no traffic has arrived; an em dash says nobody is counting.
  */
 
 /** Colour and label per status. `degraded` is amber and not red — the edge recycles connections. */
@@ -30,10 +27,14 @@ const STATUS = {
 
 export function TunnelCard({
   tunnel,
+  leaseMs,
   onStop,
+  onInspect,
 }: {
   tunnel: TunnelRow
+  leaseMs: number | null
   onStop: (subdomain: string) => void
+  onInspect: () => void
 }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle")
   const resetAt = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -46,10 +47,9 @@ export function TunnelCard({
   async function copy() {
     // **`navigator.clipboard` is not guaranteed in a WebView.** It needs a secure context, and a
     // Tauri app is served from a custom protocol whose treatment differs across WKWebView,
-    // WebView2 and WebKitGTK. Unhandled, the promise rejects and the button silently does nothing —
-    // on the most-used control on the card. Saying "Press ⌘C" is worse than copying and better than
-    // appearing to work. `@tauri-apps/plugin-clipboard-manager` is the real fix and needs a running
-    // window to evaluate, which is not available here.
+    // WebView2 and WebKitGTK. Unhandled, the promise rejects and the button silently does nothing
+    // on the most-used control here. `@tauri-apps/plugin-clipboard-manager` is the real fix and
+    // needs a running window to evaluate.
     try {
       await navigator.clipboard.writeText(tunnel.url)
       setCopyState("copied")
@@ -62,18 +62,18 @@ export function TunnelCard({
   }
 
   return (
-    <article className="rounded-lg border border-hair bg-card p-4 shadow-card">
-      <div className="flex items-start gap-3">
+    <article className="overflow-hidden rounded-lg border border-hair bg-card shadow-card">
+      <div className="flex items-start gap-3 p-4">
         {/* The dot is decoration; the status travels as text. `aria-label` on a bare span is not
             exposed by assistive tech at all — it needs a role — so the label is a real node that
-            happens to be visually hidden, which also survives a stylesheet failing to load. */}
+            happens to be visually hidden. */}
         <span className={`mt-1.5 size-2 shrink-0 rounded-pill ${status.dot}`} aria-hidden="true" />
         <span className="sr-only">{status.label}</span>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <a
-              className="truncate font-mono text-sm text-text hover:underline"
+              className="truncate font-mono text-[13.5px] text-text hover:underline"
               href={tunnel.url}
               target="_blank"
               rel="noopener noreferrer"
@@ -91,21 +91,56 @@ export function TunnelCard({
 
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10.5px] text-muted">
             <span>localhost:{tunnel.localPort}</span>
+            {tunnel.colo !== null && <span title="Edge location">⬡ {tunnel.colo}</span>}
             <span>{tunnel.connectionsUp} of 4 connections</span>
             <TimeLeft expiresAt={tunnel.expiresAt} />
           </div>
         </div>
 
-        <button
-          type="button"
-          className="shrink-0 rounded-md border border-hair bg-chip px-3 py-1.5 text-xs text-text transition-colors duration-200 ease-np hover:bg-rim"
-          onClick={() => onStop(tunnel.subdomain)}
-          disabled={tunnel.status === "stopping"}
-        >
-          {tunnel.status === "stopping" ? "Stopping…" : "Stop"}
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            className="rounded-md border border-hair bg-chip px-3 py-1.5 text-[12px] text-muted transition-colors duration-200 ease-np hover:text-text"
+            onClick={onInspect}
+          >
+            Inspect
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-hair bg-chip px-3 py-1.5 text-[12px] text-text transition-colors duration-200 ease-np hover:bg-rim disabled:opacity-40"
+            onClick={() => onStop(tunnel.subdomain)}
+            disabled={tunnel.status === "stopping"}
+          >
+            {tunnel.status === "stopping" ? "Stopping…" : "Stop"}
+          </button>
+        </div>
       </div>
+
+      <LeaseBar expiresAt={tunnel.expiresAt} leaseMs={leaseMs} />
     </article>
+  )
+}
+
+/**
+ * How much of the lease is left, as the mockup's bar.
+ *
+ * The full width is the **server's** lease duration, not a constant here: the mockup divides by
+ * 14400 seconds because its demo runs four-hour leases, and a self-hoster's are whatever they set.
+ * Without that denominator the bar does not draw, rather than drawing a wrong fraction.
+ */
+function LeaseBar({ expiresAt, leaseMs }: { expiresAt: number; leaseMs: number | null }) {
+  if (leaseMs === null || leaseMs <= 0) return null
+
+  const remaining = Math.max(0, expiresAt - Date.now())
+  const fraction = Math.min(1, remaining / leaseMs)
+
+  return (
+    <div className="h-0.5 w-full bg-idle" aria-hidden="true">
+      <div
+        className="h-full bg-green transition-[width] duration-500 ease-np"
+        style={{ width: `${(fraction * 100).toFixed(2)}%` }}
+      />
+    </div>
   )
 }
 
@@ -113,9 +148,7 @@ export function TunnelCard({
  * Time until the server drops the lease.
  *
  * **Rendered from the server's `expiresAt`, never from a client-side countdown** (invariant 3): the
- * server is authoritative for time limits and the client only displays them. Computed at render
- * rather than ticked, so a clock that never re-renders shows a stale value instead of a wrong one
- * that keeps counting after the tunnel is gone.
+ * server is authoritative for time limits and the client only displays them.
  */
 function TimeLeft({ expiresAt }: { expiresAt: number }) {
   const remaining = expiresAt - Date.now()

@@ -3,6 +3,8 @@ import { fileURLToPath, URL } from "node:url"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
+import { version } from "./src-tauri/tauri.conf.json"
+
 /**
  * Vite serves the WebView; `tauri dev` starts this and then launches the window against it.
  *
@@ -12,6 +14,10 @@ import { defineConfig } from "vite"
  */
 export default defineConfig({
   plugins: [react()],
+  // The sidebar's version block, from the same value the installer and the updater use. Read from
+  // `tauri.conf.json` rather than `package.json`: the app's version is the bundle's, and the two
+  // would drift the first time only one was bumped.
+  define: { __APP_VERSION__: JSON.stringify(version) },
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },

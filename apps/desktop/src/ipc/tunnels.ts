@@ -89,6 +89,23 @@ export async function stopTunnel(subdomain: string): Promise<void> {
   await invoke("stop_tunnel", { subdomain })
 }
 
+/**
+ * The server's own limits.
+ *
+ * Only the fields the window reads. The response carries more; adding one here means reading it.
+ */
+export interface ServerLimits {
+  /** How many tunnels one source may run at once — the sidebar's slots meter. */
+  maxConcurrentPerSource: number
+  /** How long a lease lasts, which is what the toolbar's subtitle states. */
+  tunnelDurationMs: number
+}
+
+/** Asks the control plane for its limits. Never cached — see the Rust command. */
+export async function serverLimits(backend?: string): Promise<ServerLimits> {
+  return await invoke<ServerLimits>("server_limits", { backend })
+}
+
 /** Every tunnel this app is running, ordered by subdomain. */
 export async function listTunnels(): Promise<TunnelSummary[]> {
   return await invoke<TunnelSummary[]>("list_tunnels")

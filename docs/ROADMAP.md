@@ -773,6 +773,21 @@ and tunnel to a port the field does not show), and a subdomain checked against `
 rather than against a copy of its rules. That test asserted the coarser rejection reason and the
 contract returned a more specific one, which is deferring working as intended.
 
+> **Reversed, 2026-08-08, on the operator's instruction: "follow exact the mockup".** The judgement
+> below was wrong in a specific way worth keeping. Missing *data* was treated as a reason to delete
+> the *element* — the slots meter, the stat grid, two nav items, the option toggles and the lease bar
+> all went, and with them the design. The mockup is the authority on **what is there**; a missing
+> backend changes the **value**, not the layout. Every element is now drawn, with `—` where a number
+> would be a false claim and an inert control where the feature is deferred. `docs/mockup/README.md`
+> rule 4 remains the only exception, for a genuine conflict with an invariant. The reasoning below
+> stands as an account of what each gap actually is.
+>
+> Two of the gaps closed rather than being drawn inert, because the data existed and was not being
+> asked for: **the slots meter and the lease bar are the server's own numbers**, from
+> `GET /v1/meta`'s `maxConcurrentPerSource` and `tunnelDurationMs` — a `server_limits` command now
+> reads them. **Edge region is the colo** the connections landed on, which `ConnectionUp` has
+> carried all along.
+
 **Four things the mockup draws are not built, each for a different reason, and the reasons are the
 useful part.** *Require basic auth* is in Deferred below — a toggle would promise what the server
 cannot do. *Open inspector on start* would navigate nowhere. The **availability hint** cannot exist:

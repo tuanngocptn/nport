@@ -13,6 +13,8 @@
 
 use nport_contract::ClientKind;
 use nport_contract::ErrorCode;
+use nport_contract::MetaResponse;
+use nport_core::api::Api;
 use nport_core::event::TunnelEvent;
 use nport_core::manager::TunnelConfig;
 use nport_core::tunnel::Tunnel;
@@ -118,6 +120,29 @@ pub async fn stop_tunnel(
 
     tunnel.shutdown().await;
     Ok(())
+}
+
+/// The server's own limits, so the window can state them rather than assert them.
+///
+/// **The sidebar's slots meter reads "2 of 3", and the 3 is the server's** — `maxConcurrentPerSource`
+/// from `GET /v1/meta`. Hardcoding it would be a client asserting a limit the server owns
+/// (invariant 3), and wrong the moment a self-hoster tunes it. Same for the four-hour figure in the
+/// toolbar's subtitle, which is `tunnelDurationMs`.
+///
+/// Not cached: it is one request against a route built to be polled by every client at startup, and
+/// a limit that changed under a running window is exactly the thing a cache would hide.
+///
+/// # Errors
+///
+/// Any [`ErrorCode`] the control plane can answer with, including being unreachable.
+#[tauri::command]
+pub async fn server_limits(backend: Option<String>) -> Result<MetaResponse, CommandError> {
+    let api = Api::new(&backend.unwrap_or_else(|| nport_core::api::DEFAULT_BACKEND.to_owned()))
+        .map_err(|error| CommandError::from(error.code()))?;
+
+    api.meta()
+        .await
+        .map_err(|error| CommandError::from(error.code()))
 }
 
 /// Every tunnel this app is running, ordered by subdomain.

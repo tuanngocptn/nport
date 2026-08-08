@@ -108,6 +108,27 @@ describe("connection counting", () => {
   })
 })
 
+describe("the edge location", () => {
+  it("is unknown until a connection registers", () => {
+    expect(upsertSummary([], SUMMARY)[0]?.colo).toBeNull()
+  })
+
+  /**
+   * The four connections can land in different colos. Keeping the last would make the chip flicker
+   * between them, reporting churn rather than where the tunnel came up.
+   */
+  it("keeps the first colo rather than the most recent", () => {
+    let rows = applyEvent(upsertSummary([], SUMMARY), "myapp", {
+      type: "connectionUp",
+      index: 0,
+      colo: "hkg09",
+    })
+    rows = applyEvent(rows, "myapp", { type: "connectionUp", index: 1, colo: "fra05" })
+
+    expect(rows[0]?.colo).toBe("hkg09")
+  })
+})
+
 describe("shutdown", () => {
   /**
    * Connections drop as a tunnel drains. Recomputing status from the count would walk a stopping

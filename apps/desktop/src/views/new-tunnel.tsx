@@ -40,6 +40,22 @@ import {
 
 const QUICK_PORTS = ["3000", "5173", "8080", "4000"] as const
 
+/**
+ * The mockup's four connection steps.
+ *
+ * **Only the first is observable from here.** The other three are the server's provisioning saga —
+ * creating the tunnel, publishing DNS — and the client never sees them individually; it sends one
+ * request and gets a lease back. They are listed because the design lists them and because they are
+ * what is happening, but only the step this app can actually witness lights up. Ticking all four on
+ * a timer would be a progress bar that reports nothing.
+ */
+const STEPS = [
+  "Claiming the subdomain",
+  "Creating the tunnel",
+  "Publishing the DNS record",
+  "Connection established",
+] as const
+
 /** Why a name was refused, in words. Codes come from `packages/contract`. */
 const REJECTION: Record<string, string> = {
   empty: "Enter a name, or leave it blank for a generated one",
@@ -54,6 +70,7 @@ const REJECTION: Record<string, string> = {
 
 export function NewTunnelView({ onDone }: { onDone: () => void }) {
   const [form, setForm] = useState<NewTunnelForm>({ port: "3000", subdomain: "" })
+  const [copyOnStart, setCopyOnStart] = useState(true)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -66,12 +83,18 @@ export function NewTunnelView({ onDone }: { onDone: () => void }) {
     setStarting(true)
     setError(null)
     try {
-      await startTunnel({
+      const summary = await startTunnel({
         localPort: port.port,
         // Sent **raw**. The server normalizes and owns the lease key; normalizing here would put a
         // second authority on the path (defect 36).
         subdomain: form.subdomain.trim() === "" ? undefined : form.subdomain.trim(),
       })
+
+      if (copyOnStart) {
+        // Best effort, and deliberately not fatal: the tunnel is up either way, and failing the
+        // whole start because a WebView would not reach the clipboard would be absurd.
+        await navigator.clipboard.writeText(summary.url).catch(() => {})
+      }
       onDone()
     } catch (cause: unknown) {
       setError(errorText(cause))
@@ -146,6 +169,30 @@ export function NewTunnelView({ onDone }: { onDone: () => void }) {
           </p>
         </div>
 
+        <div className="flex flex-col gap-2">
+          <span className="text-xs text-muted">Options</span>
+          <div className="flex flex-col gap-1.5">
+            <Option
+              title="Copy URL to clipboard"
+              description="Ready to paste into Stripe or GitHub."
+              pressed={copyOnStart}
+              onToggle={() => setCopyOnStart((on) => !on)}
+            />
+            <Option
+              title="Open inspector on start"
+              description="Jump straight to live traffic."
+              pressed={false}
+              unavailable="Arrives with the inspector"
+            />
+            <Option
+              title="Require basic auth"
+              description="Ask visitors for a username and password."
+              pressed={false}
+              unavailable="Not in 3.0 — see docs/ROADMAP.md § Deferred"
+            />
+          </div>
+        </div>
+
         {error !== null && (
           <p className="rounded-md border border-hair bg-card p-3 font-mono text-xs text-red">
             {error}
@@ -180,6 +227,23 @@ export function NewTunnelView({ onDone }: { onDone: () => void }) {
         <p className="mt-3 text-xs leading-relaxed text-muted">
           Every control maps to a CLI flag. Copy this into CI, a Makefile, or a teammate's terminal.
         </p>
+
+        <hr className="my-4 border-hair" />
+
+        <span className="text-[10.5px] uppercase tracking-wide text-muted">Connection</span>
+        <ol className="mt-2 flex flex-col gap-1.5">
+          {STEPS.map((step, index) => (
+            <li key={step} className="flex items-center gap-2 text-[11.5px] text-muted">
+              <i
+                aria-hidden="true"
+                className={`size-1.5 shrink-0 rounded-pill ${
+                  starting && index === 0 ? "bg-green shadow-green" : "bg-idle"
+                }`}
+              />
+              {step}
+            </li>
+          ))}
+        </ol>
       </aside>
     </section>
   )
@@ -197,4 +261,56 @@ function errorText(cause: unknown): string {
     return String((cause as { code: unknown }).code)
   }
   return String(cause)
+}
+
+/**
+ * One switch from the mockup's option list.
+ *
+ * `unavailable` renders the row as drawn but inert, with the reason on hover. The alternative was
+ * deleting two of the three rows, which hides that the app is unfinished rather than showing it.
+ */
+function Option({
+  title,
+  description,
+  pressed,
+  onToggle,
+  unavailable,
+}: {
+  title: string
+  description: string
+  pressed: boolean
+  onToggle?: () => void
+  unavailable?: string
+}) {
+  const disabled = unavailable !== undefined
+
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      disabled={disabled}
+      title={unavailable}
+      className={`flex items-center gap-3 rounded-md border border-hair bg-card px-3 py-2.5 text-left transition-colors duration-200 ease-np ${
+        disabled ? "opacity-45" : "hover:bg-rim"
+      }`}
+      onClick={onToggle}
+    >
+      <span className="flex-1">
+        <span className="block text-[12.5px] text-text">{title}</span>
+        <span className="block text-[11px] text-muted">{unavailable ?? description}</span>
+      </span>
+      <span
+        aria-hidden="true"
+        className={`flex h-[18px] w-[30px] shrink-0 items-center rounded-pill p-0.5 transition-colors duration-200 ease-np ${
+          pressed ? "bg-green" : "bg-idle"
+        }`}
+      >
+        <i
+          className={`size-[14px] rounded-pill bg-text shadow-knob transition-transform duration-200 ease-np ${
+            pressed ? "translate-x-3" : ""
+          }`}
+        />
+      </span>
+    </button>
+  )
 }

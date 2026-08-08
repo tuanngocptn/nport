@@ -1,39 +1,85 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { type Screen, Sidebar } from "./components/sidebar"
+import { Toolbar } from "./components/toolbar"
+import { type ServerLimits, serverLimits } from "./ipc/tunnels"
+import { liveCount } from "./lib/tunnel-state"
 import { useTunnels } from "./lib/use-tunnels"
+import { ComingSoonView } from "./views/coming-soon"
 import { NewTunnelView } from "./views/new-tunnel"
 import { TunnelsView } from "./views/tunnels"
 
 /**
- * The window: a sidebar and one screen at a time.
+ * The window: a sidebar, a toolbar, and one screen at a time — the shell
+ * `docs/mockup/handoff/desktop/index.html` draws.
  *
- * **Two of the five screens** (`docs/mockup/README.md`). Inspector, History and Settings arrive with
- * the features behind them; a nav item that goes nowhere reads as a broken app rather than an
- * unfinished one.
+ * All five screens are reachable, because the mockup's nav has all five. Three of them say what
+ * they will hold rather than pretending to hold it.
  *
- * The tunnel subscription lives here rather than in the Tunnels screen because the sidebar shows a
- * count from it, and two subscriptions to one stream is two chances to disagree.
+ * The tunnel subscription and the server's limits both live here: the sidebar counts tunnels and
+ * meters slots, the toolbar states the lease, and the cards draw a bar against it. Two subscriptions
+ * to one stream would be two chances to disagree.
  */
 export function App() {
   const [screen, setScreen] = useState<Screen>("tunnels")
   const { tunnels, error, stop } = useTunnels()
+  const limits = useServerLimits()
 
   return (
     <div className="flex h-full">
-      <Sidebar screen={screen} onNavigate={setScreen} tunnelCount={tunnels.length} />
-      <main className="min-w-0 flex-1 overflow-y-auto">
-        {screen === "tunnels" ? (
-          <TunnelsView
-            tunnels={tunnels}
-            error={error}
-            onStop={stop}
-            onNew={() => setScreen("new")}
-          />
-        ) : (
-          <NewTunnelView onDone={() => setScreen("tunnels")} />
-        )}
+      <Sidebar
+        screen={screen}
+        onNavigate={setScreen}
+        tunnelCount={tunnels.length}
+        limits={limits}
+      />
+      <main className="flex min-w-0 flex-1 flex-col">
+        <Toolbar
+          screen={screen}
+          live={liveCount(tunnels)}
+          leaseHours={limits === null ? null : Math.round(limits.tunnelDurationMs / 3_600_000)}
+        />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {screen === "tunnels" && (
+            <TunnelsView
+              tunnels={tunnels}
+              error={error}
+              limits={limits}
+              onStop={stop}
+              onNew={() => setScreen("new")}
+              onInspect={() => setScreen("inspector")}
+            />
+          )}
+          {screen === "new" && <NewTunnelView onDone={() => setScreen("tunnels")} />}
+          {screen !== "tunnels" && screen !== "new" && <ComingSoonView screen={screen} />}
+        </div>
       </main>
     </div>
   )
+}
+
+/**
+ * The server's limits, fetched once when the window opens.
+ *
+ * **A failure is not surfaced**, and that is deliberate: every consumer takes `null` and renders
+ * without the number rather than wrongly. A banner saying the limits could not be read would be
+ * alarming about something the user cannot act on and which stops nothing from working — the
+ * tunnels list, starting and stopping all work without it.
+ */
+function useServerLimits(): ServerLimits | null {
+  const [limits, setLimits] = useState<ServerLimits | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    serverLimits()
+      .then((fetched) => {
+        if (!cancelled) setLimits(fetched)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return limits
 }
