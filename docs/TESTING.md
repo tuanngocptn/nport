@@ -150,7 +150,9 @@ A changed baseline is reviewed like a changed golden fixture: decide whether the
 
 The job **uploads** the images; it does not commit them. A workflow that wrote screenshots into the tree could rewrite what it is judged against. Download `visual-baselines-linux`, *look at the images* — a blank page and a broken build both produce a perfectly stable snapshot — then commit `__screenshots__/linux/`. That is how the two in the tree got there, and it is the whole procedure for replacing them.
 
-`apps/desktop` is **not** covered by this. Playwright cannot drive a Tauri WebView; that needs `tauri-driver` with WebdriverIO and arrives with Phase 4. The manual per-platform pass below still stands for it.
+`apps/desktop` is **not** covered by this. Playwright cannot drive a Tauri WebView; that needs `tauri-driver` with WebdriverIO, which Phase 4 has not brought and which nothing in CI can run. The manual per-platform pass below still stands for it.
+
+**This is now the repository's largest untested surface**, and it is worth stating plainly rather than leaving as an absence. Four screens have been built without ever being rendered: the Vitest tier covers the state that feeds them and `cargo test` covers the Rust half, and between them they prove nothing at all about layout, contrast, or whether a control is reachable. Every screen added widens it.
 
 ## Enforcement
 

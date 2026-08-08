@@ -60,7 +60,7 @@ Ports are pinned in each app's `dev` script rather than left to wrangler, whose 
 
 A preflight runs first. It creates `.dev.vars` for all three Workers if any is missing, says which ports are already taken — **including each `wrangler dev`'s inspector port**, because a leaked `workerd` holding only one of those makes wrangler die naming a port nothing else mentions — and prints what is starting. It never refuses to start the stack: a preflight that blocks on a warning is one people route around, and then they lose the warnings too.
 
-**`apps/web` and `apps/desktop` are scaffolds.** One page and one window respectively, existing so the whole stack comes up together. The site is Phase 2c and the app is Phase 4 (`docs/ROADMAP.md`); each says so on itself, so nobody mistakes the placeholder for the product.
+**Neither `apps/web` nor `apps/desktop` is a scaffold any more.** The site is 2c code-complete and waiting on a deploy; the app has four of its five screens and talks to `crates/core` for real. Both still come up under `pnpm dev` with the rest of the stack, which is what the scaffolds existed for. `docs/ROADMAP.md` is the live status, and each app's `CLAUDE.md` says what it owes.
 
 ### Provisioning without a Cloudflare account
 

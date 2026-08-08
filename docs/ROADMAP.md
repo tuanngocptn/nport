@@ -22,15 +22,18 @@ that disagrees with its section is a bug in this table.
 | 🚧 | 2c · `apps/web` | **G2c** ⬜ | **Code-complete**, visual baselines included. Error pages, marketing page, SEO surface, MDX docs, and a Playwright tier against the built Worker that now compares two Linux snapshots on every push. What is left is the deploy, which is an ops step |
 | 🟡 | — | **G2** 🟡 | **Five of six met.** A real port is open, on macOS, Linux and Windows, with WebSocket and server-enforced expiry. The gap is graceful Ctrl+C on Windows, which is a limitation of the test harness rather than of the product |
 | 🟡 | 3 · Release pipeline and beta | **G3** ⬜ | `smoke.yml` exists and runs nightly on three OSes. The nine npm packages, `cargo publish`, Homebrew, Scoop, provenance and `protocol-canary.yml` do not |
-| ⬜ | 4 · `apps/desktop` | — | A booting scaffold, and now **unblocked**: it was waiting on a stable `crates/core` and on discovery, and both exist. Still deliberately last |
+| 🚧 | 4 · `apps/desktop` | — | **Under way since 2026-08-08.** Linked to `crates/core`; the mockup's shell, and four of its five screens — Tunnels, New tunnel, Inspector (`core::inspector` streaming live) and Settings, which reads and writes the CLI's own `config.toml` (ADR-0051). Left: History, the menu bar and window lifecycle, onboarding, the Nodes screen. **Nothing has been seen in a running window** |
 | 🚧 | **5 · Federation — registry and nodes** | **G5** ⬜ | **Deployed to staging and proven once**: a real client discovered node #1 through `GET /v1/nodes` and tunnelled through it with no `--backend`. All four code steps are done — contract (ADR-0046), `apps/registry`, `apps/node`'s node fields, `crates/core::discovery`. What is left is the gate itself: a **second** node on a second account and domain, and a real failover |
 | ⬜ | 6 · v2 sunset | — | Waits on 3.0 being `latest` |
 
-**What to build next: Gate G5 — but it is an operations task, and everything else is blocked on access
-too.** G2c wants a deploy and a Linux runner, G1 wants the Cloudflare dashboard and a local
-`cloudflared`, Phase 3 wants publishing credentials. **Phase 4 is the only unblocked coding work**, and
-it is last by design rather than by dependency now that `crates/core` and discovery are both stable —
-so bringing it forward is a scheduling decision, not a blocked one.
+**What to build next: Phase 4, which is under way.** It is still the only unblocked coding work —
+G5 is an operations task needing a second Cloudflare account, G2c wants a deploy, G1 wants the
+Cloudflare dashboard and a local `cloudflared`, and Phase 3 wants publishing credentials.
+
+**The one thing Phase 4 needs that this machine cannot give it is a look.** Four screens have been
+built without ever being run in a window: there is no browser tier for a Tauri WebView, CI cannot
+open one, and `cargo test` and Vitest between them cover the state and none of the layout. That is
+the largest unverified surface in the project, and it grows with every screen.
 
 All four of Phase 5's code steps are written and tested — the contract, `apps/registry`,
 `apps/node`'s node fields, and `crates/core::discovery` — in the order they had to be: the contract
@@ -119,9 +122,9 @@ Renumbered when the design gained the federated architecture — it now has four
 | --- | --- | --- |
 | 1 · Registry | **Phase 5** | new. ADR-0031 |
 | 2 · Node | **2a** + Phase 5 | `apps/node` already *is* a node; it gains self-registration and a capacity field |
-| 3 · Node selection in the client | **Phase 5** + Phase 4 | `core::discovery` is Phase 5; the Nodes screen over it is Phase 4 |
+| 3 · Node selection in the client | **Phase 5** + Phase 4 | `core::discovery` is Phase 5 and done; the Nodes screen over it is Phase 4 and **not built** |
 | 4 · Core tunnel engine | **2b** | built, bar host targeting and edge basic auth |
-| 5 · Request inspector | Phase 4 | `core::inspector` built in 2b; the UI over it is Phase 4 |
+| 5 · Request inspector | Phase 4 | `core::inspector` built in 2b; **the UI over it landed 2026-08-08** |
 | 6 · Tunnels screen | Phase 4 | — |
 | 7 · New tunnel | Phase 4 | — |
 | 8 · History & presets | Phase 4 | — |
@@ -722,11 +725,21 @@ Publish `3.0.0-beta.N` and iterate on real user reports.
 
 **Gate G3.** Seven consecutive green nightly smoke runs across six OS targets before `3.0.0` is tagged `latest` on npm.
 
-## Phase 4 — `apps/desktop` ⬜
+## Phase 4 — `apps/desktop` 🚧
 
-Deliberately last: it consumes a *stable* `crates/core`, and building it earlier would churn core's API for a GUI that no one is using yet.
+Deliberately last: it consumes a *stable* `crates/core`, and building it earlier would churn core's API for a GUI that no one is using yet. **Started 2026-08-08**, once that was true.
 
 Tunnel list and one-click start; tray integration; the traffic inspector over `core::inspector`; settings; auto-update via the updater manifest; signing and notarization per platform.
+
+**Done:** the `nport-core` edge and the event boundary; the mockup's shell — sidebar, toolbar, five
+reachable destinations; Tunnels with the full card, lease bar, empty slot and a stat grid whose three
+figures are all real; New tunnel with validation against `packages/contract` and the CLI mirror; the
+**Inspector**, streaming `core::inspector` live with the mockup's filters and detail tabs; and
+**Settings**, reading and writing the CLI's own `~/.nport/config.toml`.
+
+**Left:** History and presets (§8), the menu bar and window lifecycle (§9), onboarding (§12), the
+Nodes screen (§3), the request list's virtualization (rule 11), and an i18n framework for the
+window's own strings. `docs/FEATURES.md` is the checklist and is ticked as these land.
 
 **Started 2026-08-08 with the `nport-core` edge**, which is the dependency the whole phase ordering was
 waiting for: `core` is stable, so consuming it no longer churns it. `apps/desktop/src-tauri` now depends
@@ -911,6 +924,28 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       **This no longer blocks G5.** Node #1 carries traffic during a failover test by definition, and
       a listed-then-idle node slipping out of a directory nobody is reading harms nobody. What it
       blocks is trusting `/v1/nodes` as a health display for a quiet node
+
+**49. This document's own status table said `apps/desktop` was a booting scaffold, four screens into
+building it.** The operator noticed, not a check. Each Phase 4 commit updated the phase's *section*
+and left the row at the top untouched — the row being the thing anybody actually reads, and the one
+the table's own preamble says must agree with its section: *"a row that disagrees with its section is
+a bug in this table"*.
+
+Five other files said the same thing: the root `CLAUDE.md`, `docs/CONTRIBUTING.md` ("`apps/web` and
+`apps/desktop` are scaffolds" — both false by then), `apps/desktop/CLAUDE.md`'s own layout note,
+ADR-0048's testing scope, and two rows of the features map.
+
+**The ninth instance of the shape** (34, 35, 37, 38, 42, 44, 46, 47) and the least excusable: defect 46
+was the same failure eight commits earlier, its fix was a `verify-docs` check, and the lesson written
+down then — *"worth repeating after any deploy that changes topology"* — was scoped to deploys when
+the actual trigger is **any status changing at all**. Writing a status in one place and reading it in
+another is the whole mechanism, and knowing that did not stop me doing it.
+
+`check_operations_inventory` catches a missing Worker because a Worker is a file on disk. Nothing
+mechanical can catch "this row describes last week", which is what makes it recur. The one honest
+mitigation is a habit rather than a check: **when a commit changes what is true, grep the repository
+for the old claim before writing the new one** — the sweep takes about four minutes and has now found
+something every single time it has been run.
 
 **48. A tunnel that ended by itself was never removed from the desktop app's registry.** Only
 `stop_tunnel` and the quit-time drain ever shrank it, so a lease expiring — or every connection

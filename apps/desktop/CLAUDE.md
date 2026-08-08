@@ -36,7 +36,7 @@ index.html vite.config.ts components.json postcss.config.mjs
 (src-tauri/src/      tray.rs)
 ```
 
-The parenthesised entries are the intended shape of Phase 4; the app is still a booting scaffold (`docs/ROADMAP.md`). `cargo xtask verify-docs` checks the unparenthesised ones exist, so a rename that misses this block fails CI.
+The parenthesised entries are what Phase 4 still owes (`docs/ROADMAP.md`). `cargo xtask verify-docs` checks the unparenthesised ones exist, so a rename that misses this block fails CI — and un-parenthesising an entry as you build it is what keeps that check meaningful.
 
 UI stack: React + Vite + Tailwind v4 + shadcn/ui (Radix) + TanStack Virtual (ADR-0021).
 
