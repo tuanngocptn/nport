@@ -81,13 +81,19 @@ jobs:
       # It uploads rather than commits. A workflow that pushes screenshots into the tree would be a
       # workflow that can rewrite what it is being judged against; a human downloads the artifact, looks
       # at the images, and commits them. `docs/TESTING.md` § Frontend e2e has the review rule.
+      #
+      # **`always()` is load-bearing.** Without it this step only runs when the job is green — which
+      # is to say, only when the baselines already match and there is nothing to record. The one
+      # time it worked was the first, when no baseline existed and the spec skipped. The moment a
+      # baseline legitimately changed, the compare failed, this was skipped, and re-recording became
+      # impossible (`docs/ROADMAP.md`, defect 51).
       - name: Record the visual baselines
-        if: contains(github.event.head_commit.message, '[record-baselines]')
+        if: always() && contains(github.event.head_commit.message, '[record-baselines]')
         env:
           NPORT_VISUAL: "1"
         run: pnpm --filter @nport/web exec playwright test visual.spec.ts --update-snapshots
       - uses: actions/upload-artifact@v4
-        if: contains(github.event.head_commit.message, '[record-baselines]')
+        if: always() && contains(github.event.head_commit.message, '[record-baselines]')
         with:
           name: visual-baselines-linux
           path: apps/web/e2e/__screenshots__/

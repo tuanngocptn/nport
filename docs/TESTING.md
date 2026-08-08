@@ -148,6 +148,10 @@ A changed baseline is reviewed like a changed golden fixture: decide whether the
 
 **Re-recording them happens on the runner that will compare them**, which means CI. `pnpm --filter @nport/web test:e2e:update` is the command, and where it runs is the part that matters: a Playwright container on an arm64 laptop is still the wrong image and the wrong architecture, so its output fails here just as a macOS one would. The `web-e2e` job records and uploads them when a commit message contains `[record-baselines]` — a marker rather than a `workflow_dispatch`, because a dispatch only appears once the workflow reaches the default branch, and recording is rare enough that a marker is the right weight.
 
+**The record step runs even when the comparison fails**, which is the only time it is any use — it is
+guarded `always() && <marker>`, because a step guarded on the marker alone is skipped by a red compare
+and can therefore never replace a baseline that changed (defect 51).
+
 The job **uploads** the images; it does not commit them. A workflow that wrote screenshots into the tree could rewrite what it is judged against. Download `visual-baselines-linux`, *look at the images* — a blank page and a broken build both produce a perfectly stable snapshot — then commit `__screenshots__/linux/`. That is how the two in the tree got there, and it is the whole procedure for replacing them.
 
 `apps/desktop` is **not** covered by this. Playwright cannot drive a Tauri WebView; that needs `tauri-driver` with WebdriverIO, which Phase 4 has not brought and which nothing in CI can run. The manual per-platform pass below still stands for it.

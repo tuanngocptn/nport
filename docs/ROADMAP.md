@@ -925,6 +925,24 @@ into nothing, and swallowed the failure — by design, silently. That was the ga
       a listed-then-idle node slipping out of a directory nobody is reading harms nobody. What it
       blocks is trusting `/v1/nodes` as a health display for a quiet node
 
+**51. The baseline-recording job could only run when there was nothing to record.** `web-e2e`'s record
+step was guarded on the commit marker alone, so it inherited the default: **skipped if an earlier step
+failed**. The earlier step is the comparison. A baseline can only need re-recording when the comparison
+fails, and when it fails the recorder does not run.
+
+**It looked like it worked, once.** The first recording happened when no baseline existed, so
+`visual.spec.ts` skipped, the job was green, and the step ran. That single success is what made the
+arrangement look proven — the failure mode was invisible until the first *legitimate* change to the
+page, which arrived with `.claude/DESIGN.md` §8's copy correction.
+
+`always() &&` on the step and its upload. The marker still decides *whether* to record; `always()`
+decides that a red compare is not a reason to skip it, which is exactly backwards from the default.
+
+**A guard whose only exercise was its trivial case.** The recording path had been used once, in the
+one state where it could not distinguish itself from a broken one — and it was written, reviewed and
+documented in the same commit that used it. Nothing about the code was wrong; the *test of the code*
+was a case that did not discriminate.
+
 **50. `pnpm smoke` was a test of the machine it ran on.** Two of its checks went red with the CLI
 printing Spanish. Nothing in the repository had changed: `~/.nport/config.toml` on the developer's
 machine held `lang = "es"`, `config::path` reads `NPORT_HOME` before `HOME`, and the harness set
